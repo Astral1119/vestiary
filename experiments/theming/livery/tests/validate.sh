@@ -447,6 +447,70 @@ LIVERY_SKIP_RELOAD=1 \
 [ "$(jq -r '.wallpaperCurrent' "$TMP/runtime/state.json")" = "$(readlink "$TMP/runtime/wallpaper/current")" ]
 [ "$(jq -r '.wallpaperPrevious' "$TMP/runtime/state.json")" = "$(readlink "$TMP/runtime/wallpaper/previous")" ]
 
+# A file pin survives Look apply and rollback as orthogonal global state.
+lock_image="$(CDPATH='' cd -- "$ROOT/../assets" && pwd)/moonlit-ocean.jpg"
+LIVERY_CONFIG_ROOT="$TMP/config" \
+LIVERY_RUNTIME_ROOT="$TMP/runtime" \
+LIVERY_SKIP_RELOAD=1 \
+  "$ROOT/liveryctl" lock "$lock_image" >/dev/null
+[ "$(jq -r '.source' "$TMP/runtime/lock.json")" = "file" ]
+pinned_image=$(jq -r '.image' "$TMP/runtime/lock.json")
+[ "$pinned_image" = "$lock_image" ]
+LIVERY_CONFIG_ROOT="$TMP/config" \
+LIVERY_RUNTIME_ROOT="$TMP/runtime" \
+LIVERY_SKIP_RELOAD=1 \
+  "$ROOT/liveryctl" apply "$theme_profile" >/dev/null
+[ "$(jq -r '.source' "$TMP/runtime/lock.json")" = "file" ]
+[ "$(jq -r '.image' "$TMP/runtime/lock.json")" = "$pinned_image" ]
+LIVERY_CONFIG_ROOT="$TMP/config" \
+LIVERY_RUNTIME_ROOT="$TMP/runtime" \
+LIVERY_SKIP_RELOAD=1 \
+  "$ROOT/liveryctl" rollback >/dev/null
+[ "$(jq -r '.image' "$TMP/runtime/lock.json")" = "$pinned_image" ]
+
+# Scene selection retains its library identity. Video scenes are reduced to a
+# cached, content-addressed representative still for the macOS wallpaper store.
+scene_root="$TMP/scenes"
+mkdir -p "$scene_root"
+if command -v ffmpeg >/dev/null 2>&1; then
+  ffmpeg -loglevel error -y -loop 1 -i "$lock_image" \
+    -t 1 -r 30 -vf 'scale=64:-2' -pix_fmt yuv420p \
+    "$scene_root/test-scene.mp4"
+  scene_name=test-scene
+else
+  cp "$lock_image" "$scene_root/test-scene.jpg"
+  scene_name=test-scene
+fi
+LIVERY_CONFIG_ROOT="$TMP/config" \
+LIVERY_RUNTIME_ROOT="$TMP/runtime" \
+LIVERY_SCENE_ROOT="$scene_root" \
+LIVERY_SKIP_RELOAD=1 \
+  "$ROOT/liveryctl" lock "scene:$scene_name" >/dev/null
+[ "$(jq -r '.source' "$TMP/runtime/lock.json")" = "scene" ]
+[ "$(jq -r '.selection' "$TMP/runtime/lock.json")" = "scene:$scene_name" ]
+[ -f "$(jq -r '.image' "$TMP/runtime/lock.json")" ]
+if command -v ffmpeg >/dev/null 2>&1; then
+  case "$(jq -r '.image' "$TMP/runtime/lock.json")" in
+    "$TMP/runtime/lock/scenes/"*.png) ;;
+    *) echo "scene lock image was not cached under the runtime" >&2; exit 1 ;;
+  esac
+fi
+
+# Theme mode follows the active profile and off removes lock-specific state.
+LIVERY_CONFIG_ROOT="$TMP/config" \
+LIVERY_RUNTIME_ROOT="$TMP/runtime" \
+LIVERY_SKIP_RELOAD=1 \
+  "$ROOT/liveryctl" lock theme >/dev/null
+[ "$(jq -r '.source' "$TMP/runtime/lock.json")" = "theme" ]
+theme_lock_artifact=$(jq -r '.outputs.wallpaper.artifact' "$TMP/runtime/current/manifest.json")
+[ "$(jq -r '.image' "$TMP/runtime/lock.json")" \
+  = "$TMP/runtime/$(readlink "$TMP/runtime/current")/$theme_lock_artifact" ]
+LIVERY_CONFIG_ROOT="$TMP/config" \
+LIVERY_RUNTIME_ROOT="$TMP/runtime" \
+LIVERY_SKIP_RELOAD=1 \
+  "$ROOT/liveryctl" lock off >/dev/null
+[ ! -e "$TMP/runtime/lock.json" ]
+
 production_hashes > "$TMP/after.sha"
 diff -u "$TMP/before.sha" "$TMP/after.sha"
 

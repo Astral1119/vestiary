@@ -21,6 +21,9 @@ WALLPAPER_BIN="$BUILD_ROOT/bin/livery-wallpaper-engine"
 WALLPAPER_SOURCE="$ROOT/WallpaperEngine.swift"
 WALLPAPER_RUNTIME="$RUNTIME_ROOT/wallpaper"
 WALLPAPER_BASELINE=${LIVERY_WALLPAPER_BASELINE:-$RUNTIME_ROOT/baseline/Index.plist}
+LOCK_STATE="$RUNTIME_ROOT/lock.json"
+LOCK_CACHE="$RUNTIME_ROOT/lock"
+SCENE_ROOT=${LIVERY_SCENE_ROOT:-$CONFIG_ROOT/wallpaper-runtime/scenes}
 LEGIBILITY_BIN="$BUILD_ROOT/bin/livery-legibility"
 LEGIBILITY_SOURCE="$ROOT/LegibilityAnalyzer.swift"
 LEGIBILITY_SHARED="$ROOT/BarLegibility.swift"
@@ -48,6 +51,11 @@ commands:
   apply <profile> [--colors-only]
                                apply one coherent global Look atomically
   rollback                     restore the previous theme and wallpaper
+  lock [status]                show the lock-image policy
+  lock <image>                 pin an image across Look changes
+  lock scene:<name>            pin a representative still from a Repose scene
+  lock theme                   follow the current Look's wallpaper still
+  lock off                     stop managing a separate lock-image policy
 
 profiles:
   default                      exact captured colors for the current first targets
@@ -1897,23 +1905,267 @@ install_wallpaper_snapshot() {
   printf '%s\n' "$relative"
 }
 
-apply_wallpaper_for_target() {
+wallpaper_artifact_for_target() {
   target=$1
-  if [ "${LIVERY_SKIP_RELOAD:-0}" = "1" ]; then
-    return 0
-  fi
-  ensure_wallpaper_helper
   manifest="$RUNTIME_ROOT/$target/manifest.json"
   output_kind=$(json_value '.outputs.wallpaper.kind // "artifact"' "$manifest")
   if [ "$output_kind" = "artifact" ]; then
     artifact=$(json_value '.outputs.wallpaper.artifact' "$manifest")
-    "$WALLPAPER_BIN" apply-global "$RUNTIME_ROOT/$target/$artifact"
-  elif [ "$output_kind" = "provider-state" ] && [ -f "$WALLPAPER_BASELINE" ]; then
-    "$WALLPAPER_BIN" restore "$WALLPAPER_BASELINE"
+    printf '%s\n' "$RUNTIME_ROOT/$target/$artifact"
+  fi
+}
+
+apply_global_wallpaper() {
+  image=$1
+  if [ "${LIVERY_SKIP_RELOAD:-0}" = "1" ]; then
+    return 0
+  fi
+  ensure_wallpaper_helper
+  "$WALLPAPER_BIN" apply-global "$image"
+}
+
+write_lock_state() {
+  source=$1
+  image=$2
+  selection=${3:-}
+  temporary="$RUNTIME_ROOT/.lock.next.$$"
+  mkdir -p "$RUNTIME_ROOT"
+  jq -n \
+    --arg source "$source" \
+    --arg image "$image" \
+    --arg selection "$selection" \
+    --arg updatedAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+    '{
+      schemaVersion: 1,
+      source: $source,
+      image: (if $image == "" then null else $image end),
+      selection: (if $selection == "" then null else $selection end),
+      updatedAt: $updatedAt
+    }' > "$temporary"
+  mv -f "$temporary" "$LOCK_STATE"
+}
+
+lock_source() {
+  if [ ! -f "$LOCK_STATE" ]; then
+    printf 'off\n'
+    return
+  fi
+  if ! jq -e '
+    .schemaVersion == 1
+      and (.source == "file" or .source == "scene" or .source == "theme")
+      and (.image == null or (.image | type == "string"))
+  ' "$LOCK_STATE" >/dev/null
+  then
+    echo "invalid lock state: $LOCK_STATE" >&2
+    return 1
+  fi
+  jq -r '.source' "$LOCK_STATE"
+}
+
+pinned_lock_image() {
+  image=$(jq -r '.image // empty' "$LOCK_STATE")
+  if [ -z "$image" ] || [ ! -f "$image" ]; then
+    echo "pinned lock image is unavailable: ${image:-<unset>}" >&2
+    return 1
+  fi
+  printf '%s\n' "$image"
+}
+
+apply_theme_wallpaper_for_target() {
+  target=$1
+  manifest="$RUNTIME_ROOT/$target/manifest.json"
+  output_kind=$(json_value '.outputs.wallpaper.kind // "artifact"' "$manifest")
+  if [ "$output_kind" = "artifact" ]; then
+    image=$(wallpaper_artifact_for_target "$target")
+    apply_global_wallpaper "$image"
+  elif [ "$output_kind" = "provider-state" ] \
+    && { [ -f "$WALLPAPER_BASELINE" ] || [ "${LIVERY_SKIP_RELOAD:-0}" = "1" ]; }
+  then
+    if [ "${LIVERY_SKIP_RELOAD:-0}" != "1" ]; then
+      ensure_wallpaper_helper
+      "$WALLPAPER_BIN" restore "$WALLPAPER_BASELINE"
+    fi
+    image=""
   else
     echo "wallpaper provider-state restore unavailable: no topology-aware baseline" >&2
     return 1
   fi
+}
+
+apply_wallpaper_for_target() {
+  target=$1
+  source=$(lock_source)
+  case "$source" in
+    file|scene)
+      image=$(pinned_lock_image)
+      apply_global_wallpaper "$image"
+      ;;
+    theme|off)
+      apply_theme_wallpaper_for_target "$target"
+      ;;
+  esac
+}
+
+reassert_lock_for_target() {
+  target=$1
+  if [ "$(lock_source)" != "off" ]; then
+    apply_wallpaper_for_target "$target"
+  fi
+}
+
+update_theme_lock_for_target() {
+  target=$1
+  if [ "$(lock_source)" = "theme" ]; then
+    image=$(wallpaper_artifact_for_target "$target")
+    write_lock_state theme "$image"
+  fi
+}
+
+absolute_path() {
+  path=$1
+  directory=$(dirname "$path")
+  basename=$(basename "$path")
+  directory=$(CDPATH='' cd -- "$directory" && pwd)
+  printf '%s/%s\n' "$directory" "$basename"
+}
+
+validate_lock_image() {
+  image=$1
+  descriptor=$(mktemp "${TMPDIR:-/tmp}/livery-lock-image.XXXXXX")
+  if ! inspect_asset "$image" "$descriptor" >/dev/null 2>&1; then
+    rm -f "$descriptor"
+    echo "unsupported lock image: $image" >&2
+    return 1
+  fi
+  rm -f "$descriptor"
+}
+
+resolve_scene() {
+  requested=$1
+  [ -d "$SCENE_ROOT" ] || {
+    echo "Repose scene library not found: $SCENE_ROOT" >&2
+    return 1
+  }
+  match=""
+  for candidate in "$SCENE_ROOT"/*; do
+    [ -e "$candidate" ] || continue
+    name=$(basename "$candidate")
+    stem=${name%.*}
+    if [ "$requested" = "$name" ] || [ "$requested" = "$stem" ]; then
+      if [ -n "$match" ]; then
+        echo "ambiguous Repose scene: $requested" >&2
+        return 1
+      fi
+      match=$candidate
+    fi
+  done
+  [ -n "$match" ] || {
+    echo "no Repose scene named: $requested" >&2
+    return 1
+  }
+  printf '%s\n' "$match"
+}
+
+scene_lock_image() {
+  scene=$1
+  extension=$(printf '%s' "${scene##*.}" | tr '[:upper:]' '[:lower:]')
+  case "$extension" in
+    png|jpg|jpeg|heic|tif|tiff|webp)
+      validate_lock_image "$scene"
+      absolute_path "$scene"
+      ;;
+    mp4|mov|m4v|webm|mkv)
+      command -v ffmpeg >/dev/null 2>&1 || {
+        echo "ffmpeg is required to derive a lock image from a scene" >&2
+        return 1
+      }
+      digest=$(shasum -a 256 "$scene" | awk '{print $1}')
+      destination="$LOCK_CACHE/scenes/$digest.png"
+      if [ ! -f "$destination" ]; then
+        mkdir -p "$LOCK_CACHE/scenes"
+        temporary="$LOCK_CACHE/scenes/.$digest.$$.png"
+        if ! ffmpeg -loglevel error -i "$scene" \
+          -vf 'thumbnail=30' -frames:v 1 -an "$temporary"
+        then
+          rm -f "$temporary"
+          echo "could not extract a lock image from scene: $scene" >&2
+          return 1
+        fi
+        mv -f "$temporary" "$destination"
+      fi
+      printf '%s\n' "$destination"
+      ;;
+    *)
+      echo "scene has no supported still or video source: $scene" >&2
+      return 1
+      ;;
+  esac
+}
+
+lock_status() {
+  source=$(lock_source)
+  case "$source" in
+    off)
+      echo "lock: unmanaged (the next Look apply uses its wallpaper)"
+      ;;
+    theme)
+      image=$(jq -r '.image // empty' "$LOCK_STATE")
+      echo "lock: follows current Look${image:+ ($image)}"
+      ;;
+    file|scene)
+      image=$(jq -r '.image // empty' "$LOCK_STATE")
+      selection=$(jq -r '.selection // empty' "$LOCK_STATE")
+      echo "lock: pinned $source${selection:+ ($selection)}"
+      echo "image: $image"
+      ;;
+  esac
+}
+
+lock_command() {
+  action=${1:-status}
+  case "$action" in
+    status)
+      lock_status
+      ;;
+    theme)
+      [ -L "$RUNTIME_ROOT/current" ] || {
+        echo "no active Livery profile to follow" >&2
+        return 1
+      }
+      target=$(readlink "$RUNTIME_ROOT/current")
+      apply_theme_wallpaper_for_target "$target"
+      image=$(wallpaper_artifact_for_target "$target")
+      write_lock_state theme "$image"
+      lock_status
+      ;;
+    off)
+      rm -f "$LOCK_STATE"
+      lock_status
+      ;;
+    scene:*)
+      requested=${action#scene:}
+      [ -n "$requested" ] || {
+        echo "usage: ./liveryctl lock scene:<name>" >&2
+        return 2
+      }
+      scene=$(resolve_scene "$requested")
+      image=$(scene_lock_image "$scene")
+      apply_global_wallpaper "$image"
+      write_lock_state scene "$image" "scene:$requested"
+      lock_status
+      ;;
+    *)
+      [ -f "$action" ] || {
+        echo "no such lock image: $action" >&2
+        return 1
+      }
+      image=$(absolute_path "$action")
+      validate_lock_image "$image"
+      apply_global_wallpaper "$image"
+      write_lock_state file "$image" "$image"
+      lock_status
+      ;;
+  esac
 }
 
 sync_live_wallpaper() {
@@ -2024,6 +2276,7 @@ apply_profile() {
     "$wallpaper_before_metadata" "$wallpaper_after_metadata"
 
   if [ "$scope" = "look" ]; then
+    update_theme_lock_for_target "$target"
     sync_live_wallpaper
   fi
 
@@ -2055,6 +2308,7 @@ rollback_profile() {
   capture_wallpaper "$wallpaper_before"
   atomic_link current "$previous_target"
   if ! restore_wallpaper "$WALLPAPER_RUNTIME/$wallpaper_previous_target" \
+    || ! reassert_lock_for_target "$previous_target" \
     || ! reload_live_targets
   then
     echo "rollback failed; restoring current profile and wallpaper" >&2
@@ -2071,6 +2325,7 @@ rollback_profile() {
   profile=$(jq -r '.id' "$RUNTIME_ROOT/current/manifest.json")
   wallpaper_current_target=$(readlink "$WALLPAPER_RUNTIME/current")
   wallpaper_previous_target=$(readlink "$WALLPAPER_RUNTIME/previous")
+  update_theme_lock_for_target "$previous_target"
   sync_live_wallpaper
   write_state "$profile" "$previous_target" "$current_target" "look"
   echo "rolled back profile: $profile"
@@ -2192,6 +2447,10 @@ case "$command" in
   rollback)
     [ "$#" -eq 1 ] || { usage >&2; exit 2; }
     rollback_profile
+    ;;
+  lock)
+    [ "$#" -eq 1 ] || [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+    lock_command "${2:-status}"
     ;;
   -h|--help|help)
     usage

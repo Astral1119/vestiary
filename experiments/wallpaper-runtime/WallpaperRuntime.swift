@@ -34,6 +34,7 @@ struct ReposeState {
     var grade = "on"
     var night = "off"
     var pixels = "on"
+    var label = "on"
 
     static func load() -> ReposeState {
         var state = ReposeState()
@@ -46,25 +47,35 @@ struct ReposeState {
         if let value = object["grade"] as? String { state.grade = value }
         if let value = object["night"] as? String { state.night = value }
         if let value = object["pixels"] as? String { state.pixels = value }
+        if let value = object["label"] as? String { state.label = value }
         return state
     }
 
     func save() {
         let object: [String: Any] = ["look": look, "scene": scene, "variant": variant,
-                                     "grade": grade, "night": night, "pixels": pixels]
+                                     "grade": grade, "night": night, "pixels": pixels,
+                                     "label": label]
         if let data = try? JSONSerialization.data(
             withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: reposeStateFile)
         }
     }
 
-    // the record as WE user properties (scene is runtime-side, not a property)
+    // the scene's display name (the backdrop itself is runtime-side)
+    var sceneName: String {
+        scene == "desktop" ? "desktop"
+            : ((scene as NSString).lastPathComponent as NSString).deletingPathExtension
+    }
+
+    // the record as WE user properties
     var properties: [String: Any] {
         ["reposelook": ["value": look],
          "reposevariant": ["value": variant],
          "reposegrade": ["value": grade],
          "reposenight": ["value": night],
-         "reposepixels": ["value": pixels]]
+         "reposepixels": ["value": pixels],
+         "reposescene": ["value": sceneName],
+         "reposelabel": ["value": label]]
     }
 }
 
@@ -254,6 +265,7 @@ final class AudioTap {
     private var configURL: URL?
     private var cavaPath: String?
     private var watchdog: Timer?
+    private var consecutiveFailures = 0
     private var lastFrameAt = Date.distantPast
     private var framesThisLaunch = 0
     var onFrame: (([Double]) -> Void)?
@@ -327,6 +339,27 @@ final class AudioTap {
         guard live, let process else { return }
         let stalled = framesThisLaunch > 0 && Date().timeIntervalSince(lastFrameAt) > 15
         guard !process.isRunning || stalled else { return }
+        // A launch that never delivered a frame is a hard failure — most
+        // often TCC denying the system-audio tap (a rebuild changes the
+        // daemon's ad-hoc signature and invalidates the old grant), and
+        // every retry re-triggers the permission flow, popping System
+        // Settings. Cap it; frames arriving resets the count.
+        if framesThisLaunch == 0 {
+            consecutiveFailures += 1
+            if consecutiveFailures >= 3 {
+                print("audio: cava failed \(consecutiveFailures)x with no frames — giving up. "
+                    + "Grant System Audio Recording to wallpaper-runtime "
+                    + "(System Settings > Privacy & Security), then wallpaperctl restart.")
+                pipe?.fileHandleForReading.readabilityHandler = nil
+                if process.isRunning { process.terminate() }
+                live = false
+                watchdog?.invalidate()
+                watchdog = nil
+                return
+            }
+        } else {
+            consecutiveFailures = 0
+        }
         print("audio: cava \(process.isRunning ? "stalled" : "exited") — restarting tap")
         pipe?.fileHandleForReading.readabilityHandler = nil
         if process.isRunning { process.terminate() }
@@ -861,6 +894,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
                 .write(to: pidFile, atomically: true, encoding: .utf8)
         }
         observeOcclusion()
+        observeLock()
         if let wallpaper = initialWallpaper {
             apply(wallpaper)
         } else {
@@ -1088,6 +1122,10 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             reposeState.night = reposeState.night == "on" ? "off" : "on"
             persistAndApply()
             return true
+        case "l":
+            reposeState.label = reposeState.label == "on" ? "off" : "on"
+            persistAndApply()
+            return true
         default:
             return false
         }
@@ -1257,6 +1295,37 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             for host in self.videoHosts where host.window == window { host.setPaused(!visible) }
             for host in self.webHosts where host.window == window { host.setPaused(!visible) }
         }
+    }
+
+    // Lock-screen split: the lock screen shows the desktop surface frozen,
+    // which reads as broken for live wallpapers. Hide the desktop windows
+    // while locked so the lock screen falls back to the static system
+    // wallpaper — that picture (System Settings > Wallpaper) is thereby
+    // the separate lock wallpaper. An open cover exits on lock (it's a
+    // manually invoked scene; re-enter after unlocking).
+    private var screenLocked = false
+
+    private func observeLock() {
+        let center = DistributedNotificationCenter.default()
+        center.addObserver(forName: Notification.Name("com.apple.screenIsLocked"),
+                           object: nil, queue: .main) { [weak self] _ in self?.setLocked(true) }
+        center.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"),
+                           object: nil, queue: .main) { [weak self] _ in self?.setLocked(false) }
+    }
+
+    private func setLocked(_ locked: Bool) {
+        guard locked != screenLocked else { return }
+        screenLocked = locked
+        if locked && !coverDisplays.isEmpty { exitCover() }
+        for host in videoHosts {
+            host.setPaused(locked)
+            locked ? host.window.orderOut(nil) : host.window.orderFront(nil)
+        }
+        for host in webHosts {
+            host.setPaused(locked)
+            locked ? host.window.orderOut(nil) : host.window.orderFront(nil)
+        }
+        print("lock: desktop wallpaper \(locked ? "hidden" : "restored")")
     }
 
     func shutdown() {

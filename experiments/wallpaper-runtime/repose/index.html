@@ -97,6 +97,15 @@
     text-shadow: 1px 1px 0 rgba(0, 0, 0, .4);
   }
   body[data-look="pixel"] #coverhint { letter-spacing: .12em; }
+  /* scene-name label (bottom right; reposelabel on|off, in-cover `l`) */
+  #scenelabel {
+    position: fixed; right: 2.2vw; bottom: 2vh; font-size: .72vw;
+    color: var(--muted); letter-spacing: .06em; opacity: 0;
+    transition: opacity .6s; pointer-events: none;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, .4);
+  }
+  body[data-scenelabel="on"] #scenelabel { opacity: .85; }
+  body[data-look="pixel"] #scenelabel { letter-spacing: .12em; }
 
   /* plaque odometer clock: hours in primary, minutes ÷1.5, seconds ÷2;
      digits knocked out toward the surface; columns roll 500ms OutQuint */
@@ -227,7 +236,8 @@
     <canvas id="strings"></canvas>
     <div id="media"></div>
   </div>
-  <div id="coverhint">←→ scene · tab look · x pixels · v variant · g grade · n night · esc exits</div>
+  <div id="coverhint">←→ scene · tab look · x pixels · v variant · g grade · n night · l label · esc exits</div>
+  <div id="scenelabel"></div>
   <div id="devhint"></div>
 
 <script>
@@ -336,6 +346,13 @@
       if (p.reposenight && p.reposenight.value !== undefined) {
         document.body.dataset.night =
           String(p.reposenight.value) === "on" ? "on" : "off";
+      }
+      if (p.reposescene && p.reposescene.value !== undefined) {
+        document.getElementById("scenelabel").textContent = String(p.reposescene.value);
+      }
+      if (p.reposelabel && p.reposelabel.value !== undefined) {
+        document.body.dataset.scenelabel =
+          String(p.reposelabel.value) === "off" ? "off" : "on";
       }
 
       let agentsChanged = false;

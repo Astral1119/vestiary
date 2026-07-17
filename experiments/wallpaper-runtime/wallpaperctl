@@ -8,12 +8,15 @@
   wallpaperctl repose-bg <scene|desktop>   # cover scene (path, workshop id,
                                            # or "desktop" to mirror it)
   wallpaperctl repose-look <zephyr|pixel>  # composition language
+  wallpaperctl repose-label [on|off]       # scene-name label (bottom right)
+  wallpaperctl lock-bg [<image>|theme]     # lock-screen wallpaper (the system
+                                           # wallpaper — only visible locked)
 
 Repose selection lives in one record (~/.config/wallpaper-runtime/
-repose.json: look, scene, variant, grade, night, pixels); these
+repose.json: look, scene, variant, grade, night, pixels, label); these
 subcommands and the in-cover keys (arrows scene, tab look, x pixels,
-v variant, g/n treatments) are both thin writers over it, applied live
-to an open cover.
+v variant, g/n treatments, l label) are both thin writers over it,
+applied live to an open cover.
   wallpaperctl start | stop | restart
   wallpaperctl status
   wallpaperctl build                       # (re)compile the daemon binary
@@ -41,6 +44,9 @@ PIDFILE = os.path.join(STATE_DIR, "pid")
 LOG = os.path.join(STATE_DIR, "log")
 LABEL = "local.wallpaper-runtime"
 PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
+LIVERY_ROOT = os.path.expanduser("~/.config/livery")
+LIVERY_ENGINE = os.path.join(os.path.dirname(SCRIPT_DIR), "theming", "livery",
+                             "build", "bin", "livery-wallpaper-engine")
 APP_ID = 431960
 WORKSHOP_DIR = os.path.expanduser(
     f"~/Library/Application Support/Steam/steamapps/workshop/content/{APP_ID}")
@@ -151,6 +157,13 @@ def stop():
     pid = runtime_pid()
     if pid:
         os.kill(pid, signal.SIGTERM)
+        # SIGTERM is async — wait for the exit so a follow-up start()
+        # doesn't see the dying process and skip launching (restart race)
+        import time
+        for _ in range(30):
+            if not runtime_pid():
+                break
+            time.sleep(0.1)
         print("stopped")
     else:
         print("not running")
@@ -185,7 +198,7 @@ REPOSE_STATE = os.path.join(STATE_DIR, "repose.json")
 
 def load_repose_state():
     state = {"look": "zephyr", "scene": "desktop", "variant": "quiet",
-             "grade": "on", "night": "off", "pixels": "on"}
+             "grade": "on", "night": "off", "pixels": "on", "label": "on"}
     try:
         with open(REPOSE_STATE) as handle:
             state.update(json.load(handle))
@@ -278,6 +291,58 @@ def repose_look(args):
     print(f"repose look: {state['look']}")
 
 
+def lock_bg(args):
+    """Set the lock-screen wallpaper. The runtime covers the desktop, so
+    the macOS system wallpaper (which the lock screen mirrors) is only
+    ever visible while locked — setting it via Livery's store engine is
+    the lock-screen split. 'theme' restores the current Livery still."""
+    if not os.path.isfile(LIVERY_ENGINE):
+        sys.exit(f"livery wallpaper engine not built: {LIVERY_ENGINE}")
+    if not args:
+        result = subprocess.run([LIVERY_ENGINE, "status"],
+                                capture_output=True, text=True)
+        try:
+            print(f"lock wallpaper: {json.loads(result.stdout)['imagePath']}")
+        except (ValueError, KeyError):
+            sys.exit(result.stderr.strip() or "wallpaper engine gave no status")
+        return
+    if args[0] == "theme":
+        try:
+            with open(os.path.join(LIVERY_ROOT, "state.json")) as handle:
+                current = json.load(handle)["current"]
+        except (OSError, ValueError, KeyError):
+            sys.exit("no Livery state to restore from")
+        wallpaper_dir = os.path.join(LIVERY_ROOT, current, "wallpaper")
+        stills = sorted(
+            os.path.join(wallpaper_dir, name)
+            for name in (os.listdir(wallpaper_dir)
+                         if os.path.isdir(wallpaper_dir) else [])
+            if name.lower().endswith((".png", ".jpg", ".jpeg", ".heic")))
+        if not stills:
+            sys.exit(f"current Livery profile has no wallpaper still: {wallpaper_dir}")
+        image = stills[0]
+    else:
+        image = os.path.abspath(args[0])
+        if not os.path.isfile(image):
+            sys.exit(f"no such image: {image}")
+    subprocess.run([LIVERY_ENGINE, "apply-global", image], check=True)
+    print(f"lock wallpaper: {image}")
+
+
+def repose_label(args):
+    """Toggle the scene-name label in repose.json; applies live if covered."""
+    state = load_repose_state()
+    if not args:
+        print(f"repose label: {state.get('label', 'on')}")
+        return
+    if args[0] not in ("on", "off"):
+        sys.exit("usage: wallpaperctl repose-label [on|off]")
+    state["label"] = args[0]
+    save_repose_state(state)
+    signal_repose("refresh")
+    print(f"repose label: {state['label']}")
+
+
 def clear():
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(CONFIG, "w") as handle:
@@ -348,6 +413,10 @@ def main():
         repose_bg(args[1:])
     elif command == "repose-look":
         repose_look(args[1:])
+    elif command == "repose-label":
+        repose_label(args[1:])
+    elif command == "lock-bg":
+        lock_bg(args[1:])
     elif command == "clear":
         clear()
     elif command == "start":
