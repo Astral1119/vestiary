@@ -123,8 +123,23 @@ func liveryProperties() -> [String: Any] {
 
     var properties: [String: Any] = [:]
     if let color = weColor(ui["primary"] as? String) { properties["schemecolor"] = color }
-    for role in ["primary", "secondary", "tertiary", "surface", "text"] {
-        if let color = weColor(ui[role] as? String) { properties["livery" + role] = color }
+    for role in ["primary", "secondary", "tertiary", "surface", "surfaceElevated",
+                 "background", "text", "textMuted"] {
+        if let color = weColor(ui[role] as? String) {
+            properties["livery" + role.lowercased()] = color
+        }
+    }
+    if let signals = object["signals"] as? [String: Any] {
+        for role in ["attention", "success", "warning", "error", "info"] {
+            if let color = weColor(signals[role] as? String) {
+                properties["livery" + role] = color
+            }
+        }
+    }
+    if let presentation = object["presentation"] as? [String: Any],
+       let gradient = presentation["visualizerGradient"] as? [String], gradient.count == 2 {
+        if let color = weColor(gradient[0]) { properties["liveryviz1"] = color }
+        if let color = weColor(gradient[1]) { properties["liveryviz2"] = color }
     }
     return properties
 }
@@ -367,6 +382,49 @@ final class MediaFeed {
     }
 }
 
+// MARK: - Agent-state feed (hook-truth from tmux @agent_state)
+
+final class AgentFeed {
+    private let queue = DispatchQueue(label: "wallpaper.runtime.agents", qos: .utility)
+    private var timer: DispatchSourceTimer?
+    private var lastCounts = (working: -1, waiting: -1, done: -1)
+    var onChange: (([String: Any]) -> Void)?
+
+    static var available: Bool { shell(["which", "tmux"]).status == 0 }
+
+    func start() {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 2, repeating: 4)
+        timer.setEventHandler { [weak self] in self?.poll() }
+        timer.resume()
+        self.timer = timer
+    }
+
+    func stop() { timer?.cancel() }
+
+    private func poll() {
+        let result = shell(["tmux", "list-panes", "-a", "-F", "#{@agent_state}"])
+        guard result.status == 0 else { return }
+        var counts = (working: 0, waiting: 0, done: 0)
+        for line in result.stdout.split(separator: "\n") {
+            switch line.trimmingCharacters(in: .whitespaces) {
+            case "working": counts.working += 1
+            case "waiting": counts.waiting += 1
+            case "done": counts.done += 1
+            default: break
+            }
+        }
+        guard counts != lastCounts else { return }
+        lastCounts = counts
+        let properties: [String: Any] = [
+            "agentworking": ["value": counts.working],
+            "agentwaiting": ["value": counts.waiting],
+            "agentdone": ["value": counts.done],
+        ]
+        DispatchQueue.main.async { self.onChange?(properties) }
+    }
+}
+
 // MARK: - Desktop window
 
 func makeDesktopWindow(for screen: NSScreen) -> NSWindow {
@@ -555,6 +613,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     private var webHosts: [WebHost] = []
     private let audioTap = AudioTap()
     private let mediaFeed = MediaFeed()
+    private let agentFeed = AgentFeed()
     private var mouseMonitor: Any?
     private var liveryTimer: Timer?
     private var liveryModified: Date?
@@ -667,6 +726,14 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             self?.webHosts.forEach { $0.push(mouseAt: location) }
         }
 
+        if AgentFeed.available {
+            agentFeed.onChange = { [weak self] properties in
+                self?.webHosts.forEach { $0.push(properties: properties) }
+            }
+            agentFeed.start()
+            print("agents: tmux @agent_state feed live")
+        }
+
         if MediaFeed.available {
             mediaFeed.onEvent = { [weak self] kind, payload in
                 guard let self,
@@ -716,6 +783,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     func shutdown() {
         audioTap.stop()
         mediaFeed.stop()
+        agentFeed.stop()
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         liveryTimer?.invalidate()
         if daemon { try? FileManager.default.removeItem(at: pidFile) }

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Repose</title>
+<style>
+  /* The repose composition as a live wallpaper: zephyr-language monolith —
+     plaque odometer clock, Zephyr strings, agent dots, media footer — all
+     colored by Livery roles pushed as WE properties. Design record:
+     experiments/desktop-scenes/HANDOFF.md (book test, no chrome, one axis). */
+  :root {
+    --surface: #1b1b1b;
+    --background: #101014;
+    --text: #f5e0dc;
+    --muted: #8f8a94;
+    --primary: #89b4fa;
+    --attention: #fab387;
+    --success: #9ed072;
+    --viz1: #87d6bc;
+    --viz2: #a8cbe2;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; }
+  body {
+    background: radial-gradient(ellipse at 50% 35%,
+      color-mix(in srgb, var(--surface) 88%, var(--primary)) 0%,
+      var(--background) 75%);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--text);
+  }
+
+  .monolith {
+    position: fixed; left: 50%; top: 21vh; transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 2.2vh;
+  }
+  #date { font-size: 1.15vw; letter-spacing: .08em; color: var(--muted); }
+
+  /* plaque odometer clock: hours in primary, minutes ÷1.5, seconds ÷2;
+     digits knocked out toward the surface; columns roll 500ms OutQuint */
+  #clock { display: flex; align-items: flex-start; gap: .07em; font-size: 7.2vw;
+           font-weight: 700; }
+  .zcol { overflow: hidden; height: 1.16em; width: .82em; border-radius: .045em; }
+  .zcol .stack { display: flex; flex-direction: column;
+                 transition: transform .5s cubic-bezier(0.23, 1, 0.32, 1); }
+  .zcol .cell { height: 1.16em; line-height: 1.16; display: flex; align-items: center;
+                justify-content: center; opacity: .55; transition: opacity .3s;
+                color: var(--background); }
+  .zcol .cell.on { opacity: 1; }
+  .zcol .cell.zero { background: transparent !important; }
+  .zsep { width: .09em; height: 1.16em; margin: 0 .05em; border-radius: .03em;
+          background: color-mix(in srgb, var(--surface) 60%, transparent); }
+
+  #agents { display: flex; align-items: center; gap: .55em; min-height: 16px; }
+  #agents .dot { width: 7px; height: 7px; border-radius: 50%; }
+  #agents .dot.working { background: var(--muted); }
+  #agents .dot.waiting { background: var(--attention); box-shadow: 0 0 9px var(--attention); }
+  #agents .dot.done    { background: var(--success); box-shadow: 0 0 9px var(--success); }
+  #agentline { font-size: .78vw; color: var(--muted); letter-spacing: .05em; }
+
+  #strings { position: fixed; left: 0; bottom: 5vh; width: 100vw; height: 24vh;
+             display: block; }
+  #media { position: fixed; left: 50%; bottom: 1.6vh; transform: translateX(-50%);
+           font-size: .95vw; color: var(--muted); letter-spacing: .04em;
+           display: none; }
+  #media .t { color: var(--text); }
+</style>
+</head>
+<body>
+  <div class="monolith">
+    <div id="date"></div>
+    <div id="clock"></div>
+    <div id="agents"></div>
+    <div id="agentline"></div>
+  </div>
+  <canvas id="strings"></canvas>
+  <div id="media"></div>
+
+<script>
+  // ---------- theme (Livery roles arrive as WE user properties) ----------
+  const root = document.documentElement.style;
+  const parseColor = (p) => {
+    if (!p || !p.value || typeof p.value !== "string") return null;
+    const parts = p.value.split(" ").map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return parts;
+  };
+  const css = (rgb) => `rgb(${rgb.map(v => Math.round(v * 255)).join(",")})`;
+  const scale = (rgb, f) => rgb.map(v => Math.min(1, v * f));
+
+  let primary = [0.54, 0.71, 0.98];
+  let surface = [0.10, 0.10, 0.12];
+  let viz = [[0.53, 0.84, 0.74], [0.66, 0.80, 0.89]];
+  let agents = { working: 0, waiting: 0, done: 0 };
+
+  window.wallpaperPropertyListener = {
+    applyUserProperties(p) {
+      const set = (name, value) => value && root.setProperty(name, css(value));
+      const primaryColor = parseColor(p.liveryprimary) || parseColor(p.schemecolor);
+      if (primaryColor) { primary = primaryColor; set("--primary", primaryColor); }
+      const surfaceColor = parseColor(p.liverysurface);
+      if (surfaceColor) { surface = surfaceColor; set("--surface", surfaceColor); }
+      set("--background", parseColor(p.liverybackground));
+      set("--text", parseColor(p.liverytext));
+      set("--muted", parseColor(p.liverytextmuted));
+      set("--attention", parseColor(p.liveryattention));
+      set("--success", parseColor(p.liverysuccess));
+      const v1 = parseColor(p.liveryviz1), v2 = parseColor(p.liveryviz2);
+      if (v1) { viz[0] = v1; set("--viz1", v1); }
+      if (v2) { viz[1] = v2; set("--viz2", v2); }
+      if (primaryColor || surfaceColor) buildClock();
+
+      let agentsChanged = false;
+      for (const key of ["working", "waiting", "done"]) {
+        const prop = p["agent" + key];
+        if (prop && prop.value !== undefined) {
+          agents[key] = Number(prop.value) || 0;
+          agentsChanged = true;
+        }
+      }
+      if (agentsChanged) renderAgents();
+    }
+  };
+
+  // ---------- plaque odometer clock ----------
+  const clockEl = document.getElementById("clock");
+  function buildClock() {
+    const bases = [primary, scale(primary, 1 / 1.5), scale(primary, 1 / 2)];
+    const column = (base) => `<span class="zcol"><span class="stack">${
+      Array.from({ length: 10 }, (_, i) => i === 0
+        ? `<span class="cell zero" style="color:${css(base)}">0</span>`
+        : `<span class="cell" style="background:${css(scale(base, 1 + i / 10))}">${i}</span>`
+      ).join("")}</span></span>`;
+    clockEl.innerHTML =
+      column(bases[0]) + column(bases[0]) + `<span class="zsep"></span>` +
+      column(bases[1]) + column(bases[1]) + `<span class="zsep"></span>` +
+      column(bases[2]) + column(bases[2]);
+  }
+  buildClock();
+
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function tick() {
+    const now = new Date();
+    const digits = [];
+    for (const value of [now.getHours(), now.getMinutes(), now.getSeconds()]) {
+      digits.push(Math.floor(value / 10), value % 10);
+    }
+    clockEl.querySelectorAll(".zcol .stack").forEach((stack, i) => {
+      stack.style.transform = `translateY(${(-digits[i] * 1.16).toFixed(2)}em)`;
+      stack.querySelectorAll(".cell").forEach((cell, d) =>
+        cell.classList.toggle("on", d === digits[i]));
+    });
+    document.getElementById("date").textContent =
+      `${DAYS[now.getDay()]} ${now.toISOString().slice(0, 10)}`;
+  }
+  setInterval(tick, 250);
+  tick();
+
+  // ---------- agent dots (hook-truth via runtime properties) ----------
+  function renderAgents() {
+    const dots = [];
+    for (let i = 0; i < agents.working; i++) dots.push("working");
+    for (let i = 0; i < agents.waiting; i++) dots.push("waiting");
+    for (let i = 0; i < agents.done; i++) dots.push("done");
+    document.getElementById("agents").innerHTML =
+      dots.slice(0, 12).map(k => `<span class="dot ${k}"></span>`).join("");
+    const parts = [];
+    if (agents.working) parts.push(`${agents.working} working`);
+    if (agents.waiting) parts.push(`${agents.waiting} waiting for you`);
+    if (agents.done) parts.push(`${agents.done} done`);
+    document.getElementById("agentline").textContent = parts.join(" · ");
+  }
+
+  // ---------- media footer ----------
+  if (window.wallpaperRegisterMediaPropertiesListener) {
+    window.wallpaperRegisterMediaPropertiesListener((p) => {
+      const el = document.getElementById("media");
+      el.style.display = "block";
+      el.innerHTML = `♪ <span class="t"></span> — <span class="a"></span>`;
+      el.querySelector(".t").textContent = p.title || "";
+      el.querySelector(".a").textContent = p.artist || "";
+    });
+    window.wallpaperRegisterMediaStatusListener((s) => {
+      if (!s.enabled) document.getElementById("media").style.display = "none";
+    });
+  }
+
+  // ---------- Zephyr strings, live (baseline: 10 strands, shared endpoints,
+  // fast attack / slow release envelope, settle-and-park in silence) ----------
+  const canvas = document.getElementById("strings");
+  const ctx = canvas.getContext("2d");
+  let width, height;
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = Math.round(window.innerHeight * 0.24);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  const STRANDS = 10;
+  const level = new Array(STRANDS).fill(0);   // enveloped per-strand level
+  let target = new Array(STRANDS).fill(0);
+  let animating = false;
+  let quietFrames = 0;
+
+  if (window.wallpaperRegisterAudioListener) {
+    window.wallpaperRegisterAudioListener((frame) => {
+      // mono 64 bands → 10 strand groups
+      const bands = frame.slice(0, 64);
+      for (let s = 0; s < STRANDS; s++) {
+        const start = Math.floor(s * 64 / STRANDS);
+        const end = Math.floor((s + 1) * 64 / STRANDS);
+        let sum = 0;
+        for (let i = start; i < end; i++) sum += bands[i];
+        target[s] = Math.min(1, sum / (end - start) * 1.85);
+      }
+      if (!animating) { animating = true; requestAnimationFrame(draw); }
+    });
+  }
+
+  function strand(i, amplitude, phase) {
+    const x0 = 8, x1 = width - 8, yc = height / 2, span = x1 - x0;
+    const direction = i % 2 ? 1 : -1;
+    const bulge = direction * amplitude * (height / 2 - 6);
+    const sway = Math.sin(phase + i * 1.7) * 0.25 + 1;
+    const c1x = x0 + span * (0.18 + (i % 5) * 0.055);
+    const c2x = x0 + span * (0.58 + (i % 4) * 0.07);
+    const s = i % 3 === 0 ? -0.7 : 0.8;
+    ctx.beginPath();
+    ctx.moveTo(x0, yc);
+    ctx.bezierCurveTo(c1x, yc + bulge * sway, c2x, yc + bulge * s, x1, yc);
+    ctx.stroke();
+  }
+
+  let phase = 0;
+  function draw() {
+    phase += 0.012;
+    let energy = 0;
+    for (let s = 0; s < STRANDS; s++) {
+      const k = target[s] > level[s] ? 0.75 : 0.28;   // ~12ms attack / 45ms release
+      level[s] += (target[s] - level[s]) * k;
+      energy += level[s];
+    }
+    ctx.clearRect(0, 0, width, height);
+    const gradient = ctx.createLinearGradient(0, 0, width, 0);
+    gradient.addColorStop(0, css(viz[0]));
+    gradient.addColorStop(1, css(viz[1]));
+    ctx.strokeStyle = gradient;
+    ctx.globalAlpha = 0.72;
+    for (let s = 0; s < STRANDS; s++) {
+      ctx.lineWidth = 2.25 + (s % 3) * 0.5;
+      strand(s, Math.max(level[s], 0.012), phase);
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = css(viz[0]);
+    ctx.beginPath(); ctx.arc(8, height / 2, 3.75, 0, 7); ctx.fill();
+    ctx.fillStyle = css(viz[1]);
+    ctx.beginPath(); ctx.arc(width - 8, height / 2, 3.75, 0, 7); ctx.fill();
+
+    // settle-and-park: strings decay to a calm line, then the loop stops
+    if (energy < 0.02 && Math.max(...target) < 0.01) {
+      quietFrames += 1;
+      if (quietFrames > 90) { animating = false; quietFrames = 0; return; }
+    } else {
+      quietFrames = 0;
+    }
+    if (animating) requestAnimationFrame(draw);
+  }
+  draw();   // one parked frame so the strings exist before audio arrives
+</script>
+</body>
+</html>
