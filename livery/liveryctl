@@ -5,7 +5,9 @@ PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 export PATH
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-CONFIG_ROOT=${LIVERY_CONFIG_ROOT:-$(CDPATH='' cd -- "$ROOT/../../../.." && pwd)}
+# Vestiary layout: source no longer lives under ~/.config, so CONFIG_ROOT can't
+# be derived from $ROOT — runtime/contract state stays at ~/.config regardless.
+CONFIG_ROOT=${LIVERY_CONFIG_ROOT:-$HOME/.config}
 CATALOG="$ROOT/palettes.json"
 THEME_CATALOG="$ROOT/themes.json"
 DEFAULT_PROFILE="$ROOT/profiles/default.json"
@@ -29,7 +31,7 @@ LEGIBILITY_SOURCE="$ROOT/LegibilityAnalyzer.swift"
 LEGIBILITY_SHARED="$ROOT/BarLegibility.swift"
 IMAGE_BIN="$BUILD_ROOT/bin/livery-image"
 IMAGE_SOURCE="$ROOT/ImagePipeline.swift"
-WALLPAPERCTL="$ROOT/../../wallpaper-runtime/wallpaperctl"
+WALLPAPERCTL="$ROOT/../fresco/wallpaperctl"
 DERIVATIVE_CACHE="$BUILD_ROOT/cache/derivatives"
 ORIGINAL_STORE="$BUILD_ROOT/store/originals"
 
