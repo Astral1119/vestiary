@@ -130,8 +130,75 @@ derivation_digest() {
   }' "$1" | shasum -a 256 | awk '{print "sha256:" $1}'
 }
 
+# --- schema v3 color plumbing (contract: vestiary/contract/SPEC.md §2.2) ----
+# Sources and augmented themes carry bare lowercase hex; resolved manifests
+# carry {hex, rgb} objects. Digests hash the canonical hex form (unwrap) so
+# wrapping never shifts theme identity.
+JQ_COLOR_LIB='
+  def is_hex: type == "string" and test("^#[0-9a-fA-F]{6}$");
+  def hex_to_rgb:
+    ltrimstr("#") | ascii_downcase | explode
+    | map(if . >= 97 then . - 87 else . - 48 end)
+    | [.[0]*16 + .[1], .[2]*16 + .[3], .[4]*16 + .[5]];
+  def n2h:
+    "0123456789abcdef" as $d
+    | $d[(. / 16 | floor):(. / 16 | floor) + 1] + $d[(. % 16):(. % 16) + 1];
+  def mix2($a; $b; $t):
+    ($a | hex_to_rgb) as $x | ($b | hex_to_rgb) as $y
+    | [0, 1, 2]
+    | map((($x[.] * (1 - $t)) + ($y[.] * $t)) | round)
+    | "#" + (map(n2h) | join(""));
+  def wrap:
+    if is_hex then {hex: ascii_downcase, rgb: hex_to_rgb} else . end;
+  def unwrap:
+    if type == "object" and has("hex") and has("rgb") then .hex else . end;
+'
+
+# Derive the v3 ui roles when a theme does not provide them explicitly.
+# onPrimary follows the Catppuccin rule (text on accent = background);
+# outlineVariant is the quieter outline (halfway to background); overlay is
+# the third surface tier (surfaceElevated nudged toward text). Idempotent.
+augment_theme() {
+  _aug_tmp=$(mktemp "${TMPDIR:-/tmp}/livery-augment.XXXXXX")
+  jq -S "$JQ_COLOR_LIB"'
+    .ui.onPrimary //= .ui.background
+    | .ui.outlineVariant //= mix2(.ui.outline; .ui.background; 0.5)
+    | .ui.overlay //= mix2(.ui.surfaceElevated; .ui.text; 0.15)
+  ' "$1" > "$_aug_tmp" && mv -f "$_aug_tmp" "$1"
+}
+
+# Final manifest pass: wrap every hex color as {hex, rgb}, stamp schema v3,
+# and attach the public meta block. Runs once, as the last write to a staged
+# manifest. $1 = manifest path, $2 = meta.name, $3 = meta.source (JSON).
+finalize_manifest() {
+  _fin_tmp=$(mktemp "${TMPDIR:-/tmp}/livery-finalize.XXXXXX")
+  jq -S \
+    --arg name "$2" \
+    --argjson source "${3:-null}" \
+    --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$JQ_COLOR_LIB"'
+    walk(wrap)
+    | .schemaVersion = 3
+    | .meta = {
+        name: $name,
+        source: $source,
+        producer: {name: "livery", version: "3"},
+        resolvedAt: $now,
+        scope: "global"
+      }
+  ' "$1" > "$_fin_tmp" && mv -f "$_fin_tmp" "$1"
+}
+
+# Read a color-valued jq expression from a manifest, yielding bare hex whether
+# the manifest carries v3 {hex,rgb} objects or legacy bare strings.
+color_value() {
+  jq -r "$JQ_COLOR_LIB"'('"$1"') | unwrap' "$2"
+}
+
 semantic_theme_json() {
-  jq -cS '{
+  jq -cS "$JQ_COLOR_LIB"'
+  walk(unwrap)
+  | {
     variant,
     ui,
     signals,
@@ -560,6 +627,7 @@ resolve_palette_theme() (
         ]
       | del(.targets)
     ' "$DEFAULT_PROFILE" > "$destination"
+  augment_theme "$destination"
   rm -f "$palette_file"
 )
 
@@ -588,6 +656,7 @@ resolve_theme_reference() (
       fi
       ;;
   esac
+  augment_theme "$destination"
 )
 
 grade_parameters() {
@@ -759,8 +828,11 @@ write_default_look() {
   output_dir=$2
   spec="$output_dir/spec.json"
   manifest="$output_dir/manifest.json"
-  theme_digest=$(semantic_theme_digest "$DEFAULT_PROFILE")
-  theme_size=$(semantic_theme_json "$DEFAULT_PROFILE" | wc -c | tr -d ' ')
+  default_theme=$(mktemp "${TMPDIR:-/tmp}/livery-default-theme.XXXXXX")
+  cp "$DEFAULT_PROFILE" "$default_theme"
+  augment_theme "$default_theme"
+  theme_digest=$(semantic_theme_digest "$default_theme")
+  theme_size=$(semantic_theme_json "$default_theme" | wc -c | tr -d ' ')
 
   jq -nS \
     --arg id "$profile" \
@@ -825,7 +897,9 @@ write_default_look() {
           barLegibility: .presentation.barLegibility
         }
       | del(.source)
-    ' "$DEFAULT_PROFILE" > "$manifest"
+    ' "$default_theme" > "$manifest"
+  finalize_manifest "$manifest" "$profile" '{"kind": "captured-default"}'
+  rm -f "$default_theme"
 }
 
 write_wallpaper_authoritative_look() {
@@ -975,6 +1049,9 @@ write_wallpaper_authoritative_look() {
   merged=$(mktemp "${TMPDIR:-/tmp}/livery-evidence.XXXXXX")
   jq '.evidence.barLegibility = .presentation.barLegibility' "$manifest" > "$merged"
   mv -f "$merged" "$manifest"
+  finalize_manifest "$manifest" "$profile" "$(jq -nc \
+    --arg fixture "$fixture" --arg scheme "$candidate" \
+    '{kind: "wallpaper", fixture: $fixture, scheme: $scheme}')"
   rm -f "$theme" "$wallpaper_meta" "$palette"
 }
 
@@ -1367,6 +1444,9 @@ write_theme_authoritative_look() {
   merged=$(mktemp "${TMPDIR:-/tmp}/livery-evidence.XXXXXX")
   jq '.evidence.barLegibility = .presentation.barLegibility' "$manifest" > "$merged"
   mv -f "$merged" "$manifest"
+  finalize_manifest "$manifest" "$profile" "$(jq -nc \
+    --arg ref "$theme_ref" --arg fixture "$target_fixture" --arg recipe "$recipe" \
+    '{kind: "theme", ref: $ref, wallpaper: $fixture, recipe: $recipe}')"
   rm -f "$theme" "$wallpaper" "$wallpaper_meta" "$projection" \
     "$transform_steps" "$request" "$output_meta"
 }
@@ -1415,10 +1495,19 @@ resolve_look() {
 validate_manifest() {
   manifest=$1
   jq -e '
-    def color: type == "string" and test("^#[0-9a-fA-F]{6}$");
+    def color:
+      type == "object"
+        and (.hex | type == "string" and test("^#[0-9a-f]{6}$"))
+        and (.rgb | type == "array" and length == 3
+          and all(type == "number" and . >= 0 and . <= 255));
     def digest: type == "string" and test("^sha256:[0-9a-f]{64}$");
-    .schemaVersion == 2
+    .schemaVersion == 3
       and .kind == "look-manifest"
+      and (.ui | has("onPrimary") and has("outlineVariant") and has("overlay"))
+      and (.meta.name | type == "string" and length > 0)
+      and (.meta.producer.name == "livery")
+      and (.meta.scope == "global")
+      and (.meta.resolvedAt | type == "string" and length > 0)
       and (.id | type == "string" and length > 0)
       and (.label | type == "string" and length > 0)
       and (.specDigest | digest)
@@ -1432,7 +1521,7 @@ validate_manifest() {
       and .coherence.wallpaperScope == "all-managed-spaces"
       and (.pipeline | type == "array" and length > 0)
       and (.outputs.theme.digest | digest)
-      and .outputs.theme.format == "livery-semantic-v2"
+      and .outputs.theme.format == "livery-semantic-v2"  # theme format is additive-stable; only the manifest is v3
       and ((.outputs.wallpaper.kind == "provider-state")
         or ((.outputs.wallpaper.digest | digest)
           and (.outputs.wallpaper.derivationDigest | digest)
@@ -1570,16 +1659,16 @@ render_ghostty() {
   output=$2
   {
     index=0
-    jq -r '.terminal.ansi[]' "$manifest" | while IFS= read -r color; do
+    color_value '.terminal.ansi[]' "$manifest" | while IFS= read -r color; do
       printf 'palette = %s=%s\n' "$index" "$color"
       index=$((index + 1))
     done
-    printf 'background = %s\n' "$(json_value '.terminal.background | ltrimstr("#")' "$manifest")"
-    printf 'foreground = %s\n' "$(json_value '.terminal.foreground | ltrimstr("#")' "$manifest")"
-    printf 'cursor-color = %s\n' "$(json_value '.terminal.cursor | ltrimstr("#")' "$manifest")"
-    printf 'cursor-text = %s\n' "$(json_value '.terminal.cursorText | ltrimstr("#")' "$manifest")"
-    printf 'selection-background = %s\n' "$(json_value '.terminal.selectionBackground | ltrimstr("#")' "$manifest")"
-    printf 'selection-foreground = %s\n' "$(json_value '.terminal.selectionForeground | ltrimstr("#")' "$manifest")"
+    printf 'background = %s\n' "$(color_value '.terminal.background | unwrap | ltrimstr("#")' "$manifest")"
+    printf 'foreground = %s\n' "$(color_value '.terminal.foreground | unwrap | ltrimstr("#")' "$manifest")"
+    printf 'cursor-color = %s\n' "$(color_value '.terminal.cursor | unwrap | ltrimstr("#")' "$manifest")"
+    printf 'cursor-text = %s\n' "$(color_value '.terminal.cursorText | unwrap | ltrimstr("#")' "$manifest")"
+    printf 'selection-background = %s\n' "$(color_value '.terminal.selectionBackground | unwrap | ltrimstr("#")' "$manifest")"
+    printf 'selection-foreground = %s\n' "$(color_value '.terminal.selectionForeground | unwrap | ltrimstr("#")' "$manifest")"
     minimum_contrast=$(json_value '.terminal.minimumContrast' "$manifest")
     if [ "$minimum_contrast" != "1" ]; then
       printf 'minimum-contrast = %s\n' "$minimum_contrast"
@@ -1591,47 +1680,47 @@ render_sketchybar() {
   manifest=$1
   output=$2
 
-  black=$(json_value '.targets.sketchybar.colors.black // .ui.background' "$manifest")
-  white=$(json_value '.targets.sketchybar.colors.white // .ui.text' "$manifest")
-  red=$(json_value '.targets.sketchybar.colors.red // .signals.error' "$manifest")
-  green=$(json_value '.targets.sketchybar.colors.green // .signals.success' "$manifest")
-  blue=$(json_value '.targets.sketchybar.colors.blue // .ui.primary' "$manifest")
-  yellow=$(json_value '.targets.sketchybar.colors.yellow // .signals.warning' "$manifest")
-  orange=$(json_value '.targets.sketchybar.colors.orange // .signals.attention' "$manifest")
-  magenta=$(json_value '.targets.sketchybar.colors.magenta // .ui.secondary' "$manifest")
-  grey=$(json_value '.targets.sketchybar.colors.grey // .ui.textMuted' "$manifest")
-  maroon=$(json_value '.targets.sketchybar.colors.maroon // .signals.error' "$manifest")
-  mauve=$(json_value '.targets.sketchybar.colors.mauve // .ui.secondary' "$manifest")
-  lavender=$(json_value '.targets.sketchybar.colors.lavender // .ui.secondary' "$manifest")
-  teal=$(json_value '.targets.sketchybar.colors.teal // .ui.tertiary' "$manifest")
-  peach=$(json_value '.targets.sketchybar.colors.peach // .signals.attention' "$manifest")
-  background=$(json_value '.ui.background' "$manifest")
-  surface=$(json_value '.targets.sketchybar.surface // .ui.surface' "$manifest")
-  outline=$(json_value '.targets.sketchybar.barBorder // .ui.outline' "$manifest")
-  selection=$(json_value '.ui.selection' "$manifest")
-  hairline=$(json_value '.effects.hairline' "$manifest")
+  black=$(color_value '.targets.sketchybar.colors.black // .ui.background' "$manifest")
+  white=$(color_value '.targets.sketchybar.colors.white // .ui.text' "$manifest")
+  red=$(color_value '.targets.sketchybar.colors.red // .signals.error' "$manifest")
+  green=$(color_value '.targets.sketchybar.colors.green // .signals.success' "$manifest")
+  blue=$(color_value '.targets.sketchybar.colors.blue // .ui.primary' "$manifest")
+  yellow=$(color_value '.targets.sketchybar.colors.yellow // .signals.warning' "$manifest")
+  orange=$(color_value '.targets.sketchybar.colors.orange // .signals.attention' "$manifest")
+  magenta=$(color_value '.targets.sketchybar.colors.magenta // .ui.secondary' "$manifest")
+  grey=$(color_value '.targets.sketchybar.colors.grey // .ui.textMuted' "$manifest")
+  maroon=$(color_value '.targets.sketchybar.colors.maroon // .signals.error' "$manifest")
+  mauve=$(color_value '.targets.sketchybar.colors.mauve // .ui.secondary' "$manifest")
+  lavender=$(color_value '.targets.sketchybar.colors.lavender // .ui.secondary' "$manifest")
+  teal=$(color_value '.targets.sketchybar.colors.teal // .ui.tertiary' "$manifest")
+  peach=$(color_value '.targets.sketchybar.colors.peach // .signals.attention' "$manifest")
+  background=$(color_value '.ui.background' "$manifest")
+  surface=$(color_value '.targets.sketchybar.surface // .ui.surface' "$manifest")
+  outline=$(color_value '.targets.sketchybar.barBorder // .ui.outline' "$manifest")
+  selection=$(color_value '.ui.selection' "$manifest")
+  hairline=$(color_value '.effects.hairline' "$manifest")
   popup_alpha=$(json_value '.effects.popupBackgroundAlpha' "$manifest")
   popup_border_alpha=$(json_value '.effects.popupBorderAlpha' "$manifest")
   surface_alpha=$(json_value '.effects.surfaceAlpha' "$manifest")
   wash_alpha=$(json_value '.effects.secondaryWashAlpha' "$manifest")
   chip_alpha=$(json_value '.effects.chipAlpha' "$manifest")
-  bar_text=$(json_value '.presentation.barLegibility.text' "$manifest")
-  bar_text_muted=$(json_value '.presentation.barLegibility.textMuted' "$manifest")
-  bar_accent=$(json_value '.presentation.barLegibility.accent' "$manifest")
-  bar_scrim=$(json_value '.presentation.barLegibility.scrim' "$manifest")
+  bar_text=$(color_value '.presentation.barLegibility.text' "$manifest")
+  bar_text_muted=$(color_value '.presentation.barLegibility.textMuted' "$manifest")
+  bar_accent=$(color_value '.presentation.barLegibility.accent' "$manifest")
+  bar_scrim=$(color_value '.presentation.barLegibility.scrim' "$manifest")
   bar_scrim_alpha=$(json_value '.presentation.barLegibility.scrimAlpha' "$manifest")
-  bar_red=$(json_value '.presentation.barLegibility.roles.red' "$manifest")
-  bar_green=$(json_value '.presentation.barLegibility.roles.green' "$manifest")
-  bar_blue=$(json_value '.presentation.barLegibility.roles.blue' "$manifest")
-  bar_yellow=$(json_value '.presentation.barLegibility.roles.yellow' "$manifest")
-  bar_orange=$(json_value '.presentation.barLegibility.roles.orange' "$manifest")
-  bar_magenta=$(json_value '.presentation.barLegibility.roles.magenta' "$manifest")
-  bar_grey=$(json_value '.presentation.barLegibility.roles.grey' "$manifest")
-  bar_maroon=$(json_value '.presentation.barLegibility.roles.maroon' "$manifest")
-  bar_mauve=$(json_value '.presentation.barLegibility.roles.mauve' "$manifest")
-  bar_lavender=$(json_value '.presentation.barLegibility.roles.lavender' "$manifest")
-  bar_teal=$(json_value '.presentation.barLegibility.roles.teal' "$manifest")
-  bar_peach=$(json_value '.presentation.barLegibility.roles.peach' "$manifest")
+  bar_red=$(color_value '.presentation.barLegibility.roles.red' "$manifest")
+  bar_green=$(color_value '.presentation.barLegibility.roles.green' "$manifest")
+  bar_blue=$(color_value '.presentation.barLegibility.roles.blue' "$manifest")
+  bar_yellow=$(color_value '.presentation.barLegibility.roles.yellow' "$manifest")
+  bar_orange=$(color_value '.presentation.barLegibility.roles.orange' "$manifest")
+  bar_magenta=$(color_value '.presentation.barLegibility.roles.magenta' "$manifest")
+  bar_grey=$(color_value '.presentation.barLegibility.roles.grey' "$manifest")
+  bar_maroon=$(color_value '.presentation.barLegibility.roles.maroon' "$manifest")
+  bar_mauve=$(color_value '.presentation.barLegibility.roles.mauve' "$manifest")
+  bar_lavender=$(color_value '.presentation.barLegibility.roles.lavender' "$manifest")
+  bar_teal=$(color_value '.presentation.barLegibility.roles.teal' "$manifest")
+  bar_peach=$(color_value '.presentation.barLegibility.roles.peach' "$manifest")
 
   cat > "$output" <<EOF
 return {
@@ -1696,8 +1785,8 @@ EOF
 render_borders() {
   manifest=$1
   output=$2
-  active=$(json_value '.targets.borders.active // .ui.primary' "$manifest")
-  inactive=$(json_value '.targets.borders.inactive // .ui.primary' "$manifest")
+  active=$(color_value '.targets.borders.active // .ui.primary' "$manifest")
+  inactive=$(color_value '.targets.borders.inactive // .ui.primary' "$manifest")
   inactive_alpha=$(json_value '.effects.borderInactiveAlpha' "$manifest")
   width=$(json_value '.targets.borders.width // 4.0' "$manifest")
   hidpi=$(json_value '.targets.borders.hidpi // "on"' "$manifest")

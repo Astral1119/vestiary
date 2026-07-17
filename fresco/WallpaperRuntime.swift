@@ -150,11 +150,11 @@ func sceneThemeProperties(_ scene: String) -> [String: Any] {
     var properties: [String: Any] = [:]
     for role in ["primary", "secondary", "tertiary", "surface", "background",
                  "text", "textmuted", "attention", "success", "viz1", "viz2"] {
-        if let color = weColor(object[role] as? String) {
+        if let color = weColor(hexString(object[role])) {
             properties["livery" + role] = color
         }
     }
-    if let color = weColor(object["primary"] as? String) {
+    if let color = weColor(hexString(object["primary"])) {
         properties["schemecolor"] = color
     }
     return properties
@@ -242,6 +242,14 @@ func resolveWallpaper(_ path: String) -> Wallpaper? {
 
 // MARK: - Livery Look → WE user properties
 
+// Livery v3 manifests wrap colors as {hex, rgb} objects; v2 carried bare hex
+// strings. Accept both so the bridge never silently drops theme colors.
+func hexString(_ value: Any?) -> String? {
+    if let hex = value as? String { return hex }
+    if let object = value as? [String: Any] { return object["hex"] as? String }
+    return nil
+}
+
 func weColor(_ hex: String?) -> [String: Any]? {
     guard let hex, hex.hasPrefix("#"), hex.count == 7 else { return nil }
     let components = [1, 3, 5].compactMap { start -> Double? in
@@ -261,24 +269,27 @@ func liveryProperties() -> [String: Any] {
           let ui = object["ui"] as? [String: Any] else { return [:] }
 
     var properties: [String: Any] = [:]
-    if let color = weColor(ui["primary"] as? String) { properties["schemecolor"] = color }
+    if let color = weColor(hexString(ui["primary"])) { properties["schemecolor"] = color }
     for role in ["primary", "secondary", "tertiary", "surface", "surfaceElevated",
                  "background", "text", "textMuted"] {
-        if let color = weColor(ui[role] as? String) {
+        if let color = weColor(hexString(ui[role])) {
             properties["livery" + role.lowercased()] = color
         }
     }
     if let signals = object["signals"] as? [String: Any] {
         for role in ["attention", "success", "warning", "error", "info"] {
-            if let color = weColor(signals[role] as? String) {
+            if let color = weColor(hexString(signals[role])) {
                 properties["livery" + role] = color
             }
         }
     }
     if let presentation = object["presentation"] as? [String: Any],
-       let gradient = presentation["visualizerGradient"] as? [String], gradient.count == 2 {
-        if let color = weColor(gradient[0]) { properties["liveryviz1"] = color }
-        if let color = weColor(gradient[1]) { properties["liveryviz2"] = color }
+       let rawGradient = presentation["visualizerGradient"] as? [Any] {
+        let gradient = rawGradient.compactMap(hexString)
+        if gradient.count == 2 {
+            if let color = weColor(gradient[0]) { properties["liveryviz1"] = color }
+            if let color = weColor(gradient[1]) { properties["liveryviz2"] = color }
+        }
     }
     return properties
 }
