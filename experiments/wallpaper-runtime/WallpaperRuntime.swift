@@ -8,6 +8,19 @@ import AVFoundation
 // tap, cursor forwarding, occlusion-pause, and Livery Look colors pushed
 // as WE user properties.
 
+// MARK: - Runtime paths (daemon mode)
+
+let runtimeDirectory = URL(fileURLWithPath: NSHomeDirectory())
+    .appendingPathComponent(".config/wallpaper-runtime")
+let configFile = runtimeDirectory.appendingPathComponent("current")
+let pidFile = runtimeDirectory.appendingPathComponent("pid")
+
+func loadConfiguredWallpaper() -> Wallpaper? {
+    guard let path = try? String(contentsOf: configFile, encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return nil }
+    return resolveWallpaper(path)
+}
+
 // MARK: - Shell helper
 
 @discardableResult
@@ -513,7 +526,8 @@ final class WebHost: NSObject, WKScriptMessageHandler {
 // MARK: - Controller
 
 final class RuntimeController: NSObject, NSApplicationDelegate {
-    private let wallpaper: Wallpaper
+    private let initialWallpaper: Wallpaper?
+    private let daemon: Bool
     private var videoHosts: [VideoHost] = []
     private var webHosts: [WebHost] = []
     private let audioTap = AudioTap()
@@ -522,13 +536,53 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     private var liveryTimer: Timer?
     private var liveryModified: Date?
     private var projectProperties: [String: Any] = [:]
+    private var webServicesStarted = false
 
-    init(wallpaper: Wallpaper) {
-        self.wallpaper = wallpaper
+    init(wallpaper: Wallpaper?, daemon: Bool) {
+        self.initialWallpaper = wallpaper
+        self.daemon = daemon
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if daemon {
+            try? FileManager.default.createDirectory(at: runtimeDirectory,
+                                                     withIntermediateDirectories: true)
+            try? "\(ProcessInfo.processInfo.processIdentifier)"
+                .write(to: pidFile, atomically: true, encoding: .utf8)
+        }
+        observeOcclusion()
+        if let wallpaper = initialWallpaper {
+            apply(wallpaper)
+        } else {
+            print("daemon idle — set a wallpaper with: wallpaperctl set <path-or-workshop-id>")
+        }
+    }
+
+    func reloadFromConfig() {
+        guard let wallpaper = loadConfiguredWallpaper() else {
+            print("reload requested but no valid wallpaper in \(configFile.path)")
+            return
+        }
+        apply(wallpaper)
+    }
+
+    private func teardownHosts() {
+        for host in videoHosts {
+            host.setPaused(true)
+            host.window.orderOut(nil)
+        }
+        videoHosts.removeAll()
+        for host in webHosts {
+            host.webView.configuration.userContentController
+                .removeScriptMessageHandler(forName: "weLog")
+            host.window.orderOut(nil)
+        }
+        webHosts.removeAll()
+    }
+
+    private func apply(_ wallpaper: Wallpaper) {
+        teardownHosts()
         switch wallpaper {
         case .video(let url):
             videoHosts = NSScreen.screens.map { VideoHost(screen: $0, url: url) }
@@ -542,10 +596,11 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
                 WebHost(screen: $0, index: index, root: root, pendingPropertiesJSON: json)
             }
             print("web wallpaper on \(webHosts.count) display(s): \(root.lastPathComponent)")
-            startWebServices()
+            if !webServicesStarted {
+                webServicesStarted = true
+                startWebServices()
+            }
         }
-        observeOcclusion()
-        print("occlusion-pause armed; Ctrl-C to quit")
     }
 
     private func startWebServices() {
@@ -639,30 +694,52 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         mediaFeed.stop()
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         liveryTimer?.invalidate()
+        if daemon { try? FileManager.default.removeItem(at: pidFile) }
         exit(0)
     }
 }
 
 // MARK: - Bootstrap
 
-let arguments = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("--") }
-guard let inputPath = arguments.first, let wallpaper = resolveWallpaper(inputPath) else {
-    fputs("""
-    usage: wallpaper-runtime <wallpaper>
-      <wallpaper>: a .mp4/.mov file, or a Wallpaper Engine project folder
-                   containing project.json (type "video" or "web")
-    """ + "\n", stderr)
-    exit(64)
+let flags = CommandLine.arguments.dropFirst().filter { $0.hasPrefix("--") }
+let positional = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("--") }
+let daemonMode = flags.contains("--daemon")
+
+var initialWallpaper: Wallpaper?
+if daemonMode {
+    initialWallpaper = loadConfiguredWallpaper()   // nil = idle until SIGUSR1
+} else {
+    guard let inputPath = positional.first, let wallpaper = resolveWallpaper(inputPath) else {
+        fputs("""
+        usage: wallpaper-runtime <wallpaper> | --daemon
+          <wallpaper>: a .mp4/.mov file, or a Wallpaper Engine project folder
+                       containing project.json (type "video" or "web")
+          --daemon:    read \(configFile.path), reload on SIGUSR1,
+                       write a pidfile (managed by wallpaperctl)
+        """ + "\n", stderr)
+        exit(64)
+    }
+    initialWallpaper = wallpaper
 }
 
 let application = NSApplication.shared
 application.setActivationPolicy(.accessory)
-let controller = RuntimeController(wallpaper: wallpaper)
+let controller = RuntimeController(wallpaper: initialWallpaper, daemon: daemonMode)
 application.delegate = controller
 
 signal(SIGINT, SIG_IGN)
 let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
 sigintSource.setEventHandler { controller.shutdown() }
 sigintSource.resume()
+
+signal(SIGTERM, SIG_IGN)
+let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+sigtermSource.setEventHandler { controller.shutdown() }
+sigtermSource.resume()
+
+signal(SIGUSR1, SIG_IGN)
+let sigusr1Source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
+sigusr1Source.setEventHandler { controller.reloadFromConfig() }
+sigusr1Source.resume()
 
 application.run()
