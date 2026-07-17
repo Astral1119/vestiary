@@ -1,7 +1,12 @@
 import AppKit
+import Combine
 import Darwin
 import SwiftUI
 import UniformTypeIdentifiers
+
+// Posted by showPanel(); the view refreshes its catalog so imports made
+// outside the panel (liveryctl, workshop theme) appear without a restart.
+let liveryPanelShown = Notification.Name("livery.panel.shown")
 
 private let monoFamily = "JetBrainsMono Nerd Font"
 private let readinessURL = URL(
@@ -2317,6 +2322,9 @@ private struct LiveryView: View {
         .onAppear {
             refreshPreview()
         }
+        .onReceive(NotificationCenter.default.publisher(for: liveryPanelShown)) { _ in
+            wallpapers = loadWallpaperFixtures()
+        }
         .onChange(of: profile) {
             applyState = .idle
             showingOriginal = false
@@ -2448,6 +2456,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showPanel() {
         guard let panel else { return }
+        NotificationCenter.default.post(name: liveryPanelShown, object: nil)
         runtimeLog("showPanel begin visible=\(panel.isVisible) active=\(NSApp.isActive)")
         if panel.isVisible {
             panel.orderOut(nil)
