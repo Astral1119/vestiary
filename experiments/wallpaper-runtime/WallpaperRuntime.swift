@@ -8,6 +8,22 @@ import AVFoundation
 // tap, cursor forwarding, occlusion-pause, and Livery Look colors pushed
 // as WE user properties.
 
+// MARK: - Shell helper
+
+@discardableResult
+func shell(_ arguments: [String]) -> (status: Int32, stdout: String) {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = arguments
+    let stdout = Pipe()
+    process.standardOutput = stdout
+    process.standardError = Pipe()
+    do { try process.run() } catch { return (127, "") }
+    let data = stdout.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    return (process.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+}
+
 // MARK: - Wallpaper resolution
 
 enum Wallpaper {
@@ -169,6 +185,152 @@ final class AudioTap {
     }
 }
 
+// MARK: - Media feed (WE media integration via media-control)
+
+func boolValue(_ any: Any?) -> Bool {
+    if let value = any as? Bool { return value }
+    if let value = any as? String { return value.lowercased() == "true" }
+    if let value = any as? NSNumber { return value.boolValue }
+    return false
+}
+
+func doubleValue(_ any: Any?) -> Double {
+    if let value = any as? Double { return value }
+    if let value = any as? String { return Double(value) ?? 0 }
+    if let value = any as? NSNumber { return value.doubleValue }
+    return 0
+}
+
+func artworkColors(base64: String) -> (String, String, String, String, String) {
+    let fallback = ("#888888", "#555555", "#bbbbbb", "#ffffff", "white")
+    guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters),
+          let image = NSImage(data: data),
+          let rep = NSBitmapImageRep(
+              bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8,
+              samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+              colorSpaceName: .deviceRGB, bytesPerRow: 4, bitsPerPixel: 32),
+          let context = NSGraphicsContext(bitmapImageRep: rep) else { return fallback }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = context
+    image.draw(in: NSRect(x: 0, y: 0, width: 1, height: 1))
+    NSGraphicsContext.restoreGraphicsState()
+    guard let color = rep.colorAt(x: 0, y: 0) else { return fallback }
+    func hex(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> String {
+        String(format: "#%02x%02x%02x",
+               Int(max(0, min(1, r)) * 255), Int(max(0, min(1, g)) * 255),
+               Int(max(0, min(1, b)) * 255))
+    }
+    let r = color.redComponent, g = color.greenComponent, b = color.blueComponent
+    let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return (hex(r, g, b),
+            hex(r * 0.6, g * 0.6, b * 0.6),
+            hex(min(1, r * 1.4 + 0.1), min(1, g * 1.4 + 0.1), min(1, b * 1.4 + 0.1)),
+            luminance > 0.6 ? "#111111" : "#ffffff",
+            luminance > 0.6 ? "black" : "white")
+}
+
+final class MediaFeed {
+    private let queue = DispatchQueue(label: "wallpaper.runtime.media", qos: .utility)
+    private var pollTimer: DispatchSourceTimer?
+    private var timelineTimer: DispatchSourceTimer?
+    private var lastTrackKey = ""
+    private var lastPlayback = -1
+    private var lastEnabled: Bool?
+    private var playing = false
+    private var rate = 1.0
+    private var elapsed = 0.0
+    private var duration = 0.0
+    private var sampledAt = Date()
+    var onEvent: ((String, [String: Any]) -> Void)?
+
+    static var available: Bool { shell(["which", "media-control"]).status == 0 }
+
+    func start() {
+        let poll = DispatchSource.makeTimerSource(queue: queue)
+        poll.schedule(deadline: .now() + 1, repeating: 2)
+        poll.setEventHandler { [weak self] in self?.poll() }
+        poll.resume()
+        pollTimer = poll
+        let timeline = DispatchSource.makeTimerSource(queue: queue)
+        timeline.schedule(deadline: .now() + 2, repeating: 1)
+        timeline.setEventHandler { [weak self] in self?.tickTimeline() }
+        timeline.resume()
+        timelineTimer = timeline
+    }
+
+    func stop() {
+        pollTimer?.cancel()
+        timelineTimer?.cancel()
+    }
+
+    private func emit(_ kind: String, _ payload: [String: Any]) {
+        DispatchQueue.main.async { self.onEvent?(kind, payload) }
+    }
+
+    private func poll() {
+        let result = shell(["media-control", "get"])
+        guard result.status == 0, let data = result.stdout.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let title = object["title"] as? String, !title.isEmpty else {
+            setEnabled(false)
+            return
+        }
+        setEnabled(true)
+        let artist = object["artist"] as? String ?? ""
+        let album = object["album"] as? String ?? ""
+        playing = boolValue(object["playing"])
+        rate = max(doubleValue(object["playbackRate"]), 0)
+        elapsed = doubleValue(object["elapsedTime"])
+        duration = doubleValue(object["duration"])
+        sampledAt = Date()
+
+        let state = playing ? 2 : 1
+        if state != lastPlayback {
+            lastPlayback = state
+            emit("playback", ["state": state])
+        }
+        let trackKey = "\(title)|\(artist)|\(album)"
+        guard trackKey != lastTrackKey else { return }
+        lastTrackKey = trackKey
+        emit("properties", [
+            "title": title, "artist": artist, "subTitle": "",
+            "albumTitle": album, "albumArtist": artist, "genres": "",
+            "contentType": "music",
+        ])
+        if let artwork = object["artworkData"] as? String, !artwork.isEmpty {
+            let mime = object["artworkMimeType"] as? String ?? "image/jpeg"
+            let colors = artworkColors(base64: artwork)
+            emit("thumbnail", [
+                "thumbnail": "data:\(mime);base64,\(artwork)",
+                "primaryColor": colors.0, "secondaryColor": colors.1,
+                "tertiaryColor": colors.2, "textColor": colors.3,
+                "highContrastColor": colors.4,
+            ])
+        }
+    }
+
+    private func setEnabled(_ enabled: Bool) {
+        guard enabled != lastEnabled else { return }
+        lastEnabled = enabled
+        emit("status", ["enabled": enabled])
+        if !enabled {
+            lastTrackKey = ""
+            if lastPlayback != 0 {
+                lastPlayback = 0
+                emit("playback", ["state": 0])
+            }
+        }
+    }
+
+    private func tickTimeline() {
+        guard lastEnabled == true, duration > 0 else { return }
+        let position = playing
+            ? min(duration, elapsed + Date().timeIntervalSince(sampledAt) * rate)
+            : elapsed
+        emit("timeline", ["position": position, "duration": duration])
+    }
+}
+
 // MARK: - Desktop window
 
 func makeDesktopWindow(for screen: NSScreen) -> NSWindow {
@@ -271,6 +433,28 @@ final class WebHost: NSObject, WKScriptMessageHandler {
         window.__weMouse = function (x, y) {
             document.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: y }));
         };
+        window.wallpaperMediaIntegration = {
+            PLAYBACK_STOPPED: 0, PLAYBACK_PAUSED: 1, PLAYBACK_PLAYING: 2
+        };
+        window.__weMediaLast = {};
+        window.__weMediaFns = { status: [], properties: [], thumbnail: [], playback: [], timeline: [] };
+        function __weRegisterMedia(kind) {
+            return function (fn) {
+                window.__weMediaFns[kind].push(fn);
+                if (window.__weMediaLast[kind]) {
+                    try { fn(window.__weMediaLast[kind]); } catch (e) {}
+                }
+            };
+        }
+        window.wallpaperRegisterMediaStatusListener = __weRegisterMedia('status');
+        window.wallpaperRegisterMediaPropertiesListener = __weRegisterMedia('properties');
+        window.wallpaperRegisterMediaThumbnailListener = __weRegisterMedia('thumbnail');
+        window.wallpaperRegisterMediaPlaybackListener = __weRegisterMedia('playback');
+        window.wallpaperRegisterMediaTimelineListener = __weRegisterMedia('timeline');
+        window.__wePushMedia = function (kind, payload) {
+            window.__weMediaLast[kind] = payload;
+            for (const fn of window.__weMediaFns[kind]) { try { fn(payload); } catch (e) {} }
+        };
         window.addEventListener('error', function (e) {
             window.__weLog('page error: ' + e.message + ' @ ' + (e.filename || '?') + ':' + (e.lineno || '?'));
         });
@@ -333,6 +517,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     private var videoHosts: [VideoHost] = []
     private var webHosts: [WebHost] = []
     private let audioTap = AudioTap()
+    private let mediaFeed = MediaFeed()
     private var mouseMonitor: Any?
     private var liveryTimer: Timer?
     private var liveryModified: Date?
@@ -402,6 +587,22 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             let location = NSEvent.mouseLocation
             self?.webHosts.forEach { $0.push(mouseAt: location) }
         }
+
+        if MediaFeed.available {
+            mediaFeed.onEvent = { [weak self] kind, payload in
+                guard let self,
+                      let data = try? JSONSerialization.data(withJSONObject: payload),
+                      let json = String(data: data, encoding: .utf8) else { return }
+                for host in self.webHosts {
+                    host.webView.evaluateJavaScript(
+                        "window.__wePushMedia('\(kind)', \(json))", completionHandler: nil)
+                }
+            }
+            mediaFeed.start()
+            print("media: media-control feed live")
+        } else {
+            print("media: media-control not found (no media integration)")
+        }
     }
 
     private func mergedProperties() -> [String: Any] {
@@ -435,6 +636,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
 
     func shutdown() {
         audioTap.stop()
+        mediaFeed.stop()
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         liveryTimer?.invalidate()
         exit(0)

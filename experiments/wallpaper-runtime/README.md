@@ -41,6 +41,15 @@ Spaces, ignores the mouse, and is invisible to yabai.
   errors are forwarded to the runtime's stdout as `page: …` lines — when
   a wallpaper misbehaves, the console names the missing API or failed
   fetch.
+- **WE media integration**: all five `wallpaperRegisterMedia*Listener`
+  APIs (status, properties, thumbnail, playback, timeline) fed from
+  `media-control` — now-playing title/artist/album, playback state,
+  a 1s interpolated timeline, and album art as a data-URL thumbnail with
+  dominant-color extraction (`primaryColor`/`textColor`/
+  `highContrastColor` per the WE contract). Listeners registered late
+  replay the last payload, matching WE. Unlocks "(+Media Integration)"
+  Workshop wallpapers; the aurora sample shows a track line + cover and
+  tints its ribbons from the artwork.
 - **Livery bridge**: the current Look's `ui` roles are merged over the
   project's default properties — `schemecolor` (WE community convention)
   gets `ui.primary`, and `liveryprimary/-secondary/-tertiary/-surface/
