@@ -144,6 +144,29 @@ Look manifest, and the derivation cache hashes the complete graph.
 wallpaper-derived `<wallpaper>:<scheme>` form. Named library themes are the
 primary theme-first workflow; the legacy form remains useful for comparison.
 
+## Lock image
+
+The live-wallpaper runtime covers the working desktop, so macOS's system
+wallpaper is the still shown by the lock screen. Livery manages that slot as a
+global policy, independently from Look history:
+
+```sh
+livery lock                         # show the current policy
+livery lock ~/Pictures/lock.png     # pin an image across apply and rollback
+livery lock scene:pixel-dusk-city   # pin a cached still from a Repose scene
+livery lock theme                   # follow the current Look's wallpaper
+livery lock off                     # stop lock-specific management
+```
+
+File and scene pins live in `~/.config/livery/lock.json` and win whenever a
+normal Look apply or rollback touches the wallpaper store. `theme` follows the
+active profile and updates with later Look changes; `off` leaves the current
+store alone and returns future applies to their normal wallpaper behavior.
+Video scenes are resolved from `~/.config/wallpaper-runtime/scenes/` and
+reduced with ffmpeg to a content-addressed PNG beneath
+`~/.config/livery/lock/scenes/`. The source scene selection remains in the
+state record so the native panel can expose the same policy later.
+
 ## Personal wallpaper library
 
 The native `i` flow and the CLI share the same importer:
