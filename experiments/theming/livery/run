@@ -4,6 +4,8 @@ set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 APP="/tmp/Livery-$(id -u).app"
 BIN="$APP/Contents/MacOS/lvry"
+PROCESS_PATTERN="^(/private)?${BIN}$"
+READY="/tmp/livery-$(id -u).ready"
 
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
@@ -11,15 +13,39 @@ cp "$ROOT"/../assets/*.jpg "$APP/Contents/Resources/"
 cp "$ROOT/palettes.json" "$APP/Contents/Resources/"
 cp "$ROOT/themes.json" "$APP/Contents/Resources/"
 
-swiftc \
-  -O \
-  -parse-as-library \
-  -warnings-as-errors \
-  -framework AppKit \
-  -framework SwiftUI \
-  -framework UniformTypeIdentifiers \
-  "$ROOT/BarLegibility.swift" \
-  "$ROOT/LiveryPreview.swift" \
-  -o "$BIN"
+# Rebuild only when a source is newer than the binary — cold starts of a
+# fresh build launch instantly instead of paying a full compile.
+needs_build=0
+[ -x "$BIN" ] || needs_build=1
+for source in "$ROOT/LiveryPreview.swift" "$ROOT/BarLegibility.swift"; do
+  if [ "$source" -nt "$BIN" ]; then
+    needs_build=1
+  fi
+done
+
+if [ "$needs_build" = 1 ]; then
+  swiftc \
+    -O \
+    -parse-as-library \
+    -warnings-as-errors \
+    -framework AppKit \
+    -framework SwiftUI \
+    -framework UniformTypeIdentifiers \
+    "$ROOT/BarLegibility.swift" \
+    "$ROOT/LiveryPreview.swift" \
+    -o "$BIN.next"
+  mv -f "$BIN.next" "$BIN"
+fi
+
+# Deterministic launch: retire existing instances and stale readiness
+# before opening, so this always yields exactly one fresh instance.
+pids=$(pgrep -f "$PROCESS_PATTERN" 2>/dev/null || true)
+if [ -n "$pids" ]; then
+  printf '%s\n' "$pids" | while IFS= read -r pid; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  sleep 0.3
+fi
+rm -f "$READY"
 
 open "$APP"
