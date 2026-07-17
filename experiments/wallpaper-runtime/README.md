@@ -124,6 +124,25 @@ prompts for password + Steam Guard, then caches), and put the username in
 The gallery is the interim for — and interaction prototype of — the
 future Livery panel Workshop tab (FEASIBILITY.md stage 4).
 
+## Wallpaper → theme
+
+```sh
+./workshop theme 3419679793
+livery apply "wallpaper:codetime:content" --colors-only
+wallpaperctl set 3419679793
+```
+
+`theme` extracts a representative frame — for video, ffmpeg's
+`thumbnail` filter ~40% in; for web/scene, scanned from the Workshop
+preview — and ingests it via `livery import-wallpaper` with Workshop
+provenance as the credit. Livery's existing machinery does the rest:
+three pinned matugen palettes, `wallpaper:<id>:<scheme>` profiles, full
+transactional apply. Low-res preview-derived frames get a
+`--colors-only` recommendation (palette yes, stretched static wallpaper
+no — the live layer covers the desktop anyway). Loop closure: the
+runtime then pushes the derived theme's roles back into the wallpaper as
+`schemecolor` — the wallpaper is recolored by the theme it generated.
+
 Search is keyless (public browse page for IDs + keyless details API for
 titles/tags/sizes); set `STEAM_API_KEY` for the richer QueryFiles
 backend. Downloads land under `~/Library/Application
