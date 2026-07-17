@@ -14,11 +14,106 @@ let runtimeDirectory = URL(fileURLWithPath: NSHomeDirectory())
     .appendingPathComponent(".config/wallpaper-runtime")
 let configFile = runtimeDirectory.appendingPathComponent("current")
 let pidFile = runtimeDirectory.appendingPathComponent("pid")
+let reposeCommandFile = runtimeDirectory.appendingPathComponent("repose-command")
+let reposeStateFile = runtimeDirectory.appendingPathComponent("repose.json")
+let scenesDirectory = runtimeDirectory.appendingPathComponent("scenes")
 
 func loadConfiguredWallpaper() -> Wallpaper? {
     guard let path = try? String(contentsOf: configFile, encoding: .utf8)
         .trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return nil }
     return resolveWallpaper(path)
+}
+
+// MARK: - Repose state (the single selection record — see HANDOFF
+// "Selection model": every picker is a thin writer over this file)
+
+struct ReposeState {
+    var look = "zephyr"
+    var scene = "desktop"
+    var variant = "quiet"
+    var grade = "on"
+    var night = "off"
+    var pixels = "on"
+
+    static func load() -> ReposeState {
+        var state = ReposeState()
+        guard let data = try? Data(contentsOf: reposeStateFile),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return state }
+        if let value = object["look"] as? String { state.look = value }
+        if let value = object["scene"] as? String { state.scene = value }
+        if let value = object["variant"] as? String { state.variant = value }
+        if let value = object["grade"] as? String { state.grade = value }
+        if let value = object["night"] as? String { state.night = value }
+        if let value = object["pixels"] as? String { state.pixels = value }
+        return state
+    }
+
+    func save() {
+        let object: [String: Any] = ["look": look, "scene": scene, "variant": variant,
+                                     "grade": grade, "night": night, "pixels": pixels]
+        if let data = try? JSONSerialization.data(
+            withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: reposeStateFile)
+        }
+    }
+
+    // the record as WE user properties (scene is runtime-side, not a property)
+    var properties: [String: Any] {
+        ["reposelook": ["value": look],
+         "reposevariant": ["value": variant],
+         "reposegrade": ["value": grade],
+         "reposenight": ["value": night],
+         "reposepixels": ["value": pixels]]
+    }
+}
+
+// The scene library both pickers iterate: the implicit desktop mirror plus
+// everything in scenes/ (videos, WE project dirs, or symlinks to either).
+func sceneLibrary() -> [String] {
+    var library = ["desktop"]
+    let entries = (try? FileManager.default.contentsOfDirectory(atPath: scenesDirectory.path)) ?? []
+    for entry in entries.sorted() where !entry.hasPrefix(".") {
+        let path = scenesDirectory.appendingPathComponent(entry).path
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { continue }
+        if isDirectory.boolValue {
+            if FileManager.default.fileExists(atPath: path + "/project.json") {
+                library.append(path)
+            }
+        } else if ["mp4", "mov", "m4v"].contains((entry as NSString).pathExtension.lowercased()) {
+            library.append(path)
+        }
+    }
+    return library
+}
+
+func jsonString(_ object: [String: Any]) -> String {
+    (try? JSONSerialization.data(withJSONObject: object))
+        .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+}
+
+// Per-scene theme sidecar (qylock precedent: each scene carries its own
+// palette). `<scene minus extension>.theme.json` holds hex roles that
+// override the Livery Look while that scene is up.
+func sceneThemeProperties(_ scene: String) -> [String: Any] {
+    guard scene != "desktop", !scene.isEmpty else { return [:] }
+    let base = (scene as NSString).deletingPathExtension
+    let sidecar = URL(fileURLWithPath: base + ".theme.json")
+    guard let data = try? Data(contentsOf: sidecar),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return [:] }
+    var properties: [String: Any] = [:]
+    for role in ["primary", "secondary", "tertiary", "surface", "background",
+                 "text", "textmuted", "attention", "success", "viz1", "viz2"] {
+        if let color = weColor(object[role] as? String) {
+            properties["livery" + role] = color
+        }
+    }
+    if let color = weColor(object["primary"] as? String) {
+        properties["schemecolor"] = color
+    }
+    return properties
 }
 
 // MARK: - Shell helper
@@ -103,23 +198,23 @@ func resolveWallpaper(_ path: String) -> Wallpaper? {
 
 // MARK: - Livery Look → WE user properties
 
+func weColor(_ hex: String?) -> [String: Any]? {
+    guard let hex, hex.hasPrefix("#"), hex.count == 7 else { return nil }
+    let components = [1, 3, 5].compactMap { start -> Double? in
+        let index = hex.index(hex.startIndex, offsetBy: start)
+        guard let value = UInt8(hex[index...hex.index(index, offsetBy: 1)], radix: 16) else { return nil }
+        return Double(value) / 255.0
+    }
+    guard components.count == 3 else { return nil }
+    return ["value": components.map { String(format: "%.4f", $0) }.joined(separator: " ")]
+}
+
 func liveryProperties() -> [String: Any] {
     let manifest = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent(".config/livery/current/manifest.json")
     guard let data = try? Data(contentsOf: manifest),
           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let ui = object["ui"] as? [String: Any] else { return [:] }
-
-    func weColor(_ hex: String?) -> [String: Any]? {
-        guard let hex, hex.hasPrefix("#"), hex.count == 7 else { return nil }
-        let components = [1, 3, 5].compactMap { start -> Double? in
-            let index = hex.index(hex.startIndex, offsetBy: start)
-            guard let value = UInt8(hex[index...hex.index(index, offsetBy: 1)], radix: 16) else { return nil }
-            return Double(value) / 255.0
-        }
-        guard components.count == 3 else { return nil }
-        return ["value": components.map { String(format: "%.4f", $0) }.joined(separator: " ")]
-    }
 
     var properties: [String: Any] = [:]
     if let color = weColor(ui["primary"] as? String) { properties["schemecolor"] = color }
@@ -153,16 +248,21 @@ func liveryManifestModificationDate() -> Date? {
 // MARK: - Cava audio tap (64 bars → 128-sample WE frames)
 
 final class AudioTap {
-    private let process = Process()
-    private let pipe = Pipe()
+    private var process: Process?
+    private var pipe: Pipe?
     private var buffer = Data()
     private var configURL: URL?
+    private var cavaPath: String?
+    private var watchdog: Timer?
+    private var lastFrameAt = Date.distantPast
+    private var framesThisLaunch = 0
     var onFrame: (([Double]) -> Void)?
     private(set) var live = false
     private(set) var framesReceived = 0
 
     func start() {
         guard let cava = findCava() else { return }
+        cavaPath = cava
         // Mirrors the proven zephyr-strings tap config (Core Audio system
         // output tap); without the [input] section cava reads the default
         // device and delivers silence.
@@ -195,15 +295,42 @@ final class AudioTap {
             .appendingPathComponent("wallpaper-runtime-cava-\(getuid()).conf")
         try? config.write(to: configURL, atomically: true, encoding: .utf8)
         self.configURL = configURL
+        launch()
 
-        process.executableURL = URL(fileURLWithPath: cava)
+        // Cava emits frames continuously (zeros in silence), so a stall means
+        // the tap died — commonly an output-device switch (AirPods) breaking
+        // the CoreAudio tap while the process keeps running. Relaunch heals it.
+        watchdog = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            self?.checkHealth()
+        }
+    }
+
+    private func launch() {
+        guard let cavaPath, let configURL else { return }
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cavaPath)
         process.arguments = ["-p", configURL.path]
         process.standardOutput = pipe
         process.standardError = Pipe()
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             self?.consume(handle.availableData)
         }
+        framesThisLaunch = 0
+        lastFrameAt = Date()
         do { try process.run(); live = true } catch { live = false }
+        self.process = process
+        self.pipe = pipe
+    }
+
+    private func checkHealth() {
+        guard live, let process else { return }
+        let stalled = framesThisLaunch > 0 && Date().timeIntervalSince(lastFrameAt) > 15
+        guard !process.isRunning || stalled else { return }
+        print("audio: cava \(process.isRunning ? "stalled" : "exited") — restarting tap")
+        pipe?.fileHandleForReading.readabilityHandler = nil
+        if process.isRunning { process.terminate() }
+        launch()
     }
 
     private func findCava() -> String? {
@@ -225,13 +352,18 @@ final class AudioTap {
             let frame = bands + bands.reversed()
             DispatchQueue.main.async {
                 self.framesReceived += 1
+                self.framesThisLaunch += 1
+                self.lastFrameAt = Date()
                 self.onFrame?(frame)
             }
         }
     }
 
     func stop() {
-        if process.isRunning { process.terminate() }
+        watchdog?.invalidate()
+        live = false
+        pipe?.fileHandleForReading.readabilityHandler = nil
+        if let process, process.isRunning { process.terminate() }
         if let configURL { try? FileManager.default.removeItem(at: configURL) }
     }
 }
@@ -292,9 +424,17 @@ final class MediaFeed {
     private var elapsed = 0.0
     private var duration = 0.0
     private var sampledAt = Date()
+    // last payload per kind (main-thread) — replayed into webviews created
+    // after the fact, so a fresh cover shows the current track immediately
+    private(set) var lastPayloads: [String: [String: Any]] = [:]
     var onEvent: ((String, [String: Any]) -> Void)?
 
     static var available: Bool { shell(["which", "media-control"]).status == 0 }
+
+    func snapshotJSON() -> String {
+        (try? JSONSerialization.data(withJSONObject: lastPayloads))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+    }
 
     func start() {
         let poll = DispatchSource.makeTimerSource(queue: queue)
@@ -315,7 +455,10 @@ final class MediaFeed {
     }
 
     private func emit(_ kind: String, _ payload: [String: Any]) {
-        DispatchQueue.main.async { self.onEvent?(kind, payload) }
+        DispatchQueue.main.async {
+            self.lastPayloads[kind] = payload
+            self.onEvent?(kind, payload)
+        }
     }
 
     private func poll() {
@@ -388,6 +531,8 @@ final class AgentFeed {
     private let queue = DispatchQueue(label: "wallpaper.runtime.agents", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var lastCounts = (working: -1, waiting: -1, done: -1)
+    // last pushed counts (main-thread) — seeded into webviews created later
+    private(set) var lastProperties: [String: Any] = [:]
     var onChange: (([String: Any]) -> Void)?
 
     static var available: Bool { shell(["which", "tmux"]).status == 0 }
@@ -421,7 +566,10 @@ final class AgentFeed {
             "agentwaiting": ["value": counts.waiting],
             "agentdone": ["value": counts.done],
         ]
-        DispatchQueue.main.async { self.onChange?(properties) }
+        DispatchQueue.main.async {
+            self.lastProperties = properties
+            self.onChange?(properties)
+        }
     }
 }
 
@@ -445,43 +593,92 @@ func makeDesktopWindow(for screen: NSScreen) -> NSWindow {
     return window
 }
 
+// MARK: - Cover window (repose)
+
+// The repose cover: a non-activating key panel above everything. Spike
+// verdict (../repose/SPIKE.md): key status moves but focus is preserved on
+// exit, the app never activates, and no Accessibility is needed. Media keys
+// pass through because NX_SYSDEFINED events never reach key handling.
+final class CoverPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+func makeCoverPanel(for screen: NSScreen) -> NSWindow {
+    let panel = CoverPanel(
+        contentRect: screen.frame,
+        styleMask: [.borderless, .nonactivatingPanel],
+        backing: .buffered,
+        defer: false
+    )
+    panel.level = .screenSaver
+    panel.collectionBehavior = [.canJoinAllSpaces, .stationary,
+                                .fullScreenAuxiliary, .ignoresCycle]
+    panel.isOpaque = true
+    panel.backgroundColor = .black
+    panel.hidesOnDeactivate = false
+    panel.isReleasedWhenClosed = false
+    return panel
+}
+
 // MARK: - Per-display hosts
 
 final class VideoHost {
     let window: NSWindow
+    let view: NSView
     private let player: AVQueuePlayer
     private let looper: AVPlayerLooper
 
-    init(screen: NSScreen, url: URL) {
-        window = makeDesktopWindow(for: screen)
+    init(screen: NSScreen, url: URL, attachTo existingWindow: NSWindow? = nil) {
+        window = existingWindow ?? makeDesktopWindow(for: screen)
         let item = AVPlayerItem(url: url)
         player = AVQueuePlayer()
         player.isMuted = true
         looper = AVPlayerLooper(player: player, templateItem: item)
         let layer = AVPlayerLayer(player: player)
         layer.videoGravity = .resizeAspectFill
-        let view = NSView(frame: screen.frame)
+        let view = NSView(frame: existingWindow?.contentView?.bounds ?? screen.frame)
+        self.view = view
         view.wantsLayer = true
         layer.frame = view.bounds
         layer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         view.layer?.addSublayer(layer)
-        window.contentView = view
-        window.orderFront(nil)
+        if let container = existingWindow?.contentView {
+            view.autoresizingMask = [.width, .height]
+            container.addSubview(view)
+        } else {
+            window.contentView = view
+            window.orderFront(nil)
+        }
         player.play()
     }
 
     func setPaused(_ paused: Bool) { paused ? player.pause() : player.play() }
 }
 
+enum WebSurface {
+    case desktop
+    case cover
+}
+
 final class WebHost: NSObject, WKScriptMessageHandler {
     let window: NSWindow
     let webView: WKWebView
     let screen: NSScreen
+    let surface: WebSurface
     private(set) var paused = false
 
-    init(screen: NSScreen, index: URL, root: URL, pendingPropertiesJSON: String) {
+    init(screen: NSScreen, index: URL, root: URL, pendingPropertiesJSON: String,
+         surface: WebSurface = .desktop, attachTo existingWindow: NSWindow? = nil,
+         mediaSnapshotJSON: String = "{}", transparent: Bool = false) {
         self.screen = screen
-        window = makeDesktopWindow(for: screen)
+        self.surface = surface
+        if let existingWindow {
+            window = existingWindow
+        } else {
+            window = surface == .desktop ? makeDesktopWindow(for: screen)
+                                         : makeCoverPanel(for: screen)
+        }
 
         let configuration = WKWebViewConfiguration()
         // WE web wallpapers load local textures into WebGL; without this
@@ -530,7 +727,7 @@ final class WebHost: NSObject, WKScriptMessageHandler {
         window.wallpaperMediaIntegration = {
             PLAYBACK_STOPPED: 0, PLAYBACK_PAUSED: 1, PLAYBACK_PLAYING: 2
         };
-        window.__weMediaLast = {};
+        window.__weMediaLast = \(mediaSnapshotJSON);
         window.__weMediaFns = { status: [], properties: [], thumbnail: [], playback: [], timeline: [] };
         function __weRegisterMedia(kind) {
             return function (fn) {
@@ -567,8 +764,24 @@ final class WebHost: NSObject, WKScriptMessageHandler {
             WKUserScript(source: bootstrap, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
         webView = WKWebView(frame: screen.frame, configuration: configuration)
-        window.contentView = webView
-        window.orderFront(nil)
+        if transparent {
+            // composition over a backdrop view: the page body is transparent
+            // (reposebackdrop: clear); the web view must not paint beneath it
+            webView.setValue(false, forKey: "drawsBackground")
+        }
+        if let container = existingWindow?.contentView {
+            webView.frame = container.bounds
+            webView.autoresizingMask = [.width, .height]
+            container.addSubview(webView)
+            // the caller owns ordering of a shared window
+        } else {
+            window.contentView = webView
+            if surface == .cover {
+                window.orderFrontRegardless()
+            } else {
+                window.orderFront(nil)
+            }
+        }
         super.init()
         webView.configuration.userContentController.add(self, name: "weLog")
         webView.loadFileURL(index, allowingReadAccessTo: root)
@@ -609,8 +822,22 @@ final class WebHost: NSObject, WKScriptMessageHandler {
 final class RuntimeController: NSObject, NSApplicationDelegate {
     private let initialWallpaper: Wallpaper?
     private let daemon: Bool
+    private struct CoverDisplay {
+        let panel: NSWindow
+        let screen: NSScreen
+        var backdropWeb: WebHost?
+        var backdropVideo: VideoHost?
+        let composition: WebHost
+    }
+
     private var videoHosts: [VideoHost] = []
     private var webHosts: [WebHost] = []
+    private var coverDisplays: [CoverDisplay] = []
+    private var coverScene = "desktop"
+    private var compositionRoot: URL?
+    private var reposeState = ReposeState.load()
+    private var coverMonitor: Any?
+    private var coverBarHidden = false
     private let audioTap = AudioTap()
     private let mediaFeed = MediaFeed()
     private let agentFeed = AgentFeed()
@@ -675,8 +902,10 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             let pending = mergedProperties()
             let json = (try? JSONSerialization.data(withJSONObject: pending))
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            let mediaSnapshot = mediaFeed.snapshotJSON()
             webHosts = NSScreen.screens.map {
-                WebHost(screen: $0, index: index, root: root, pendingPropertiesJSON: json)
+                WebHost(screen: $0, index: index, root: root, pendingPropertiesJSON: json,
+                        mediaSnapshotJSON: mediaSnapshot)
             }
             print("web wallpaper on \(webHosts.count) display(s): \(root.lastPathComponent)")
             if !webServicesStarted {
@@ -684,6 +913,251 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
                 startWebServices()
             }
         }
+    }
+
+    private var coverWebHosts: [WebHost] {
+        coverDisplays.flatMap { [$0.backdropWeb, $0.composition].compactMap { $0 } }
+    }
+    private var allWebHosts: [WebHost] { webHosts + coverWebHosts }
+
+    // MARK: Repose cover (SIGUSR2; command written by `wallpaperctl repose*`)
+
+    func handleReposeCommand() {
+        guard let raw = try? String(contentsOf: reposeCommandFile, encoding: .utf8) else { return }
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let action = (lines.first ?? "").split(separator: " ").first.map(String.init) ?? "toggle"
+        let path = lines.count > 1 ? lines[1].trimmingCharacters(in: .whitespaces) : ""
+        reposeState = ReposeState.load()
+
+        if !coverDisplays.isEmpty {
+            switch action {
+            case "exit", "toggle":
+                exitCover()
+            default:
+                // enter-while-covered and refresh both re-apply the record
+                applyReposeState()
+            }
+            return
+        }
+        guard action == "enter" || action == "toggle" else { return }
+        enterCover(path: path)
+    }
+
+    // Wallpaper-through: the configured scene (or the desktop wallpaper)
+    // renders inside the cover beneath the composition — its own instance;
+    // the occluded desktop copy pauses. nil = graded-opaque composition.
+    private func resolveBackdrop(_ scene: String) -> Wallpaper? {
+        var wallpaper: Wallpaper?
+        if scene != "desktop" && !scene.isEmpty {
+            wallpaper = resolveWallpaper(scene)
+            if wallpaper == nil { print("repose: bad scene '\(scene)', mirroring desktop") }
+        }
+        if wallpaper == nil { wallpaper = loadConfiguredWallpaper() }
+        if case .web(_, let root, _)? = wallpaper, root == compositionRoot {
+            return nil   // never stack repose on itself
+        }
+        return wallpaper
+    }
+
+    private func attachBackdrop(_ display: inout CoverDisplay, wallpaper: Wallpaper?,
+                                livery: [String: Any], mediaSnapshot: String) {
+        switch wallpaper {
+        case .video(let url)?:
+            display.backdropVideo = VideoHost(screen: display.screen, url: url,
+                                              attachTo: display.panel)
+        case .web(let index, let root, var properties)?:
+            for (key, value) in livery { properties[key] = value }
+            display.backdropWeb = WebHost(
+                screen: display.screen, index: index, root: root,
+                pendingPropertiesJSON: jsonString(properties), surface: .cover,
+                attachTo: display.panel, mediaSnapshotJSON: mediaSnapshot)
+        case nil:
+            break
+        }
+        // re-adding the composition web view moves it back above the backdrop
+        if wallpaper != nil, let container = display.panel.contentView {
+            container.addSubview(display.composition.webView)
+        }
+    }
+
+    private func detachBackdrop(_ display: inout CoverDisplay) {
+        if let old = display.backdropWeb {
+            old.webView.configuration.userContentController
+                .removeScriptMessageHandler(forName: "weLog")
+            old.webView.removeFromSuperview()
+            display.backdropWeb = nil
+        }
+        if let old = display.backdropVideo {
+            old.setPaused(true)
+            old.view.removeFromSuperview()
+            display.backdropVideo = nil
+        }
+    }
+
+    private func enterCover(path: String) {
+        guard !path.isEmpty, case .web(let index, let root, var properties)? = resolveWallpaper(path) else {
+            print("repose: no web wallpaper at '\(path)'")
+            return
+        }
+        compositionRoot = root
+        coverScene = reposeState.scene
+        let backdrop = resolveBackdrop(coverScene)
+        let livery = liveryProperties()
+        for (key, value) in livery { properties[key] = value }
+        for (key, value) in sceneThemeProperties(coverScene) { properties[key] = value }
+        for (key, value) in agentFeed.lastProperties { properties[key] = value }
+        for (key, value) in reposeState.properties { properties[key] = value }
+        properties["reposebackdrop"] = ["value": backdrop == nil ? "opaque" : "clear"]
+        properties["reposecover"] = ["value": "on"]   // shows the key hint once
+        let json = jsonString(properties)
+        let mediaSnapshot = mediaFeed.snapshotJSON()
+
+        for screen in NSScreen.screens {
+            let panel = makeCoverPanel(for: screen)
+            var display = CoverDisplay(
+                panel: panel, screen: screen, backdropWeb: nil, backdropVideo: nil,
+                composition: WebHost(screen: screen, index: index, root: root,
+                                     pendingPropertiesJSON: json, surface: .cover,
+                                     attachTo: panel, mediaSnapshotJSON: mediaSnapshot,
+                                     transparent: true))
+            attachBackdrop(&display, wallpaper: backdrop, livery: livery,
+                           mediaSnapshot: mediaSnapshot)
+            coverDisplays.append(display)
+            panel.orderFrontRegardless()
+        }
+        (coverDisplays.first?.panel as? NSPanel)?.makeKeyAndOrderFront(nil)
+
+        // Esc is the only way out (fat-finger protection — re-entry costs a
+        // chord). Selection keys are carved out (see handleCoverKey); stray
+        // keys, clicks, and scrolls are swallowed. Media keys are
+        // systemDefined events — never matched, so they pass through.
+        coverMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+        ) { [weak self] event in
+            guard let self, let window = event.window,
+                  self.coverDisplays.contains(where: { $0.panel == window }) else { return event }
+            if event.type == .keyDown {
+                if event.keyCode == 53 {   // esc
+                    DispatchQueue.main.async { self.exitCover() }
+                } else {
+                    _ = self.handleCoverKey(event)
+                }
+            }
+            return nil
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let hidden = shell(["sketchybar", "--bar", "hidden=on"]).status == 0
+            DispatchQueue.main.async { self.coverBarHidden = hidden }
+        }
+        if !webServicesStarted {
+            webServicesStarted = true
+            startWebServices()
+        }
+        let backdropNote = backdrop == nil ? "opaque" : "wallpaper-through"
+        print("repose: cover entered (\(reposeState.look), \(reposeState.variant), "
+            + "\(backdropNote)) on \(coverDisplays.count) display(s)")
+    }
+
+    // MARK: Live selection (in-cover keys — the picker is the config)
+
+    private func handleCoverKey(_ event: NSEvent) -> Bool {
+        switch event.keyCode {
+        case 123: cycleScene(-1); return true   // ←
+        case 124: cycleScene(1); return true    // →
+        case 48:                                // tab
+            reposeState.look = reposeState.look == "zephyr" ? "pixel" : "zephyr"
+            persistAndApply()
+            return true
+        default: break
+        }
+        switch event.charactersIgnoringModifiers {
+        case "x":
+            reposeState.pixels = reposeState.pixels == "on" ? "off" : "on"
+            persistAndApply()
+            return true
+        case "v":
+            reposeState.variant = reposeState.variant == "quiet" ? "loud" : "quiet"
+            persistAndApply()
+            return true
+        case "g":
+            reposeState.grade = reposeState.grade == "on" ? "off" : "on"
+            persistAndApply()
+            return true
+        case "n":
+            reposeState.night = reposeState.night == "on" ? "off" : "on"
+            persistAndApply()
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func cycleScene(_ step: Int) {
+        let library = sceneLibrary()
+        let current = library.firstIndex(of: reposeState.scene) ?? 0
+        reposeState.scene = library[(current + step + library.count) % library.count]
+        persistAndApply()
+    }
+
+    private func persistAndApply() {
+        reposeState.save()
+        applyReposeState()
+        let scene = reposeState.scene == "desktop"
+            ? "desktop" : (reposeState.scene as NSString).lastPathComponent
+        print("repose: \(reposeState.look) · \(scene) · \(reposeState.variant)"
+            + " · pixels \(reposeState.pixels) · grade \(reposeState.grade)"
+            + " · night \(reposeState.night)")
+    }
+
+    private func applyReposeState() {
+        guard !coverDisplays.isEmpty else { return }
+        var properties = reposeState.properties
+        if reposeState.scene != coverScene {
+            coverScene = reposeState.scene
+            let backdrop = resolveBackdrop(coverScene)
+            let livery = liveryProperties()
+            let mediaSnapshot = mediaFeed.snapshotJSON()
+            for index in coverDisplays.indices {
+                detachBackdrop(&coverDisplays[index])
+                attachBackdrop(&coverDisplays[index], wallpaper: backdrop,
+                               livery: livery, mediaSnapshot: mediaSnapshot)
+            }
+            // re-push the Look, then the scene's theme over it — moving to an
+            // unthemed scene restores Livery colors, a themed one overrides
+            for (key, value) in livery { properties[key] = value }
+            for (key, value) in sceneThemeProperties(coverScene) { properties[key] = value }
+            properties["reposebackdrop"] = ["value": backdrop == nil ? "opaque" : "clear"]
+        }
+        for display in coverDisplays { display.composition.push(properties: properties) }
+    }
+
+    private func exitCover() {
+        guard !coverDisplays.isEmpty else { return }
+        if let coverMonitor { NSEvent.removeMonitor(coverMonitor) }
+        coverMonitor = nil
+        let panels = coverDisplays.map { $0.panel }
+        let hosts = coverWebHosts
+        let videos = coverDisplays.compactMap { $0.backdropVideo }
+        coverDisplays.removeAll()
+        if coverBarHidden {
+            coverBarHidden = false
+            DispatchQueue.global(qos: .userInitiated).async {
+                shell(["sketchybar", "--bar", "hidden=off"])
+            }
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            panels.forEach { $0.animator().alphaValue = 0 }
+        }, completionHandler: {
+            for host in hosts {
+                host.webView.configuration.userContentController
+                    .removeScriptMessageHandler(forName: "weLog")
+            }
+            videos.forEach { $0.setPaused(true) }
+            panels.forEach { $0.orderOut(nil) }
+        })
+        print("repose: cover exited")
     }
 
     private func startWebServices() {
@@ -701,7 +1175,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         }
 
         audioTap.onFrame = { [weak self] frame in
-            self?.webHosts.forEach { $0.push(audio: frame) }
+            self?.allWebHosts.forEach { $0.push(audio: frame) }
         }
         audioTap.start()
         print(audioTap.live ? "audio: cava launched" : "audio: cava unavailable (no audio response)")
@@ -728,7 +1202,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
 
         if AgentFeed.available {
             agentFeed.onChange = { [weak self] properties in
-                self?.webHosts.forEach { $0.push(properties: properties) }
+                self?.allWebHosts.forEach { $0.push(properties: properties) }
             }
             agentFeed.start()
             print("agents: tmux @agent_state feed live")
@@ -739,7 +1213,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
                 guard let self,
                       let data = try? JSONSerialization.data(withJSONObject: payload),
                       let json = String(data: data, encoding: .utf8) else { return }
-                for host in self.webHosts {
+                for host in self.allWebHosts {
                     host.webView.evaluateJavaScript(
                         "window.__wePushMedia('\(kind)', \(json))", completionHandler: nil)
                 }
@@ -754,6 +1228,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     private func mergedProperties() -> [String: Any] {
         var merged = projectProperties
         for (key, value) in liveryProperties() { merged[key] = value }
+        for (key, value) in agentFeed.lastProperties { merged[key] = value }
         // Empty file/text placeholders break wallpapers (`file:///` srcs);
         // WE's UI never applies an empty value either.
         return merged.filter { _, value in
@@ -767,6 +1242,10 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     private func pushProperties() {
         let merged = mergedProperties()
         webHosts.forEach { $0.push(properties: merged) }
+        // covers get only the Livery roles — the desktop wallpaper's own
+        // project properties must not leak into the repose composition
+        let livery = liveryProperties()
+        coverWebHosts.forEach { $0.push(properties: livery) }
     }
 
     private func observeOcclusion() {
@@ -781,6 +1260,8 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     }
 
     func shutdown() {
+        // never strand a hidden bar if we die while covered
+        if coverBarHidden { shell(["sketchybar", "--bar", "hidden=off"]) }
         audioTap.stop()
         mediaFeed.stop()
         agentFeed.stop()
@@ -811,7 +1292,8 @@ if daemonMode {
           <wallpaper>: a .mp4/.mov file, or a Wallpaper Engine project folder
                        containing project.json (type "video" or "web")
           --daemon:    read \(configFile.path), reload on SIGUSR1,
-                       write a pidfile (managed by wallpaperctl)
+                       repose cover on SIGUSR2, write a pidfile
+                       (managed by wallpaperctl)
         """ + "\n", stderr)
         exit(64)
     }
@@ -837,5 +1319,10 @@ signal(SIGUSR1, SIG_IGN)
 let sigusr1Source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
 sigusr1Source.setEventHandler { controller.reloadFromConfig() }
 sigusr1Source.resume()
+
+signal(SIGUSR2, SIG_IGN)
+let sigusr2Source = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
+sigusr2Source.setEventHandler { controller.handleReposeCommand() }
+sigusr2Source.resume()
 
 application.run()

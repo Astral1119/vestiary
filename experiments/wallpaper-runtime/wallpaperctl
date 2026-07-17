@@ -3,6 +3,17 @@
 
   wallpaperctl set <path-or-workshop-id>   # switch wallpaper (starts if needed)
   wallpaperctl clear                       # tear down to idle (static desktop)
+  wallpaperctl repose [quiet|loud|off]     # toggle the repose cover
+                                           # (explicit variant enters/switches)
+  wallpaperctl repose-bg <scene|desktop>   # cover scene (path, workshop id,
+                                           # or "desktop" to mirror it)
+  wallpaperctl repose-look <zephyr|pixel>  # composition language
+
+Repose selection lives in one record (~/.config/wallpaper-runtime/
+repose.json: look, scene, variant, grade, night, pixels); these
+subcommands and the in-cover keys (arrows scene, tab look, x pixels,
+v variant, g/n treatments) are both thin writers over it, applied live
+to an open cover.
   wallpaperctl start | stop | restart
   wallpaperctl status
   wallpaperctl build                       # (re)compile the daemon binary
@@ -15,6 +26,7 @@ SIGUSR1; `stop` uses launchctl when the agent is loaded so KeepAlive
 doesn't resurrect it.
 """
 
+import json
 import os
 import signal
 import subprocess
@@ -168,6 +180,104 @@ def set_wallpaper(target):
         print(f"set: {path}")
 
 
+REPOSE_STATE = os.path.join(STATE_DIR, "repose.json")
+
+
+def load_repose_state():
+    state = {"look": "zephyr", "scene": "desktop", "variant": "quiet",
+             "grade": "on", "night": "off", "pixels": "on"}
+    try:
+        with open(REPOSE_STATE) as handle:
+            state.update(json.load(handle))
+    except (OSError, ValueError):
+        pass
+    return state
+
+
+def save_repose_state(state):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(REPOSE_STATE, "w") as handle:
+        json.dump(state, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
+def signal_repose(verb):
+    """Write the command file and signal the daemon (starting it if the verb
+    needs a cover; a refresh with no daemon just applies at next entry)."""
+    build()
+    os.makedirs(STATE_DIR, exist_ok=True)
+    path = os.path.join(SCRIPT_DIR, "repose")
+    with open(os.path.join(STATE_DIR, "repose-command"), "w") as handle:
+        handle.write(f"{verb}\n{path}\n")
+    pid = runtime_pid()
+    if pid and runtime_stale(pid):
+        print("runtime binary is newer than the daemon — restarting")
+        os.kill(pid, signal.SIGTERM)
+        import time
+        for _ in range(20):
+            if not runtime_pid():
+                break
+            time.sleep(0.1)
+        pid = None
+    if not pid:
+        if verb in ("exit", "refresh"):
+            return
+        start()
+        import time
+        for _ in range(30):
+            pid = runtime_pid()
+            if pid:
+                break
+            time.sleep(0.1)
+    if not pid:
+        sys.exit("runtime did not start; check the log")
+    os.kill(pid, signal.SIGUSR2)
+
+
+def repose(args):
+    action = args[0] if args else "toggle"
+    if action not in ("quiet", "loud", "off", "toggle"):
+        sys.exit("usage: wallpaperctl repose [quiet|loud|off]")
+    if action in ("quiet", "loud"):
+        state = load_repose_state()
+        state["variant"] = action
+        save_repose_state(state)
+    verb = ("exit" if action == "off"
+            else "enter" if action in ("quiet", "loud") else "toggle")
+    signal_repose(verb)
+    print(f"repose: {verb}" + (f" ({action})" if action in ("quiet", "loud") else ""))
+
+
+def repose_bg(args):
+    """Set the cover scene in repose.json; applies live if covered."""
+    state = load_repose_state()
+    if not args:
+        scene = state["scene"]
+        print(f"repose scene: {scene if scene != 'desktop' else '(mirrors the desktop wallpaper)'}")
+        return
+    if args[0] in ("desktop", "off"):
+        state["scene"] = "desktop"
+    else:
+        state["scene"] = resolve(args[0])
+    save_repose_state(state)
+    signal_repose("refresh")
+    print(f"repose scene: {state['scene']}")
+
+
+def repose_look(args):
+    """Set the composition language in repose.json; applies live if covered."""
+    state = load_repose_state()
+    if not args:
+        print(f"repose look: {state['look']}")
+        return
+    if args[0] not in ("zephyr", "pixel"):
+        sys.exit("usage: wallpaperctl repose-look <zephyr|pixel>")
+    state["look"] = args[0]
+    save_repose_state(state)
+    signal_repose("refresh")
+    print(f"repose look: {state['look']}")
+
+
 def clear():
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(CONFIG, "w") as handle:
@@ -232,6 +342,12 @@ def main():
     command = args[0]
     if command == "set" and len(args) > 1:
         set_wallpaper(args[1])
+    elif command == "repose":
+        repose(args[1:])
+    elif command == "repose-bg":
+        repose_bg(args[1:])
+    elif command == "repose-look":
+        repose_look(args[1:])
     elif command == "clear":
         clear()
     elif command == "start":
