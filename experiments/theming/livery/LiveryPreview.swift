@@ -709,6 +709,70 @@ private func runLiveryControl(_ arguments: [String]) -> ControlResult {
     }
 }
 
+private struct WorkshopItem: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let size: Double
+    let subs: Int
+    let preview: String?
+    let playable: Bool
+}
+
+private struct WorkshopIngest: Decodable {
+    let fixture: String
+}
+
+private func workshopControlURL() -> URL {
+    liveryControlURL()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("wallpaper-runtime/workshop")
+}
+
+private func runWorkshop(_ arguments: [String]) -> ControlResult {
+    let control = workshopControlURL()
+    guard FileManager.default.isExecutableFile(atPath: control.path) else {
+        return ControlResult(status: 127, output: "workshop client not found")
+    }
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = control
+    process.arguments = arguments
+    process.currentDirectoryURL = control.deletingLastPathComponent()
+    process.standardOutput = output
+    process.standardError = output
+    var environment = ProcessInfo.processInfo.environment
+    let inheritedPath = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+    environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(inheritedPath)"
+    process.environment = environment
+    do {
+        try process.run()
+        process.waitUntilExit()
+        return ControlResult(
+            status: process.terminationStatus,
+            output: String(
+                data: output.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        )
+    } catch {
+        return ControlResult(status: 126, output: error.localizedDescription)
+    }
+}
+
+private func loadWorkshopItems(query: String) -> [WorkshopItem] {
+    let result = runWorkshop(["search", query, "--n", "12", "--json"])
+    guard
+        result.status == 0,
+        let line = result.output.split(separator: "\n").last(where: { $0.hasPrefix("[") }),
+        let data = String(line).data(using: .utf8),
+        let items = try? JSONDecoder().decode([WorkshopItem].self, from: data)
+    else {
+        return []
+    }
+    return items
+}
+
 private func loadWallpaperFixtures() -> [WallpaperFixture] {
     let result = runLiveryControl(["wallpapers", "--json"])
     guard
@@ -1256,6 +1320,12 @@ private struct GridPane: View {
     let palette: ThemePalette
     let fixtures: [WallpaperFixture]
     let selectFixture: (Int) -> Void
+    let workshopIngested: (String) -> Void
+
+    @State private var workshopQuery = ""
+    @State private var workshopItems: [WorkshopItem] = []
+    @State private var workshopBusy: String?
+    @State private var workshopNote: String?
 
     private let columns = [
         GridItem(.adaptive(minimum: 220, maximum: 340), spacing: 10),
@@ -1274,7 +1344,50 @@ private struct GridPane: View {
             }
             .font(.lab(9, weight: .semibold))
 
+            HStack(spacing: 8) {
+                Text("WORKSHOP")
+                    .font(.lab(9, weight: .semibold))
+                    .foregroundStyle(palette.panelText(0.62))
+                TextField("search wallpaper engine…", text: $workshopQuery)
+                    .textFieldStyle(.plain)
+                    .font(.lab(10))
+                    .foregroundStyle(palette.panelText(0.85))
+                    .onSubmit { searchWorkshop() }
+                if let note = workshopNote {
+                    Text(note)
+                        .font(.lab(9))
+                        .foregroundStyle(palette.panelMuted(0.45))
+                }
+                if !workshopItems.isEmpty {
+                    Button("clear") {
+                        workshopItems = []
+                        workshopNote = nil
+                    }
+                    .buttonStyle(.plain)
+                    .font(.lab(9, weight: .semibold))
+                    .foregroundStyle(palette.panelAccent(0.62))
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(Color(hex: palette.surface))
+            .overlay(Rectangle().stroke(Color(hex: palette.outline).opacity(0.16), lineWidth: 1))
+
             ThemedScrollView(axis: .vertical, palette: palette) {
+                if !workshopItems.isEmpty {
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(workshopItems) { item in
+                            WorkshopCard(
+                                item: item,
+                                palette: palette,
+                                busy: workshopBusy == item.id
+                            ) {
+                                ingest(item)
+                            }
+                        }
+                    }
+                    .padding(.bottom, 10)
+                }
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(Array(fixtures.enumerated()), id: \.element.id) { index, fixture in
                         WallpaperGridCard(fixture: fixture, selected: index == selectedFixture) {
@@ -1285,6 +1398,96 @@ private struct GridPane: View {
             }
         }
         .padding(14)
+    }
+
+    private func searchWorkshop() {
+        let query = workshopQuery.trimmingCharacters(in: .whitespaces)
+        workshopNote = "searching…"
+        workshopBusy = nil
+        DispatchQueue.global(qos: .userInitiated).async {
+            let items = loadWorkshopItems(query: query)
+            DispatchQueue.main.async {
+                workshopItems = items
+                workshopNote = items.isEmpty ? "no results" : "\(items.count) results"
+            }
+        }
+    }
+
+    private func ingest(_ item: WorkshopItem) {
+        guard item.playable, workshopBusy == nil else { return }
+        workshopBusy = item.id
+        workshopNote = "ingesting \(item.title)…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = runWorkshop(["ingest", item.id, "--json"])
+            DispatchQueue.main.async {
+                workshopBusy = nil
+                guard
+                    result.status == 0,
+                    let line = result.output.split(separator: "\n")
+                        .last(where: { $0.hasPrefix("{") }),
+                    let data = String(line).data(using: .utf8),
+                    let ingested = try? JSONDecoder().decode(WorkshopIngest.self, from: data)
+                else {
+                    workshopNote = "ingest failed"
+                    return
+                }
+                workshopNote = nil
+                workshopIngested(ingested.fixture)
+            }
+        }
+    }
+}
+
+private struct WorkshopCard: View {
+    let item: WorkshopItem
+    let palette: ThemePalette
+    let busy: Bool
+    let ingest: () -> Void
+
+    var body: some View {
+        Button(action: ingest) {
+            VStack(alignment: .leading, spacing: 0) {
+                Group {
+                    if let path = item.preview, let image = NSImage(contentsOfFile: path) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Color.black
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 110)
+                .clipped()
+                .overlay(alignment: .topLeading) {
+                    if busy {
+                        Text("INGESTING…")
+                            .font(.lab(8, weight: .bold))
+                            .foregroundStyle(Color(hex: palette.primary))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 4)
+                            .background(Color.black.opacity(0.62))
+                    }
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title)
+                        .font(.lab(10, weight: .semibold))
+                        .foregroundStyle(palette.panelText(0.85))
+                        .lineLimit(1)
+                    Text(item.playable
+                        ? String(format: "%.1f MB · %d subs · click to add", item.size, item.subs)
+                        : "scene — needs the phase-2 renderer")
+                        .font(.lab(8))
+                        .foregroundStyle(palette.panelMuted(0.50))
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(hex: palette.surface))
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(!item.playable || busy)
+        .overlay(Rectangle().stroke(Color(hex: palette.outline).opacity(0.20), lineWidth: 1))
     }
 }
 
@@ -2219,10 +2422,18 @@ private struct LiveryView: View {
                     GridPane(
                         selectedFixture: selectedFixture,
                         palette: palette,
-                        fixtures: wallpapers
-                    ) { index in
-                        chooseFixture(index, openDetail: true)
-                    }
+                        fixtures: wallpapers,
+                        selectFixture: { index in
+                            chooseFixture(index, openDetail: true)
+                        },
+                        workshopIngested: { fixtureID in
+                            let refreshed = loadWallpaperFixtures()
+                            wallpapers = refreshed
+                            if let index = refreshed.firstIndex(where: { $0.id == fixtureID }) {
+                                chooseFixture(index, openDetail: true)
+                            }
+                        }
+                    )
                     .frame(maxHeight: .infinity)
                 } else {
                     HStack(spacing: 0) {
