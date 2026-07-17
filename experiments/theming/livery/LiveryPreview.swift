@@ -723,7 +723,9 @@ private struct WorkshopIngest: Decodable {
 }
 
 private func workshopControlURL() -> URL {
+    // liveryctl file → livery/ → theming/ → experiments/, then the sibling.
     liveryControlURL()
+        .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .appendingPathComponent("wallpaper-runtime/workshop")
