@@ -1,0 +1,118 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+THEMING_ROOT=$(CDPATH='' cd -- "$ROOT/.." && pwd)
+MATUGEN="$THEMING_ROOT/tools/bin/matugen"
+SOURCES="$ROOT/sources.json"
+OUTPUT="$ROOT/palettes.json"
+
+if [ ! -x "$MATUGEN" ]; then
+  echo "missing concept-local Matugen binary: $MATUGEN" >&2
+  echo "install with: cargo install matugen --version 4.1.0 --locked --root $THEMING_ROOT/tools" >&2
+  exit 1
+fi
+
+for command in jq mktemp; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "missing required command: $command" >&2
+    exit 1
+  fi
+done
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/livery-palettes.XXXXXX")
+trap 'rm -rf "$TMP"' EXIT HUP INT TERM
+
+VERSION=$($MATUGEN --version | awk '{print $2}')
+
+jq -c '.[]' "$SOURCES" | while IFS= read -r source; do
+  fixture_id=$(printf '%s' "$source" | jq -r '.id')
+  image_name=$(printf '%s' "$source" | jq -r '.fileName')
+  for candidate in \
+    'content|c|scheme-content|content-aware' \
+    'vibrant|v|scheme-vibrant|higher chroma' \
+    'neutral|n|scheme-neutral|restrained chroma'
+  do
+    name=$(printf '%s' "$candidate" | cut -d '|' -f 1)
+    shortcut=$(printf '%s' "$candidate" | cut -d '|' -f 2)
+    scheme=$(printf '%s' "$candidate" | cut -d '|' -f 3)
+    note=$(printf '%s' "$candidate" | cut -d '|' -f 4)
+    raw="$TMP/$fixture_id-$name.raw.json"
+    palette="$TMP/$fixture_id-$name.json"
+
+    "$MATUGEN" image "$THEMING_ROOT/assets/$image_name" \
+      --type "$scheme" \
+      --mode dark \
+      --source-color-index 0 \
+      --base16-backend wal \
+      --dry-run \
+      --json hex > "$raw"
+
+    jq \
+      --arg id "$fixture_id-$name" \
+      --arg name "$name" \
+      --arg shortcut "$shortcut" \
+      --arg note "$note" \
+      --arg generator "matugen $VERSION" \
+      --arg scheme "$scheme" \
+      '{
+        id: $id,
+        name: $name,
+        shortcut: $shortcut,
+        note: $note,
+        generator: $generator,
+        scheme: $scheme,
+        sourceColor: .colors.source_color.default.color,
+        background: .colors.background.default.color,
+        surface: .colors.surface_container.default.color,
+        surfaceElevated: .colors.surface_container_high.default.color,
+        primary: .colors.primary.default.color,
+        primaryContainer: .colors.primary_container.default.color,
+        secondary: .colors.secondary.default.color,
+        tertiary: .colors.tertiary.default.color,
+        text: .colors.on_surface.default.color,
+        textMuted: .colors.on_surface_variant.default.color,
+        outline: .colors.outline.default.color,
+        error: .colors.error.default.color,
+        terminal: [
+          .base16.base00.default.color,
+          .base16.base01.default.color,
+          .base16.base02.default.color,
+          .base16.base03.default.color,
+          .base16.base04.default.color,
+          .base16.base05.default.color,
+          .base16.base06.default.color,
+          .base16.base07.default.color,
+          .base16.base08.default.color,
+          .base16.base09.default.color,
+          .base16.base0a.default.color,
+          .base16.base0b.default.color,
+          .base16.base0c.default.color,
+          .base16.base0d.default.color,
+          .base16.base0e.default.color,
+          .base16.base0f.default.color
+        ]
+      }' "$raw" > "$palette"
+
+  done
+
+  palettes=$(jq -s '.' \
+    "$TMP/$fixture_id-content.json" \
+    "$TMP/$fixture_id-vibrant.json" \
+    "$TMP/$fixture_id-neutral.json")
+  printf '%s' "$source" | jq --argjson palettes "$palettes" '. + {palettes: $palettes}' > "$TMP/$fixture_id.fixture.json"
+done
+
+jq \
+  --arg generatedBy "matugen $VERSION" \
+  --arg extraction "source-color-index 0 (most dominant)" \
+  --arg terminal "base16 wal backend" \
+  -s '{
+    schemaVersion: 1,
+    generatedBy: $generatedBy,
+    extraction: $extraction,
+    terminal: $terminal,
+    fixtures: sort_by(.number)
+  }' "$TMP"/*.fixture.json > "$OUTPUT"
+
+echo "generated $OUTPUT"

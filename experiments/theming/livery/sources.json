@@ -1,0 +1,50 @@
+[
+  {
+    "id": "warm-dunes",
+    "number": 1,
+    "name": "warm-dunes",
+    "subtitle": "sparse / warm / narrow gamut",
+    "fileName": "warm-dunes.jpg",
+    "credit": "Zetong Li — Unsplash"
+  },
+  {
+    "id": "neon-city",
+    "number": 2,
+    "name": "neon-city",
+    "subtitle": "dense / kinetic / broad gamut",
+    "fileName": "cool-neon-city.jpg",
+    "credit": "Ramon Buçard — Unsplash"
+  },
+  {
+    "id": "forest-path",
+    "number": 3,
+    "name": "forest-path",
+    "subtitle": "organic / green / high texture",
+    "fileName": "forest-path.jpg",
+    "credit": "Daniel Gomez — Unsplash"
+  },
+  {
+    "id": "purple-brutalism",
+    "number": 4,
+    "name": "purple-brutalism",
+    "subtitle": "geometric / violet / hard edge",
+    "fileName": "purple-brutalism.jpg",
+    "credit": "Justin Luca Krause — Unsplash"
+  },
+  {
+    "id": "blue-alps",
+    "number": 5,
+    "name": "blue-alps",
+    "subtitle": "bright / cold / low contrast",
+    "fileName": "blue-alps.jpg",
+    "credit": "Jörg Angeli — Unsplash"
+  },
+  {
+    "id": "moonlit-ocean",
+    "number": 6,
+    "name": "moonlit-ocean",
+    "subtitle": "monochrome / dark / tonal",
+    "fileName": "moonlit-ocean.jpg",
+    "credit": "set.sj — Unsplash"
+  }
+]

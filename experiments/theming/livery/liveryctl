@@ -1,0 +1,2157 @@
+#!/bin/sh
+set -eu
+
+PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+export PATH
+
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+CONFIG_ROOT=${LIVERY_CONFIG_ROOT:-$(CDPATH='' cd -- "$ROOT/../../../.." && pwd)}
+CATALOG="$ROOT/palettes.json"
+THEME_CATALOG="$ROOT/themes.json"
+DEFAULT_PROFILE="$ROOT/profiles/default.json"
+BUILD_ROOT="$ROOT/build"
+RUNTIME_ROOT=${LIVERY_RUNTIME_ROOT:-$CONFIG_ROOT/livery}
+LIBRARY_ROOT="$RUNTIME_ROOT/library"
+LIBRARY_ASSETS="$LIBRARY_ROOT/assets"
+LIBRARY_CATALOG="$LIBRARY_ROOT/wallpapers.json"
+MATUGEN="$ROOT/../tools/bin/matugen"
+GHOSTTY_BIN="/Applications/Ghostty.app/Contents/MacOS/ghostty"
+WALLPAPER_SOURCE_ROOT="$ROOT/../assets"
+WALLPAPER_BIN="$BUILD_ROOT/bin/livery-wallpaper-engine"
+WALLPAPER_SOURCE="$ROOT/WallpaperEngine.swift"
+WALLPAPER_RUNTIME="$RUNTIME_ROOT/wallpaper"
+WALLPAPER_BASELINE=${LIVERY_WALLPAPER_BASELINE:-$RUNTIME_ROOT/baseline/Index.plist}
+LEGIBILITY_BIN="$BUILD_ROOT/bin/livery-legibility"
+LEGIBILITY_SOURCE="$ROOT/LegibilityAnalyzer.swift"
+LEGIBILITY_SHARED="$ROOT/BarLegibility.swift"
+IMAGE_BIN="$BUILD_ROOT/bin/livery-image"
+IMAGE_SOURCE="$ROOT/ImagePipeline.swift"
+DERIVATIVE_CACHE="$BUILD_ROOT/cache/derivatives"
+ORIGINAL_STORE="$BUILD_ROOT/store/originals"
+
+usage() {
+  cat <<'EOF'
+usage: ./liveryctl <command> [profile]
+
+commands:
+  list                         list the captured default and generated candidates
+  wallpapers [--json]          list built-in and imported wallpapers
+  import-wallpaper <path> [--name <name>] [--subtitle <text>] [--credit <text>]
+                               copy, analyze, and add an image to the local library
+  themes                       list independent semantic themes
+  resolve <profile>            print a resolved canonical manifest
+  render <profile>             render and validate staged target files
+  validate <profile>           validate a manifest and its staged target files
+  plan <profile>               render, then diff against the current live files
+  current                      show the active and rollback profiles
+  apply <profile> [--colors-only]
+                               apply one coherent global Look atomically
+  rollback                     restore the previous theme and wallpaper
+
+profiles:
+  default                      exact captured colors for the current first targets
+  wallpaper:<source>:<scheme>  derive a theme from an authoritative wallpaper
+  <source>:<scheme>            legacy alias for wallpaper:<source>:<scheme>
+  theme:<theme-ref>@<source>:<recipe>
+                               transform a wallpaper toward an authoritative theme
+
+theme transform recipe:
+  <grade>~<mapping>~<quantization>~<dither>~<finish>
+  balanced~natural~continuous~none~clean is the default-compatible recipe
+
+theme grading presets:
+  subtle                       prioritize source-image fidelity
+  balanced                     balance image fidelity and theme affinity
+  theme-forward                prioritize theme affinity
+
+mapping:
+  natural                      preserve photographic color relationships
+  duotone | tritone            map luminance through two or three theme colors
+  gradient-map                 map luminance through a five-color theme ramp
+
+quantization:
+  continuous                   retain continuous color
+  q16 | q8 | q4                reduce to a theme-derived OKLab palette
+
+dither:
+  none | bayer | blue-noise    dithering requires quantization
+
+finish:
+  clean | grain | halftone     apply a deterministic finishing treatment
+
+Theme references may be independent names from `livery themes`, `default`, or
+legacy wallpaper-derived references such as `neon-city:vibrant`.
+
+Generated apply coordinates colors and wallpaper across every managed desktop
+Space. --colors-only is an explicit manual override. Rollback restores the
+previous theme and its complete wallpaper-store snapshot.
+EOF
+}
+
+require_tools() {
+  for command in jq mktemp diff; do
+    if ! command -v "$command" >/dev/null 2>&1; then
+      echo "missing required command: $command" >&2
+      exit 1
+    fi
+  done
+}
+
+profile_slug() {
+  printf '%s' "$1" | tr ': /@~' '-----' | tr -cd '[:alnum:]_.-'
+}
+
+json_digest() {
+  jq -cS '.' "$1" | shasum -a 256 | awk '{print "sha256:" $1}'
+}
+
+derivation_digest() {
+  jq -cS '{
+    schemaVersion: 1,
+    operation: .coherence.operation,
+    inputs: (
+      .inputs
+      | with_entries(.value |= del(.id, .artifact))
+    ),
+    pipeline,
+    placement
+  }' "$1" | shasum -a 256 | awk '{print "sha256:" $1}'
+}
+
+semantic_theme_json() {
+  jq -cS '{
+    variant,
+    ui,
+    signals,
+    terminal,
+    presentation: (.presentation | del(.barLegibility)),
+    effects,
+    locks,
+    targets
+  }' "$1"
+}
+
+semantic_theme_digest() {
+  semantic_theme_json "$1" | shasum -a 256 | awk '{print "sha256:" $1}'
+}
+
+ensure_image_helper() {
+  if [ ! -x "$IMAGE_BIN" ] || [ "$IMAGE_SOURCE" -nt "$IMAGE_BIN" ]; then
+    mkdir -p "$BUILD_ROOT/bin"
+    swiftc \
+      -O \
+      -parse-as-library \
+      -warnings-as-errors \
+      -framework AppKit \
+      -framework CoreImage \
+      -framework CryptoKit \
+      -framework ImageIO \
+      -framework UniformTypeIdentifiers \
+      "$IMAGE_SOURCE" \
+      -o "$IMAGE_BIN"
+  fi
+}
+
+inspect_asset() {
+  source=$1
+  destination=$2
+  ensure_image_helper
+  "$IMAGE_BIN" inspect "$source" > "$destination"
+}
+
+store_original_asset() {
+  source=$1
+  descriptor=$2
+  digest=$(json_value '.digest' "$descriptor")
+  extension=${source##*.}
+  stored="$ORIGINAL_STORE/${digest#sha256:}.$extension"
+  mkdir -p "$ORIGINAL_STORE"
+  if [ ! -f "$stored" ]; then
+    temporary="$ORIGINAL_STORE/.${digest#sha256:}.$$"
+    cp "$source" "$temporary"
+    mv -f "$temporary" "$stored"
+  fi
+  stored_digest=$(shasum -a 256 "$stored" | awk '{print "sha256:" $1}')
+  [ "$stored_digest" = "$digest" ] || {
+    echo "content-addressed original failed digest verification" >&2
+    exit 1
+  }
+  printf '%s\n' "$stored"
+}
+
+combined_catalog() {
+  if [ -f "$LIBRARY_CATALOG" ]; then
+    jq -s '
+      .[0] as $builtIn
+      | .[1] as $local
+      | $builtIn
+      | .generatedBy = ($builtIn.generatedBy + " + livery local library")
+      | .fixtures = ($builtIn.fixtures + ($local.fixtures // []))
+    ' "$CATALOG" "$LIBRARY_CATALOG"
+  else
+    cat "$CATALOG"
+  fi
+}
+
+catalog_wallpaper() (
+  fixture=$1
+  combined_catalog | jq -e \
+    --arg fixture "$fixture" \
+    '.fixtures[]
+      | select(.id == $fixture or .name == $fixture)'
+)
+
+catalog_palette() (
+  fixture=$1
+  candidate=$2
+  combined_catalog | jq -e \
+    --arg fixture "$fixture" \
+    --arg candidate "$candidate" \
+    '.fixtures[] as $wallpaper
+      | select($wallpaper.id == $fixture or $wallpaper.name == $fixture)
+      | $wallpaper.palettes[]
+      | select(.name == $candidate)
+      | . + {
+          wallpaperId: $wallpaper.id,
+          wallpaperName: $wallpaper.name,
+          wallpaperFile: $wallpaper.fileName,
+          wallpaperAssetPath: ($wallpaper.assetPath // null)
+        }'
+)
+
+wallpaper_asset_path() {
+  fixture_file=$1
+  asset_path=$(jq -r '.assetPath // empty' "$fixture_file")
+  if [ -n "$asset_path" ]; then
+    printf '%s\n' "$asset_path"
+  else
+    wallpaper_file=$(jq -r '.fileName' "$fixture_file")
+    printf '%s/%s\n' "$WALLPAPER_SOURCE_ROOT" "$wallpaper_file"
+  fi
+}
+
+slugify() {
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr -cs '[:alnum:]' '-' \
+    | sed 's/^-*//; s/-*$//; s/--*/-/g'
+}
+
+generate_import_palette() (
+  source=$1
+  fixture_id=$2
+  name=$3
+  shortcut=$4
+  note=$5
+  scheme=$6
+  output=$7
+  raw=$(mktemp "${TMPDIR:-/tmp}/livery-import-palette.XXXXXX")
+  version=$("$MATUGEN" --version | awk '{print $2}')
+
+  "$MATUGEN" image "$source" \
+    --type "$scheme" \
+    --mode dark \
+    --source-color-index 0 \
+    --base16-backend wal \
+    --dry-run \
+    --json hex > "$raw"
+
+  jq \
+    --arg id "$fixture_id-$name" \
+    --arg name "$name" \
+    --arg shortcut "$shortcut" \
+    --arg note "$note" \
+    --arg generator "matugen $version" \
+    --arg scheme "$scheme" \
+    '{
+      id: $id,
+      name: $name,
+      shortcut: $shortcut,
+      note: $note,
+      generator: $generator,
+      scheme: $scheme,
+      sourceColor: .colors.source_color.default.color,
+      background: .colors.background.default.color,
+      surface: .colors.surface_container.default.color,
+      surfaceElevated: .colors.surface_container_high.default.color,
+      primary: .colors.primary.default.color,
+      primaryContainer: .colors.primary_container.default.color,
+      secondary: .colors.secondary.default.color,
+      tertiary: .colors.tertiary.default.color,
+      text: .colors.on_surface.default.color,
+      textMuted: .colors.on_surface_variant.default.color,
+      outline: .colors.outline.default.color,
+      error: .colors.error.default.color,
+      terminal: [
+        .base16.base00.default.color,
+        .base16.base01.default.color,
+        .base16.base02.default.color,
+        .base16.base03.default.color,
+        .base16.base04.default.color,
+        .base16.base05.default.color,
+        .base16.base06.default.color,
+        .base16.base07.default.color,
+        .base16.base08.default.color,
+        .base16.base09.default.color,
+        .base16.base0a.default.color,
+        .base16.base0b.default.color,
+        .base16.base0c.default.color,
+        .base16.base0d.default.color,
+        .base16.base0e.default.color,
+        .base16.base0f.default.color
+      ]
+    }' "$raw" > "$output"
+  rm -f "$raw"
+)
+
+import_wallpaper() {
+  source=$1
+  shift
+  name=
+  subtitle="local / imported / unclassified"
+  credit="local import"
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --name)
+        [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+        name=$2
+        shift 2
+        ;;
+      --subtitle)
+        [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+        subtitle=$2
+        shift 2
+        ;;
+      --credit)
+        [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+        credit=$2
+        shift 2
+        ;;
+      *)
+        usage >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  [ -f "$source" ] || {
+    echo "wallpaper does not exist: $source" >&2
+    exit 1
+  }
+  [ -x "$MATUGEN" ] || {
+    echo "missing concept-local Matugen binary: $MATUGEN" >&2
+    exit 1
+  }
+
+  descriptor=$(mktemp "${TMPDIR:-/tmp}/livery-import-descriptor.XXXXXX")
+  content=$(mktemp "${TMPDIR:-/tmp}/livery-import-content.XXXXXX")
+  content_next=$(mktemp "${TMPDIR:-/tmp}/livery-import-content-next.XXXXXX")
+  fixture=$(mktemp "${TMPDIR:-/tmp}/livery-import-fixture.XXXXXX")
+  content_palette=$(mktemp "${TMPDIR:-/tmp}/livery-import-content-palette.XXXXXX")
+  vibrant_palette=$(mktemp "${TMPDIR:-/tmp}/livery-import-vibrant-palette.XXXXXX")
+  neutral_palette=$(mktemp "${TMPDIR:-/tmp}/livery-import-neutral-palette.XXXXXX")
+
+  inspect_asset "$source" "$descriptor"
+  digest=$(jq -r '.digest' "$descriptor")
+  existing=$(
+    combined_catalog | jq -c \
+      --arg digest "$digest" \
+      '.fixtures[] | select(.assetDigest == $digest)' \
+      | head -n 1
+  )
+  if [ -n "$existing" ]; then
+    printf '%s\n' "$existing" | jq '.'
+    rm -f "$descriptor" "$content" "$content_next" "$fixture" \
+      "$content_palette" "$vibrant_palette" "$neutral_palette"
+    return
+  fi
+
+  if [ -z "$name" ]; then
+    base=${source##*/}
+    name=${base%.*}
+  fi
+  id=$(slugify "$name")
+  [ -n "$id" ] || id="wallpaper-${digest#sha256:}"
+  id=$(printf '%.64s' "$id")
+  if combined_catalog | jq -e --arg id "$id" '.fixtures[] | select(.id == $id)' >/dev/null; then
+    id="$id-$(printf '%s' "${digest#sha256:}" | cut -c 1-8)"
+  fi
+
+  extension=${source##*.}
+  extension=$(printf '%s' "$extension" | tr '[:upper:]' '[:lower:]')
+  asset_name="${digest#sha256:}.$extension"
+  asset_path="$LIBRARY_ASSETS/$asset_name"
+  mkdir -p "$LIBRARY_ASSETS"
+  if [ ! -f "$asset_path" ]; then
+    temporary="$LIBRARY_ASSETS/.$asset_name.$$"
+    cp "$source" "$temporary"
+    mv -f "$temporary" "$asset_path"
+  fi
+  stored_digest=$(shasum -a 256 "$asset_path" | awk '{print "sha256:" $1}')
+  [ "$stored_digest" = "$digest" ] || {
+    echo "managed wallpaper copy failed digest verification" >&2
+    exit 1
+  }
+
+  generate_import_palette "$asset_path" "$id" content c \
+    content-aware scheme-content "$content_palette"
+  generate_import_palette "$asset_path" "$id" vibrant v \
+    "higher chroma" scheme-vibrant "$vibrant_palette"
+  generate_import_palette "$asset_path" "$id" neutral n \
+    "restrained chroma" scheme-neutral "$neutral_palette"
+
+  if [ -f "$LIBRARY_CATALOG" ]; then
+    cp "$LIBRARY_CATALOG" "$content"
+  else
+    printf '{"schemaVersion":1,"generatedBy":"livery local library","fixtures":[]}\n' \
+      > "$content"
+  fi
+  local_count=$(jq '.fixtures | length' "$content")
+  built_in_count=$(jq '.fixtures | length' "$CATALOG")
+  number=$((built_in_count + local_count + 1))
+
+  jq -nS \
+    --arg id "$id" \
+    --argjson number "$number" \
+    --arg name "$name" \
+    --arg subtitle "$subtitle" \
+    --arg fileName "$asset_name" \
+    --arg credit "$credit" \
+    --arg assetPath "$asset_path" \
+    --arg assetDigest "$digest" \
+    --slurpfile descriptor "$descriptor" \
+    --slurpfile content "$content_palette" \
+    --slurpfile vibrant "$vibrant_palette" \
+    --slurpfile neutral "$neutral_palette" '
+      {
+        id: $id,
+        number: $number,
+        name: $name,
+        subtitle: $subtitle,
+        fileName: $fileName,
+        credit: $credit,
+        assetPath: $assetPath,
+        assetDigest: $assetDigest,
+        dimensions: $descriptor[0].dimensions,
+        mediaType: $descriptor[0].mediaType,
+        palettes: [$content[0], $vibrant[0], $neutral[0]]
+      }
+    ' > "$fixture"
+
+  jq --slurpfile fixture "$fixture" \
+    '.fixtures += [$fixture[0]]' "$content" > "$content_next"
+  mkdir -p "$LIBRARY_ROOT"
+  mv -f "$content_next" "$LIBRARY_CATALOG"
+  jq '.' "$fixture"
+  rm -f "$descriptor" "$content" "$fixture" \
+    "$content_palette" "$vibrant_palette" "$neutral_palette"
+}
+
+catalog_theme() (
+  reference=$1
+  theme_id=${reference#library:}
+  jq -e \
+    --arg reference "$reference" \
+    --arg themeId "$theme_id" \
+    '.themes[]
+      | select(.id == $themeId or .ref == $reference or .ref == $themeId)
+      | .theme' \
+    "$THEME_CATALOG"
+)
+
+resolve_palette_theme() (
+  fixture=$1
+  candidate=$2
+  destination=$3
+  palette_file=$(mktemp "${TMPDIR:-/tmp}/livery-palette.XXXXXX")
+  if ! catalog_palette "$fixture" "$candidate" > "$palette_file"; then
+    rm -f "$palette_file"
+    echo "unknown wallpaper theme: $fixture:$candidate" >&2
+    exit 1
+  fi
+
+  jq -S \
+    --arg id "$fixture:$candidate" \
+    --arg label "$fixture / $candidate" \
+    --slurpfile palette "$palette_file" '
+      $palette[0] as $p
+      | .id = $id
+      | .label = $label
+      | .source = {
+          kind: "wallpaper",
+          asset: $p.wallpaperFile,
+          generator: $p.generator,
+          scheme: $p.scheme,
+          seed: $p.sourceColor
+        }
+      | .ui.background = $p.background
+      | .ui.surface = $p.surface
+      | .ui.surfaceElevated = $p.surfaceElevated
+      | .ui.text = $p.text
+      | .ui.textMuted = $p.textMuted
+      | .ui.primary = $p.primary
+      | .ui.secondary = $p.secondary
+      | .ui.tertiary = $p.tertiary
+      | .ui.outline = $p.outline
+      | .ui.selection = $p.primaryContainer
+      | .terminal.background = $p.background
+      | .terminal.foreground = $p.text
+      | .terminal.cursor = $p.primary
+      | .terminal.cursorText = $p.background
+      | .terminal.selectionBackground = $p.primaryContainer
+      | .terminal.selectionForeground = $p.text
+      | .terminal.minimumContrast = 3
+      | .terminal.base16 = $p.terminal
+      | .terminal.ansi = [
+          $p.terminal[0],
+          $p.terminal[8],
+          $p.terminal[11],
+          $p.terminal[10],
+          $p.terminal[13],
+          $p.terminal[14],
+          $p.terminal[12],
+          $p.terminal[5],
+          $p.terminal[3],
+          $p.terminal[8],
+          $p.terminal[11],
+          $p.terminal[10],
+          $p.terminal[13],
+          $p.terminal[14],
+          $p.terminal[12],
+          $p.terminal[7]
+        ]
+      | del(.targets)
+    ' "$DEFAULT_PROFILE" > "$destination"
+  rm -f "$palette_file"
+)
+
+resolve_theme_reference() (
+  reference=$1
+  destination=$2
+  case "$reference" in
+    default)
+      catalog_theme default > "$destination"
+      ;;
+    library:*)
+      if ! catalog_theme "$reference" > "$destination"; then
+        echo "unknown theme reference: $reference" >&2
+        exit 1
+      fi
+      ;;
+    *:*)
+      fixture=${reference%%:*}
+      candidate=${reference#*:}
+      resolve_palette_theme "$fixture" "$candidate" "$destination"
+      ;;
+    *)
+      if ! catalog_theme "$reference" > "$destination"; then
+        echo "unknown theme reference: $reference" >&2
+        exit 1
+      fi
+      ;;
+  esac
+)
+
+grade_parameters() {
+  preset=$1
+  case "$preset" in
+    subtle)
+      printf '%s %s %s %s %s %s %s %s\n' \
+        "0.32" "24" "1.04" "1.02" "0.00" "0.00" "1.00" "0.95"
+      ;;
+    balanced)
+      printf '%s %s %s %s %s %s %s %s\n' \
+        "0.58" "32" "1.07" "1.04" "-0.01" "0.00" "1.00" "0.88"
+      ;;
+    theme-forward)
+      printf '%s %s %s %s %s %s %s %s\n' \
+        "0.82" "40" "1.10" "1.07" "-0.02" "0.00" "1.00" "0.76"
+      ;;
+    *)
+      echo "unknown wallpaper grading preset: $preset" >&2
+      exit 1
+      ;;
+  esac
+}
+
+mapping_parameters() {
+  case "$1" in
+    natural) printf '%s %s %s\n' "natural" "0" "0" ;;
+    duotone) printf '%s %s %s\n' "duotone" "0.94" "0.32" ;;
+    tritone) printf '%s %s %s\n' "tritone" "0.90" "0.40" ;;
+    gradient-map) printf '%s %s %s\n' "gradient-map" "0.84" "0.52" ;;
+    *)
+      echo "unknown wallpaper mapping mode: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+quantization_colors() {
+  case "$1" in
+    continuous) printf '0\n' ;;
+    q16) printf '16\n' ;;
+    q8) printf '8\n' ;;
+    q4) printf '4\n' ;;
+    *)
+      echo "unknown wallpaper quantization mode: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+dither_parameters() {
+  case "$1" in
+    none) printf '%s %s %s\n' "none" "0" "1" ;;
+    bayer) printf '%s %s %s\n' "bayer" "0.085" "1" ;;
+    blue-noise) printf '%s %s %s\n' "blue-noise" "0.065" "1" ;;
+    *)
+      echo "unknown wallpaper dithering mode: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+finish_parameters() {
+  case "$1" in
+    clean) printf '%s %s %s %s\n' "clean" "0" "0" "0" ;;
+    grain) printf '%s %s %s %s\n' "grain" "0.035" "1" "0" ;;
+    halftone) printf '%s %s %s %s\n' "halftone" "5.5" "0.18" "0.68" ;;
+    *)
+      echo "unknown wallpaper finishing mode: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+validate_semantic_theme() {
+  theme=$1
+  jq -e '
+    def color: type == "string" and test("^#[0-9a-fA-F]{6}$");
+    .schemaVersion == 2
+      and .kind == "semantic-theme"
+      and (.id | type == "string" and length > 0)
+      and (.label | type == "string" and length > 0)
+      and (.variant == "dark" or .variant == "light")
+      and ([.ui[]] | all(color))
+      and ([.signals[]] | all(color))
+      and (.terminal.background | color)
+      and (.terminal.foreground | color)
+      and (.terminal.cursor | color)
+      and (.terminal.cursorText | color)
+      and (.terminal.selectionBackground | color)
+      and (.terminal.selectionForeground | color)
+      and (.terminal.minimumContrast | type == "number" and . >= 1 and . <= 21)
+      and (.terminal.ansi | length == 16 and all(color))
+      and ((.terminal.base16 // []) | length == 0 or (length == 16 and all(color)))
+      and (.presentation | type == "object")
+      and (.effects | type == "object")
+      and (.locks | type == "object")
+  ' "$theme" >/dev/null
+}
+
+ensure_legibility_helper() {
+  if [ ! -x "$LEGIBILITY_BIN" ] \
+    || [ "$LEGIBILITY_SOURCE" -nt "$LEGIBILITY_BIN" ] \
+    || [ "$LEGIBILITY_SHARED" -nt "$LEGIBILITY_BIN" ]
+  then
+    mkdir -p "$BUILD_ROOT/bin"
+    swiftc \
+      -O \
+      -parse-as-library \
+      -warnings-as-errors \
+      -framework AppKit \
+      "$LEGIBILITY_SHARED" \
+      "$LEGIBILITY_SOURCE" \
+      -o "$LEGIBILITY_BIN"
+  fi
+}
+
+resolve_bar_legibility() (
+  manifest=$1
+  wallpaper=$2
+  ensure_legibility_helper
+
+  palette=$(mktemp "${TMPDIR:-/tmp}/livery-legibility-palette.XXXXXX")
+  displays=$(mktemp "${TMPDIR:-/tmp}/livery-legibility-displays.XXXXXX")
+  result=$(mktemp "${TMPDIR:-/tmp}/livery-legibility-result.XXXXXX")
+  merged=$(mktemp "${TMPDIR:-/tmp}/livery-legibility-manifest.XXXXXX")
+
+  jq '{
+    text: .ui.text,
+    textMuted: .ui.textMuted,
+    background: .ui.background,
+    roles: {
+      red: (.targets.sketchybar.colors.red // .signals.error),
+      green: (.targets.sketchybar.colors.green // .signals.success),
+      blue: (.targets.sketchybar.colors.blue // .ui.primary),
+      yellow: (.targets.sketchybar.colors.yellow // .signals.warning),
+      orange: (.targets.sketchybar.colors.orange // .signals.attention),
+      magenta: (.targets.sketchybar.colors.magenta // .ui.secondary),
+      grey: (.targets.sketchybar.colors.grey // .ui.textMuted),
+      maroon: (.targets.sketchybar.colors.maroon // .signals.error),
+      mauve: (.targets.sketchybar.colors.mauve // .ui.secondary),
+      lavender: (.targets.sketchybar.colors.lavender // .ui.secondary),
+      teal: (.targets.sketchybar.colors.teal // .ui.tertiary),
+      peach: (.targets.sketchybar.colors.peach // .signals.attention)
+    }
+  }' "$manifest" > "$palette"
+
+  if [ -n "${LIVERY_DISPLAY_LAYOUT_JSON:-}" ]; then
+    cp "$LIVERY_DISPLAY_LAYOUT_JSON" "$displays"
+  elif command -v yabai >/dev/null 2>&1 \
+    && yabai -m query --displays > "$displays" 2>/dev/null \
+    && [ -s "$displays" ]
+  then
+    :
+  else
+    printf '[{"frame":{"w":1728,"h":1117}}]\n' > "$displays"
+  fi
+
+  "$LEGIBILITY_BIN" "$wallpaper" "$palette" "$displays" > "$result"
+  jq --slurpfile legibility "$result" \
+    '.presentation.barLegibility = $legibility[0]' \
+    "$manifest" > "$merged"
+  mv -f "$merged" "$manifest"
+  rm -f "$palette" "$displays" "$result"
+)
+
+write_default_look() {
+  profile=$1
+  output_dir=$2
+  spec="$output_dir/spec.json"
+  manifest="$output_dir/manifest.json"
+  theme_digest=$(semantic_theme_digest "$DEFAULT_PROFILE")
+  theme_size=$(semantic_theme_json "$DEFAULT_PROFILE" | wc -c | tr -d ' ')
+
+  jq -nS \
+    --arg id "$profile" \
+    --arg themeDigest "$theme_digest" \
+    --argjson themeSize "$theme_size" \
+    '{
+      schemaVersion: 2,
+      kind: "look-spec",
+      id: $id,
+      label: "Current local default",
+      inputs: {
+        theme: {
+          id: "default",
+          digest: $themeDigest,
+          mediaType: "application/vnd.livery.semantic-theme+json",
+          size: $themeSize
+        }
+      },
+      coherence: {
+        authority: "independent",
+        operation: "identity",
+        constraints: {
+          preserveThemeDomains: ["ui", "signals", "terminal", "presentation", "effects"]
+        },
+        wallpaperScope: "all-managed-spaces"
+      },
+      pipeline: [{
+        operation: "theme.capture",
+        engine: "livery",
+        version: "2",
+        parameters: {source: "local-default"}
+      }],
+      placement: {mode: "fill", focalPoint: [0.5, 0.5]}
+    }' > "$spec"
+  spec_digest=$(json_digest "$spec")
+
+  jq -S \
+    --arg id "$profile" \
+    --arg specDigest "$spec_digest" \
+    --arg themeDigest "$theme_digest" \
+    --slurpfile spec "$spec" '
+      .schemaVersion = 2
+      | .kind = "look-manifest"
+      | .id = $id
+      | .specDigest = $specDigest
+      | .inputs = $spec[0].inputs
+      | .coherence = $spec[0].coherence
+      | .pipeline = $spec[0].pipeline
+      | .placement = $spec[0].placement
+      | .outputs = {
+          theme: {digest: $themeDigest, format: "livery-semantic-v2"},
+          wallpaper: {kind: "provider-state", id: "captured-baseline"}
+        }
+      | .provenance = {
+          materials: [.inputs.theme],
+          steps: .pipeline,
+          environment: {platform: "macos"},
+          reproducibility: "stored"
+        }
+      | .evidence = {
+          wallpaper: {kind: "provider-state"},
+          barLegibility: .presentation.barLegibility
+        }
+      | del(.source)
+    ' "$DEFAULT_PROFILE" > "$manifest"
+}
+
+write_wallpaper_authoritative_look() {
+  profile=$1
+  fixture=$2
+  candidate=$3
+  output_dir=$4
+  spec="$output_dir/spec.json"
+  manifest="$output_dir/manifest.json"
+  theme=$(mktemp "${TMPDIR:-/tmp}/livery-theme.XXXXXX")
+  wallpaper_meta=$(mktemp "${TMPDIR:-/tmp}/livery-wallpaper.XXXXXX")
+  palette=$(mktemp "${TMPDIR:-/tmp}/livery-palette.XXXXXX")
+
+  if ! catalog_palette "$fixture" "$candidate" > "$palette"; then
+    rm -f "$theme" "$wallpaper_meta" "$palette"
+    echo "unknown generated profile: $profile" >&2
+    exit 1
+  fi
+  wallpaper_id=$(jq -r '.wallpaperId' "$palette")
+  wallpaper_file=$(jq -r '.wallpaperFile' "$palette")
+  wallpaper_source=$(jq -r '.wallpaperAssetPath // empty' "$palette")
+  if [ -z "$wallpaper_source" ]; then
+    wallpaper_source="$WALLPAPER_SOURCE_ROOT/$wallpaper_file"
+  fi
+  [ -f "$wallpaper_source" ] || {
+    rm -f "$theme" "$wallpaper_meta" "$palette"
+    echo "missing source wallpaper: $wallpaper_source" >&2
+    exit 1
+  }
+  resolve_palette_theme "$fixture" "$candidate" "$theme"
+  validate_semantic_theme "$theme"
+  inspect_asset "$wallpaper_source" "$wallpaper_meta"
+  wallpaper_source=$(store_original_asset "$wallpaper_source" "$wallpaper_meta")
+  wallpaper_digest=$(jq -r '.digest' "$wallpaper_meta")
+  wallpaper_ext=${wallpaper_file##*.}
+  artifact_name="${wallpaper_digest#sha256:}.$wallpaper_ext"
+  cp "$wallpaper_source" "$output_dir/wallpaper/$artifact_name"
+  matugen_version=$(jq -r '.generator' "$palette")
+  matugen_engine=${matugen_version%% *}
+  matugen_release=${matugen_version#* }
+  scheme=$(jq -r '.scheme' "$palette")
+  seed=$(jq -r '.sourceColor' "$palette")
+
+  jq -nS \
+    --arg id "$profile" \
+    --arg label "$wallpaper_id / $candidate" \
+    --arg wallpaperId "$wallpaper_id" \
+    --arg matugenEngine "$matugen_engine" \
+    --arg matugenVersion "$matugen_release" \
+    --arg scheme "$scheme" \
+    --arg seed "$seed" \
+    --slurpfile wallpaper "$wallpaper_meta" '
+      {
+        schemaVersion: 2,
+        kind: "look-spec",
+        id: $id,
+        label: $label,
+        inputs: {
+          wallpaper: ($wallpaper[0] + {id: $wallpaperId})
+        },
+        coherence: {
+          authority: "wallpaper",
+          operation: "derive-theme",
+          constraints: {
+            preserveThemeDomains: ["signals", "presentation", "effects"]
+          },
+          wallpaperScope: "all-managed-spaces"
+        },
+        pipeline: [
+          {
+            operation: "wallpaper.analyze",
+            engine: $matugenEngine,
+            version: $matugenVersion,
+            parameters: {
+              sourceColorSelection: "ranked:0",
+              selectedSeed: $seed
+            }
+          },
+          {
+            operation: "theme.synthesize",
+            engine: $matugenEngine,
+            version: $matugenVersion,
+            parameters: {
+              scheme: $scheme,
+              variant: "dark",
+              base16Backend: "wal"
+            }
+          },
+          {
+            operation: "theme.preserve-domains",
+            engine: "livery",
+            version: "2",
+            parameters: {
+              domains: ["signals", "presentation", "effects"]
+            }
+          }
+        ],
+        placement: {mode: "fill", focalPoint: [0.5, 0.5]}
+      }' > "$spec"
+  spec_digest=$(json_digest "$spec")
+  derivation_digest=$(derivation_digest "$spec")
+  theme_digest=$(semantic_theme_digest "$theme")
+
+  jq -S \
+    --arg id "$profile" \
+    --arg specDigest "$spec_digest" \
+    --arg derivationDigest "$derivation_digest" \
+    --arg themeDigest "$theme_digest" \
+    --arg artifact "wallpaper/$artifact_name" \
+    --slurpfile spec "$spec" \
+    --slurpfile wallpaper "$wallpaper_meta" '
+      .schemaVersion = 2
+      | .kind = "look-manifest"
+      | .id = $id
+      | .label = $spec[0].label
+      | .specDigest = $specDigest
+      | .inputs = $spec[0].inputs
+      | .coherence = $spec[0].coherence
+      | .pipeline = $spec[0].pipeline
+      | .placement = $spec[0].placement
+      | .outputs = {
+          theme: {digest: $themeDigest, format: "livery-semantic-v2"},
+          wallpaper: ($wallpaper[0] + {
+            artifact: $artifact,
+            derivationDigest: $derivationDigest
+          })
+        }
+      | .provenance = {
+          materials: [$spec[0].inputs.wallpaper],
+          steps: $spec[0].pipeline,
+          environment: {platform: "macos"},
+          reproducibility: "replayable"
+        }
+      | .evidence = {
+          sourceSeed: .source.seed,
+          wallpaper: {
+            identityPreserved: true,
+            artifactDigest: $wallpaper[0].digest
+          }
+        }
+      | del(.source)
+    ' "$theme" > "$manifest"
+  resolve_bar_legibility "$manifest" "$output_dir/wallpaper/$artifact_name"
+  merged=$(mktemp "${TMPDIR:-/tmp}/livery-evidence.XXXXXX")
+  jq '.evidence.barLegibility = .presentation.barLegibility' "$manifest" > "$merged"
+  mv -f "$merged" "$manifest"
+  rm -f "$theme" "$wallpaper_meta" "$palette"
+}
+
+write_theme_authoritative_look() {
+  profile=$1
+  theme_ref=$2
+  target_fixture=$3
+  recipe=$4
+  output_dir=$5
+  spec="$output_dir/spec.json"
+  manifest="$output_dir/manifest.json"
+  theme=$(mktemp "${TMPDIR:-/tmp}/livery-theme.XXXXXX")
+  wallpaper=$(mktemp "${TMPDIR:-/tmp}/livery-wallpaper-source.XXXXXX")
+  wallpaper_meta=$(mktemp "${TMPDIR:-/tmp}/livery-wallpaper-meta.XXXXXX")
+  projection=$(mktemp "${TMPDIR:-/tmp}/livery-projection.XXXXXX")
+  transform_steps=$(mktemp "${TMPDIR:-/tmp}/livery-transform-steps.XXXXXX")
+  request=$(mktemp "${TMPDIR:-/tmp}/livery-grade-request.XXXXXX")
+  output_meta=$(mktemp "${TMPDIR:-/tmp}/livery-wallpaper-output.XXXXXX")
+
+  previous_ifs=$IFS
+  IFS='~'
+  set -- $recipe
+  IFS=$previous_ifs
+  case "$#" in
+    1)
+      preset=${1:-balanced}
+      mapping=natural
+      quantization=continuous
+      dithering=none
+      finish=clean
+      ;;
+    4)
+      # Compatibility with the original grade~quantization~dither~finish
+      # grammar.
+      preset=$1
+      mapping=natural
+      quantization=$2
+      dithering=$3
+      finish=$4
+      ;;
+    5)
+      preset=$1
+      mapping=$2
+      quantization=$3
+      dithering=$4
+      finish=$5
+      ;;
+    *)
+      echo "invalid wallpaper transform recipe: $recipe" >&2
+      exit 1
+      ;;
+  esac
+
+  resolve_theme_reference "$theme_ref" "$theme"
+  validate_semantic_theme "$theme"
+  if ! catalog_wallpaper "$target_fixture" > "$wallpaper"; then
+    rm -f "$theme" "$wallpaper" "$wallpaper_meta" "$projection" \
+      "$transform_steps" "$request" "$output_meta"
+    echo "unknown wallpaper source: $target_fixture" >&2
+    exit 1
+  fi
+  wallpaper_id=$(jq -r '.id' "$wallpaper")
+  wallpaper_file=$(jq -r '.fileName' "$wallpaper")
+  wallpaper_source=$(wallpaper_asset_path "$wallpaper")
+  [ -f "$wallpaper_source" ] || {
+    rm -f "$theme" "$wallpaper" "$wallpaper_meta" "$projection" \
+      "$transform_steps" "$request" "$output_meta"
+    echo "missing source wallpaper: $wallpaper_source" >&2
+    exit 1
+  }
+  inspect_asset "$wallpaper_source" "$wallpaper_meta"
+  wallpaper_source=$(store_original_asset "$wallpaper_source" "$wallpaper_meta")
+  theme_digest=$(semantic_theme_digest "$theme")
+  theme_size=$(semantic_theme_json "$theme" | wc -c | tr -d ' ')
+  theme_variant=$(jq -r '.variant' "$theme")
+  set -- $(grade_parameters "$preset")
+  strength=$1
+  cube_dimension=$2
+  contrast=$3
+  saturation=$4
+  exposure=$5
+  shadow_amount=$6
+  highlight_amount=$7
+  chroma_retention=$8
+  set -- $(mapping_parameters "$mapping")
+  mapping_operation=$1
+  mapping_strength=$2
+  mapping_lightness_strength=$3
+  quantization_count=$(quantization_colors "$quantization")
+  set -- $(dither_parameters "$dithering")
+  dither_algorithm=$1
+  dither_amount=$2
+  dither_scale=$3
+  set -- $(finish_parameters "$finish")
+  finish_operation=$1
+  finish_first=$2
+  finish_second=$3
+  finish_third=$4
+
+  if [ "$quantization_count" -eq 0 ] && [ "$dither_algorithm" != "none" ]; then
+    echo "dithering requires q4, q8, or q16 quantization" >&2
+    exit 1
+  fi
+
+  jq '[
+    {role: "shadow", color: .ui.background, weight: 0.55},
+    {role: "surface", color: .ui.surface, weight: 0.42},
+    {role: "elevated", color: .ui.surfaceElevated, weight: 0.38},
+    {role: "primary", color: .ui.primary, weight: 1.80},
+    {role: "secondary", color: .ui.secondary, weight: 1.35},
+    {role: "tertiary", color: .ui.tertiary, weight: 1.35},
+    {role: "muted", color: .ui.textMuted, weight: 0.58},
+    {role: "highlight", color: .ui.text, weight: 0.55}
+  ]' "$theme" > "$projection"
+
+  jq -nS \
+    --arg preset "$preset" \
+    --arg mapping "$mapping_operation" \
+    --arg themeVariant "$theme_variant" \
+    --arg quantization "$quantization" \
+    --arg ditherAlgorithm "$dither_algorithm" \
+    --arg finishOperation "$finish_operation" \
+    --argjson strength "$strength" \
+    --argjson cubeDimension "$cube_dimension" \
+    --argjson contrast "$contrast" \
+    --argjson saturation "$saturation" \
+    --argjson exposure "$exposure" \
+    --argjson shadowAmount "$shadow_amount" \
+    --argjson highlightAmount "$highlight_amount" \
+    --argjson chromaRetention "$chroma_retention" \
+    --argjson mappingStrength "$mapping_strength" \
+    --argjson mappingLightnessStrength "$mapping_lightness_strength" \
+    --argjson quantizationCount "$quantization_count" \
+    --argjson ditherAmount "$dither_amount" \
+    --argjson ditherScale "$dither_scale" \
+    --argjson finishFirst "$finish_first" \
+    --argjson finishSecond "$finish_second" \
+    --argjson finishThird "$finish_third" \
+    --slurpfile projection "$projection" '
+      def projected($role):
+        ($projection[0][] | select(.role == $role) | .color);
+      def low:
+        if $themeVariant == "light" then projected("highlight")
+        else projected("shadow")
+        end;
+      def high:
+        if $themeVariant == "light" then projected("shadow")
+        else projected("highlight")
+        end;
+      [
+        {
+          operation: "wallpaper.grade",
+          engine: "livery-image",
+          version: "3",
+          parameters: {
+            preset: $preset,
+            strength: $strength,
+            preserveLightness: true,
+            cubeDimension: $cubeDimension,
+            contrast: $contrast,
+            saturation: $saturation,
+            exposure: $exposure,
+            shadowAmount: $shadowAmount,
+            highlightAmount: $highlightAmount,
+            chromaRetention: $chromaRetention,
+            workingSpace: "linear-extended-srgb",
+            outputSpace: "srgb"
+          }
+        }
+      ]
+      + (
+          if $mapping == "natural" then []
+          else [{
+            operation: "wallpaper.map",
+            engine: "livery-image",
+            version: "1",
+            parameters: {
+              mode: $mapping,
+              strength: $mappingStrength,
+              lightnessStrength: $mappingLightnessStrength,
+              cubeDimension: 32,
+              space: "oklab",
+              stops: (
+                if $mapping == "duotone" then [
+                  {position: 0, color: low},
+                  {position: 1, color: projected("primary")}
+                ]
+                elif $mapping == "tritone" then [
+                  {position: 0, color: low},
+                  {position: 0.5, color: projected("primary")},
+                  {position: 1, color: projected("secondary")}
+                ]
+                else (
+                  if $themeVariant == "light" then [
+                    {position: 0, color: low},
+                    {position: 0.24, color: projected("tertiary")},
+                    {position: 0.50, color: projected("secondary")},
+                    {position: 0.76, color: projected("primary")},
+                    {position: 1, color: high}
+                  ]
+                  else [
+                    {position: 0, color: low},
+                    {position: 0.24, color: projected("primary")},
+                    {position: 0.50, color: projected("secondary")},
+                    {position: 0.76, color: projected("tertiary")},
+                    {position: 1, color: high}
+                  ]
+                  end
+                )
+                end
+              )
+            }
+          }]
+          end
+        )
+      + (
+          if $ditherAlgorithm == "none" then []
+          else [{
+            operation: "wallpaper.dither",
+            engine: "livery-image",
+            version: "2",
+            parameters: {
+              algorithm: $ditherAlgorithm,
+              amount: $ditherAmount,
+              scale: $ditherScale
+            }
+          }]
+          end
+        )
+      + (
+          if $quantizationCount == 0 then []
+          else [{
+            operation: "wallpaper.quantize",
+            engine: "livery-image",
+            version: "3",
+            parameters: {
+              mode: $quantization,
+              palette: "theme-image",
+              colors: $quantizationCount,
+              space: "oklab",
+              cubeDimension: 32
+            }
+          }]
+          end
+        )
+      + (
+          if $finishOperation == "grain" then [{
+            operation: "wallpaper.grain",
+            engine: "livery-image",
+            version: "2",
+            parameters: {
+              algorithm: "seeded-blue-noise",
+              amount: $finishFirst,
+              scale: $finishSecond
+            }
+          }]
+          elif $finishOperation == "halftone" then [{
+            operation: "wallpaper.halftone",
+            engine: "core-image-cmyk-halftone",
+            version: "1",
+            parameters: {
+              width: $finishFirst,
+              angle: $finishSecond,
+              sharpness: $finishThird
+            }
+          }]
+          else []
+          end
+        )
+    ' > "$transform_steps"
+
+  jq -nS \
+    --arg id "$profile" \
+    --arg label "$theme_ref / $wallpaper_id / $recipe" \
+    --arg themeId "$theme_ref" \
+    --arg themeDigest "$theme_digest" \
+    --arg wallpaperId "$wallpaper_id" \
+    --arg recipe "$recipe" \
+    --argjson themeSize "$theme_size" \
+    --slurpfile wallpaper "$wallpaper_meta" \
+    --slurpfile projection "$projection" \
+    --slurpfile transforms "$transform_steps" '
+      {
+        schemaVersion: 2,
+        kind: "look-spec",
+        id: $id,
+        label: $label,
+        inputs: {
+          theme: {
+            id: $themeId,
+            digest: $themeDigest,
+            mediaType: "application/vnd.livery.semantic-theme+json",
+            size: $themeSize
+          },
+          wallpaper: ($wallpaper[0] + {id: $wallpaperId})
+        },
+        coherence: {
+          authority: "theme",
+          operation: "grade-wallpaper",
+          constraints: {
+            preserveThemeDomains: ["ui", "signals", "terminal", "presentation", "effects"]
+          },
+          wallpaperScope: "all-managed-spaces"
+        },
+        pipeline: ([
+          {
+            operation: "theme.project-image-palette",
+            engine: "livery-projector",
+            version: "2",
+            parameters: {
+              projection: "semantic-image-v2",
+              colors: $projection[0]
+            }
+          }
+        ] + $transforms[0]),
+        placement: {mode: "fill", focalPoint: [0.5, 0.5]}
+      }' > "$spec"
+  spec_digest=$(json_digest "$spec")
+  derivation_key=$(derivation_digest "$spec")
+  cache_file="$DERIVATIVE_CACHE/${derivation_key#sha256:}.png"
+  mkdir -p "$DERIVATIVE_CACHE"
+
+  jq -nS \
+    --arg source "$wallpaper_source" \
+    --arg output "$cache_file" \
+    --slurpfile projection "$projection" \
+    --slurpfile steps "$transform_steps" '
+      {
+        source: $source,
+        output: $output,
+        palette: $projection[0],
+        steps: $steps[0]
+      }' > "$request"
+  ensure_image_helper
+  if [ ! -f "$cache_file" ]; then
+    "$IMAGE_BIN" transform "$request" > "$output_meta"
+  else
+    "$IMAGE_BIN" inspect "$cache_file" > "$output_meta"
+  fi
+  artifact_digest=$(jq -r '.digest' "$output_meta")
+  artifact_name="${artifact_digest#sha256:}.png"
+  cp "$cache_file" "$output_dir/wallpaper/$artifact_name"
+
+  jq -S \
+    --arg id "$profile" \
+    --arg specDigest "$spec_digest" \
+    --arg derivationDigest "$derivation_key" \
+    --arg themeDigest "$theme_digest" \
+    --arg artifact "wallpaper/$artifact_name" \
+    --arg recipe "$recipe" \
+    --slurpfile spec "$spec" \
+    --slurpfile output "$output_meta" '
+      .schemaVersion = 2
+      | .kind = "look-manifest"
+      | .id = $id
+      | .label = $spec[0].label
+      | .specDigest = $specDigest
+      | .inputs = $spec[0].inputs
+      | .coherence = $spec[0].coherence
+      | .pipeline = $spec[0].pipeline
+      | .placement = $spec[0].placement
+      | .outputs = {
+          theme: {digest: $themeDigest, format: "livery-semantic-v2"},
+          wallpaper: ($output[0] + {
+            artifact: $artifact,
+            derivationDigest: $derivationDigest
+          })
+        }
+      | .provenance = {
+          materials: [$spec[0].inputs.theme, $spec[0].inputs.wallpaper],
+          steps: $spec[0].pipeline,
+          environment: {
+            platform: "macos",
+            renderer: "Core Image"
+          },
+          reproducibility: "reproducible"
+        }
+      | .evidence = {
+          wallpaper: {
+            recipe: $recipe,
+            operations: ($spec[0].pipeline | map(.operation)),
+            sourceDigest: $spec[0].inputs.wallpaper.digest,
+            artifactDigest: $output[0].digest,
+            semanticRecoloring: false
+          }
+        }
+      | del(.source)
+    ' "$theme" > "$manifest"
+  resolve_bar_legibility "$manifest" "$output_dir/wallpaper/$artifact_name"
+  merged=$(mktemp "${TMPDIR:-/tmp}/livery-evidence.XXXXXX")
+  jq '.evidence.barLegibility = .presentation.barLegibility' "$manifest" > "$merged"
+  mv -f "$merged" "$manifest"
+  rm -f "$theme" "$wallpaper" "$wallpaper_meta" "$projection" \
+    "$transform_steps" "$request" "$output_meta"
+}
+
+resolve_look() {
+  profile=$1
+  output_dir=$2
+  mkdir -p "$output_dir/wallpaper"
+  rm -f "$output_dir/spec.json" "$output_dir/manifest.json"
+  find "$output_dir/wallpaper" -mindepth 1 -maxdepth 1 -type f -delete
+
+  case "$profile" in
+    default)
+      write_default_look "$profile" "$output_dir"
+      ;;
+    theme:*@*:*)
+      binding=${profile#theme:}
+      theme_ref=${binding%%@*}
+      wallpaper_selection=${binding#*@}
+      fixture=${wallpaper_selection%%:*}
+      recipe=${wallpaper_selection#*:}
+      write_theme_authoritative_look \
+        "$profile" "$theme_ref" "$fixture" "$recipe" "$output_dir"
+      ;;
+    wallpaper:*:*)
+      selection=${profile#wallpaper:}
+      fixture=${selection%%:*}
+      candidate=${selection#*:}
+      write_wallpaper_authoritative_look \
+        "$profile" "$fixture" "$candidate" "$output_dir"
+      ;;
+    *:*)
+      fixture=${profile%%:*}
+      candidate=${profile#*:}
+      write_wallpaper_authoritative_look \
+        "$profile" "$fixture" "$candidate" "$output_dir"
+      ;;
+    *)
+      echo "unknown profile: $profile" >&2
+      echo "use ./liveryctl list to see available profiles" >&2
+      exit 1
+      ;;
+  esac
+}
+
+validate_manifest() {
+  manifest=$1
+  jq -e '
+    def color: type == "string" and test("^#[0-9a-fA-F]{6}$");
+    def digest: type == "string" and test("^sha256:[0-9a-f]{64}$");
+    .schemaVersion == 2
+      and .kind == "look-manifest"
+      and (.id | type == "string" and length > 0)
+      and (.label | type == "string" and length > 0)
+      and (.specDigest | digest)
+      and (.coherence.authority == "wallpaper"
+        or .coherence.authority == "theme"
+        or .coherence.authority == "pair"
+        or .coherence.authority == "independent")
+      and (.coherence.operation == "derive-theme"
+        or .coherence.operation == "grade-wallpaper"
+        or .coherence.operation == "identity")
+      and .coherence.wallpaperScope == "all-managed-spaces"
+      and (.pipeline | type == "array" and length > 0)
+      and (.outputs.theme.digest | digest)
+      and .outputs.theme.format == "livery-semantic-v2"
+      and ((.outputs.wallpaper.kind == "provider-state")
+        or ((.outputs.wallpaper.digest | digest)
+          and (.outputs.wallpaper.derivationDigest | digest)
+          and (.outputs.wallpaper.artifact | type == "string" and length > 0)))
+      and (.provenance.reproducibility == "stored"
+        or .provenance.reproducibility == "replayable"
+        or .provenance.reproducibility == "reproducible")
+      and (.presentation.barLegibility.strategy == "open"
+        or .presentation.barLegibility.strategy == "scrim")
+      and (.presentation.barLegibility.polarity == "light"
+        or .presentation.barLegibility.polarity == "dark")
+      and (.presentation.barLegibility.text | color)
+      and (.presentation.barLegibility.textMuted | color)
+      and (.presentation.barLegibility.accent | color)
+      and (.presentation.barLegibility.scrim | color)
+      and (.presentation.barLegibility.scrimAlpha
+        | type == "number" and . >= 0 and . <= 255)
+      and (.presentation.barLegibility.textContrastP10
+        | type == "number" and . >= 4.5)
+      and (.variant == "dark" or .variant == "light")
+      and ([.ui[]] | all(color))
+      and ([.signals[]] | all(color))
+      and (.terminal.background | color)
+      and (.terminal.foreground | color)
+      and (.terminal.cursor | color)
+      and (.terminal.cursorText | color)
+      and (.terminal.selectionBackground | color)
+      and (.terminal.selectionForeground | color)
+      and (.terminal.minimumContrast | type == "number" and . >= 1 and . <= 21)
+      and (.terminal.ansi | length == 16)
+      and ([.terminal.ansi[]] | all(color))
+      and ((.terminal.base16 // []) | length == 0 or (length == 16 and all(color)))
+      and (.effects.barBackgroundAlpha | type == "number" and . >= 0 and . <= 255)
+      and (.effects.popupBackgroundAlpha | type == "number" and . >= 0 and . <= 255)
+      and (.effects.borderInactiveAlpha | type == "number" and . >= 0 and . <= 255)
+  ' "$manifest" >/dev/null
+}
+
+validate_spec() {
+  spec=$1
+  jq -e '
+    def digest: type == "string" and test("^sha256:[0-9a-f]{64}$");
+    .schemaVersion == 2
+      and .kind == "look-spec"
+      and (.id | type == "string" and length > 0)
+      and (.label | type == "string" and length > 0)
+      and (.inputs | type == "object" and length > 0)
+      and (.coherence.authority == "wallpaper"
+        or .coherence.authority == "theme"
+        or .coherence.authority == "pair"
+        or .coherence.authority == "independent")
+      and (.coherence.operation == "derive-theme"
+        or .coherence.operation == "grade-wallpaper"
+        or .coherence.operation == "identity")
+      and .coherence.wallpaperScope == "all-managed-spaces"
+      and (.pipeline | type == "array" and length > 0)
+      and ([.pipeline[]]
+        | all(
+            (.operation | type == "string" and length > 0)
+            and (.engine | type == "string" and length > 0)
+            and (.version | type == "string" and length > 0)
+            and (.parameters | type == "object")
+          ))
+      and (.placement.mode == "fill"
+        or .placement.mode == "fit"
+        or .placement.mode == "stretch"
+        or .placement.mode == "center")
+      and (.placement.focalPoint | length == 2)
+      and ([.inputs[] | select(has("digest")) | .digest] | all(digest))
+  ' "$spec" >/dev/null
+}
+
+validate_look_bundle() {
+  output_dir=$1
+  spec="$output_dir/spec.json"
+  manifest="$output_dir/manifest.json"
+  [ -f "$spec" ] || { echo "missing resolved Look spec" >&2; exit 1; }
+  [ -f "$manifest" ] || { echo "missing resolved Look manifest" >&2; exit 1; }
+  validate_spec "$spec"
+  validate_manifest "$manifest"
+
+  expected_spec_digest=$(json_value '.specDigest' "$manifest")
+  actual_spec_digest=$(json_digest "$spec")
+  [ "$expected_spec_digest" = "$actual_spec_digest" ] || {
+    echo "manifest spec digest does not match spec.json" >&2
+    exit 1
+  }
+  expected_theme_digest=$(json_value '.outputs.theme.digest' "$manifest")
+  actual_theme_digest=$(semantic_theme_digest "$manifest")
+  [ "$expected_theme_digest" = "$actual_theme_digest" ] || {
+    echo "resolved semantic theme digest does not match manifest" >&2
+    exit 1
+  }
+
+  wallpaper_kind=$(json_value '.outputs.wallpaper.kind // "artifact"' "$manifest")
+  if [ "$wallpaper_kind" = "artifact" ]; then
+    artifact=$(json_value '.outputs.wallpaper.artifact' "$manifest")
+    artifact_path="$output_dir/$artifact"
+    [ -f "$artifact_path" ] || {
+      echo "missing resolved wallpaper artifact: $artifact" >&2
+      exit 1
+    }
+    expected_artifact_digest=$(json_value '.outputs.wallpaper.digest' "$manifest")
+    actual_artifact_digest=$(shasum -a 256 "$artifact_path" | awk '{print "sha256:" $1}')
+    [ "$expected_artifact_digest" = "$actual_artifact_digest" ] || {
+      echo "wallpaper artifact digest does not match manifest" >&2
+      exit 1
+    }
+    expected_derivation_digest=$(json_value '.outputs.wallpaper.derivationDigest' "$manifest")
+    actual_derivation_digest=$(derivation_digest "$spec")
+    [ "$expected_derivation_digest" = "$actual_derivation_digest" ] || {
+      echo "wallpaper derivation digest does not match spec inputs and pipeline" >&2
+      exit 1
+    }
+  fi
+}
+
+json_value() {
+  jq -r "$1" "$2"
+}
+
+opaque() {
+  color=${1#\#}
+  printf '0xff%s' "$color"
+}
+
+with_alpha() {
+  alpha=$1
+  color=${2#\#}
+  printf '0x%02x%s' "$alpha" "$color"
+}
+
+render_ghostty() {
+  manifest=$1
+  output=$2
+  {
+    index=0
+    jq -r '.terminal.ansi[]' "$manifest" | while IFS= read -r color; do
+      printf 'palette = %s=%s\n' "$index" "$color"
+      index=$((index + 1))
+    done
+    printf 'background = %s\n' "$(json_value '.terminal.background | ltrimstr("#")' "$manifest")"
+    printf 'foreground = %s\n' "$(json_value '.terminal.foreground | ltrimstr("#")' "$manifest")"
+    printf 'cursor-color = %s\n' "$(json_value '.terminal.cursor | ltrimstr("#")' "$manifest")"
+    printf 'cursor-text = %s\n' "$(json_value '.terminal.cursorText | ltrimstr("#")' "$manifest")"
+    printf 'selection-background = %s\n' "$(json_value '.terminal.selectionBackground | ltrimstr("#")' "$manifest")"
+    printf 'selection-foreground = %s\n' "$(json_value '.terminal.selectionForeground | ltrimstr("#")' "$manifest")"
+    minimum_contrast=$(json_value '.terminal.minimumContrast' "$manifest")
+    if [ "$minimum_contrast" != "1" ]; then
+      printf 'minimum-contrast = %s\n' "$minimum_contrast"
+    fi
+  } > "$output"
+}
+
+render_sketchybar() {
+  manifest=$1
+  output=$2
+
+  black=$(json_value '.targets.sketchybar.colors.black // .ui.background' "$manifest")
+  white=$(json_value '.targets.sketchybar.colors.white // .ui.text' "$manifest")
+  red=$(json_value '.targets.sketchybar.colors.red // .signals.error' "$manifest")
+  green=$(json_value '.targets.sketchybar.colors.green // .signals.success' "$manifest")
+  blue=$(json_value '.targets.sketchybar.colors.blue // .ui.primary' "$manifest")
+  yellow=$(json_value '.targets.sketchybar.colors.yellow // .signals.warning' "$manifest")
+  orange=$(json_value '.targets.sketchybar.colors.orange // .signals.attention' "$manifest")
+  magenta=$(json_value '.targets.sketchybar.colors.magenta // .ui.secondary' "$manifest")
+  grey=$(json_value '.targets.sketchybar.colors.grey // .ui.textMuted' "$manifest")
+  maroon=$(json_value '.targets.sketchybar.colors.maroon // .signals.error' "$manifest")
+  mauve=$(json_value '.targets.sketchybar.colors.mauve // .ui.secondary' "$manifest")
+  lavender=$(json_value '.targets.sketchybar.colors.lavender // .ui.secondary' "$manifest")
+  teal=$(json_value '.targets.sketchybar.colors.teal // .ui.tertiary' "$manifest")
+  peach=$(json_value '.targets.sketchybar.colors.peach // .signals.attention' "$manifest")
+  background=$(json_value '.ui.background' "$manifest")
+  surface=$(json_value '.targets.sketchybar.surface // .ui.surface' "$manifest")
+  outline=$(json_value '.targets.sketchybar.barBorder // .ui.outline' "$manifest")
+  selection=$(json_value '.ui.selection' "$manifest")
+  hairline=$(json_value '.effects.hairline' "$manifest")
+  popup_alpha=$(json_value '.effects.popupBackgroundAlpha' "$manifest")
+  popup_border_alpha=$(json_value '.effects.popupBorderAlpha' "$manifest")
+  surface_alpha=$(json_value '.effects.surfaceAlpha' "$manifest")
+  wash_alpha=$(json_value '.effects.secondaryWashAlpha' "$manifest")
+  chip_alpha=$(json_value '.effects.chipAlpha' "$manifest")
+  bar_text=$(json_value '.presentation.barLegibility.text' "$manifest")
+  bar_text_muted=$(json_value '.presentation.barLegibility.textMuted' "$manifest")
+  bar_accent=$(json_value '.presentation.barLegibility.accent' "$manifest")
+  bar_scrim=$(json_value '.presentation.barLegibility.scrim' "$manifest")
+  bar_scrim_alpha=$(json_value '.presentation.barLegibility.scrimAlpha' "$manifest")
+  bar_red=$(json_value '.presentation.barLegibility.roles.red' "$manifest")
+  bar_green=$(json_value '.presentation.barLegibility.roles.green' "$manifest")
+  bar_blue=$(json_value '.presentation.barLegibility.roles.blue' "$manifest")
+  bar_yellow=$(json_value '.presentation.barLegibility.roles.yellow' "$manifest")
+  bar_orange=$(json_value '.presentation.barLegibility.roles.orange' "$manifest")
+  bar_magenta=$(json_value '.presentation.barLegibility.roles.magenta' "$manifest")
+  bar_grey=$(json_value '.presentation.barLegibility.roles.grey' "$manifest")
+  bar_maroon=$(json_value '.presentation.barLegibility.roles.maroon' "$manifest")
+  bar_mauve=$(json_value '.presentation.barLegibility.roles.mauve' "$manifest")
+  bar_lavender=$(json_value '.presentation.barLegibility.roles.lavender' "$manifest")
+  bar_teal=$(json_value '.presentation.barLegibility.roles.teal' "$manifest")
+  bar_peach=$(json_value '.presentation.barLegibility.roles.peach' "$manifest")
+
+  cat > "$output" <<EOF
+return {
+  black = $(opaque "$black"),
+  white = $(opaque "$white"),
+  red = $(opaque "$red"),
+  green = $(opaque "$green"),
+  blue = $(opaque "$blue"),
+  yellow = $(opaque "$yellow"),
+  orange = $(opaque "$orange"),
+  magenta = $(opaque "$magenta"),
+  grey = $(opaque "$grey"),
+  transparent = 0x00000000,
+  maroon = $(opaque "$maroon"),
+  mauve = $(opaque "$mauve"),
+  lavender = $(opaque "$lavender"),
+  teal = $(opaque "$teal"),
+  peach = $(opaque "$peach"),
+
+
+  bar = {
+    bg = $(with_alpha "$bar_scrim_alpha" "$bar_scrim"),
+    border = $(opaque "$outline"),
+    text = $(opaque "$bar_text"),
+    text_muted = $(opaque "$bar_text_muted"),
+    accent = $(opaque "$bar_accent"),
+    red = $(opaque "$bar_red"),
+    green = $(opaque "$bar_green"),
+    blue = $(opaque "$bar_blue"),
+    yellow = $(opaque "$bar_yellow"),
+    orange = $(opaque "$bar_orange"),
+    magenta = $(opaque "$bar_magenta"),
+    grey = $(opaque "$bar_grey"),
+    maroon = $(opaque "$bar_maroon"),
+    mauve = $(opaque "$bar_mauve"),
+    lavender = $(opaque "$bar_lavender"),
+    teal = $(opaque "$bar_teal"),
+    peach = $(opaque "$bar_peach"),
+  },
+  popup = {
+    -- Ghostty parity: catppuccin-mocha base at 0.5 opacity. The old
+    -- 0x2c2e34 base is what read "gray"; this matches the terminal glass.
+    bg = $(with_alpha "$popup_alpha" "$background"),
+    -- Liquid-glass edge: a faint light hairline, not a saturated outline.
+    border = $(with_alpha "$popup_border_alpha" "$hairline"),
+    text = $(opaque "$white"),
+    text_muted = $(opaque "$grey"),
+  },
+  bg1 = $(with_alpha "$surface_alpha" "$surface"),
+  bg2 = $(with_alpha "$wash_alpha" "$mauve"),
+  -- Neutral glass chip for the single active-space highlight in the rail.
+  chip = $(with_alpha "$chip_alpha" "$selection"),
+
+  with_alpha = function(color, alpha)
+    if alpha > 1.0 or alpha < 0.0 then return color end
+    return (color & 0x00ffffff) | (math.floor(alpha * 255.0) << 24)
+  end,
+}
+EOF
+}
+
+render_borders() {
+  manifest=$1
+  output=$2
+  active=$(json_value '.targets.borders.active // .ui.primary' "$manifest")
+  inactive=$(json_value '.targets.borders.inactive // .ui.primary' "$manifest")
+  inactive_alpha=$(json_value '.effects.borderInactiveAlpha' "$manifest")
+  width=$(json_value '.targets.borders.width // 4.0' "$manifest")
+  hidpi=$(json_value '.targets.borders.hidpi // "on"' "$manifest")
+  ax_focus=$(json_value '.targets.borders.axFocus // "on"' "$manifest")
+
+  printf 'borders active_color=%s hidpi=%s ax_focus=%s inactive_color=%s width=%.1f\n' \
+    "$(opaque "$active")" \
+    "$hidpi" \
+    "$ax_focus" \
+    "$(with_alpha "$inactive_alpha" "$inactive")" \
+    "$width" > "$output"
+}
+
+validate_rendered() {
+  output_dir=$1
+  if [ -x "$GHOSTTY_BIN" ]; then
+    "$GHOSTTY_BIN" +validate-config --config-file="$output_dir/ghostty/livery.conf" >/dev/null
+  fi
+  if command -v luac >/dev/null 2>&1; then
+    luac -p "$output_dir/sketchybar/colors.lua"
+  fi
+  if ! grep -Eq '^borders active_color=0x[0-9a-f]{8} hidpi=(on|off) ax_focus=(on|off) inactive_color=0x[0-9a-f]{8} width=[0-9]+\.[0-9]+$' "$output_dir/borders/borders.args"; then
+    echo "invalid borders adapter output" >&2
+    exit 1
+  fi
+}
+
+render_profile() {
+  profile=$1
+  slug=$(profile_slug "$profile")
+  output_dir="$BUILD_ROOT/$slug"
+  manifest="$output_dir/manifest.json"
+
+  mkdir -p "$output_dir/ghostty" "$output_dir/sketchybar" "$output_dir/borders" "$output_dir/wallpaper"
+  resolve_look "$profile" "$output_dir"
+  validate_look_bundle "$output_dir"
+  render_ghostty "$manifest" "$output_dir/ghostty/livery.conf"
+  render_sketchybar "$manifest" "$output_dir/sketchybar/colors.lua"
+  render_borders "$manifest" "$output_dir/borders/borders.args"
+  validate_rendered "$output_dir"
+  printf '%s\n' "$output_dir"
+}
+
+plan_profile() {
+  profile=$1
+  output_dir=$(render_profile "$profile")
+  current_ghostty="$CONFIG_ROOT/ghostty/themes/catppuccin-mocha.conf"
+  current_sketchybar="$CONFIG_ROOT/sketchybar/colors.lua"
+  current_borders=""
+  if [ -f "$RUNTIME_ROOT/current/ghostty/livery.conf" ]; then
+    current_ghostty="$RUNTIME_ROOT/current/ghostty/livery.conf"
+  fi
+  if [ -f "$RUNTIME_ROOT/current/sketchybar/colors.lua" ]; then
+    current_sketchybar="$RUNTIME_ROOT/current/sketchybar/colors.lua"
+  fi
+  if [ -f "$RUNTIME_ROOT/current/borders/borders.args" ]; then
+    current_borders=$(sed -n '1p' "$RUNTIME_ROOT/current/borders/borders.args")
+  else
+    current_borders=$(sed -n '/^borders active_color=/p' "$CONFIG_ROOT/yabai/yabairc")
+  fi
+
+  echo "profile: $profile"
+  echo "staged:  $output_dir"
+  echo
+  echo "--- Ghostty theme"
+  diff -u \
+    "$current_ghostty" \
+    "$output_dir/ghostty/livery.conf" || true
+  echo
+  echo "--- SketchyBar colors"
+  diff -u \
+    "$current_sketchybar" \
+    "$output_dir/sketchybar/colors.lua" || true
+  echo
+  echo "--- borders"
+  printf 'current:  %s\n' "$current_borders"
+  printf 'proposed: '
+  sed -n '1p' "$output_dir/borders/borders.args"
+}
+
+loaders_installed() {
+  grep -Fq 'config-file = ?../livery/current/ghostty/livery.conf' "$CONFIG_ROOT/ghostty/config" \
+    && grep -Fq '/current/sketchybar/colors.lua' "$CONFIG_ROOT/sketchybar/colors.lua" \
+    && grep -Fq '.config/livery/current/borders/borders.args' "$CONFIG_ROOT/yabai/yabairc"
+}
+
+install_runtime_profile() {
+  profile=$1
+  staged=$2
+  slug=$(profile_slug "$profile")
+  digest=$(shasum -a 256 "$staged/manifest.json" | awk '{print substr($1, 1, 12)}')
+  name="$slug-$digest"
+  destination="$RUNTIME_ROOT/profiles/$name"
+
+  mkdir -p "$RUNTIME_ROOT/profiles"
+  if [ ! -d "$destination" ]; then
+    temporary="$RUNTIME_ROOT/profiles/.$name.$$"
+    mkdir -p "$temporary/ghostty" "$temporary/sketchybar" "$temporary/borders"
+    cp "$staged/spec.json" "$temporary/spec.json"
+    cp "$staged/manifest.json" "$temporary/manifest.json"
+    cp "$staged/ghostty/livery.conf" "$temporary/ghostty/livery.conf"
+    cp "$staged/sketchybar/colors.lua" "$temporary/sketchybar/colors.lua"
+    cp "$staged/borders/borders.args" "$temporary/borders/borders.args"
+    if [ -d "$staged/wallpaper" ]; then
+      cp -R "$staged/wallpaper" "$temporary/wallpaper"
+    fi
+    validate_look_bundle "$temporary"
+    validate_rendered "$temporary"
+    mv "$temporary" "$destination"
+  fi
+
+  printf 'profiles/%s\n' "$name"
+}
+
+atomic_link() {
+  link_name=$1
+  link_target=$2
+  link_path="$RUNTIME_ROOT/$link_name"
+  link_directory=$(dirname "$link_path")
+  link_basename=$(basename "$link_path")
+  mkdir -p "$link_directory"
+  link_temporary="$link_directory/.$link_basename.next.$$"
+  ln -s "$link_target" "$link_temporary"
+  mv -h -f "$link_temporary" "$link_path"
+}
+
+reload_live_targets() {
+  if [ "${LIVERY_SKIP_RELOAD:-0}" = "1" ]; then
+    return 0
+  fi
+  sh "$RUNTIME_ROOT/current/borders/borders.args"
+  sketchybar --reload
+  ghostty_pids=$(pgrep -x ghostty || true)
+  if [ -n "$ghostty_pids" ]; then
+    for pid in $ghostty_pids; do
+      kill -USR2 "$pid"
+    done
+  fi
+}
+
+ensure_wallpaper_helper() {
+  if [ ! -x "$WALLPAPER_BIN" ] || [ "$WALLPAPER_SOURCE" -nt "$WALLPAPER_BIN" ]; then
+    mkdir -p "$BUILD_ROOT/bin"
+    swiftc \
+      -O \
+      -parse-as-library \
+      -warnings-as-errors \
+      -framework AppKit \
+      "$WALLPAPER_SOURCE" \
+      -o "$WALLPAPER_BIN"
+  fi
+}
+
+capture_wallpaper() {
+  destination=$1
+  if [ "${LIVERY_SKIP_RELOAD:-0}" = "1" ]; then
+    printf 'livery simulated wallpaper store\n' > "$destination"
+    return
+  fi
+  ensure_wallpaper_helper
+  "$WALLPAPER_BIN" snapshot "$destination"
+}
+
+capture_wallpaper_topology() {
+  destination=$1
+  if [ "${LIVERY_SKIP_RELOAD:-0}" = "1" ]; then
+    printf '{"simulated":true}\n' > "$destination"
+    return
+  fi
+  ensure_wallpaper_helper
+  spaces=$(mktemp "${TMPDIR:-/tmp}/livery-spaces.XXXXXX")
+  displays=$(mktemp "${TMPDIR:-/tmp}/livery-displays.XXXXXX")
+  status=$(mktemp "${TMPDIR:-/tmp}/livery-wallpaper-status.XXXXXX")
+  yabai -m query --spaces > "$spaces"
+  yabai -m query --displays > "$displays"
+  "$WALLPAPER_BIN" status > "$status"
+  jq -n \
+    --slurpfile spaces "$spaces" \
+    --slurpfile displays "$displays" \
+    --slurpfile wallpaper "$status" \
+    --arg capturedAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+    '{schemaVersion: 1, capturedAt: $capturedAt, spaces: $spaces[0], displays: $displays[0], wallpaper: $wallpaper[0]}' \
+    > "$destination"
+  rm -f "$spaces" "$displays" "$status"
+}
+
+restore_wallpaper() {
+  snapshot=$1
+  if [ "${LIVERY_SKIP_RELOAD:-0}" = "1" ]; then
+    return 0
+  fi
+  ensure_wallpaper_helper
+  "$WALLPAPER_BIN" restore "$snapshot"
+}
+
+install_wallpaper_snapshot() {
+  source=$1
+  metadata=$2
+  source_digest=$(shasum -a 256 "$source" | awk '{print $1}')
+  metadata_digest=$(jq -S 'del(.capturedAt)' "$metadata" | shasum -a 256 | awk '{print $1}')
+  digest=$(printf '%s\n%s\n' "$source_digest" "$metadata_digest" | shasum -a 256 | awk '{print $1}')
+  relative="snapshots/$digest.plist"
+  destination="$WALLPAPER_RUNTIME/$relative"
+  metadata_destination="$WALLPAPER_RUNTIME/snapshots/$digest.json"
+  mkdir -p "$WALLPAPER_RUNTIME/snapshots"
+  if [ ! -f "$destination" ]; then
+    temporary="$WALLPAPER_RUNTIME/snapshots/.$digest.$$"
+    cp "$source" "$temporary"
+    mv -f "$temporary" "$destination"
+    cp "$metadata" "$metadata_destination"
+  fi
+  printf '%s\n' "$relative"
+}
+
+apply_wallpaper_for_target() {
+  target=$1
+  if [ "${LIVERY_SKIP_RELOAD:-0}" = "1" ]; then
+    return 0
+  fi
+  ensure_wallpaper_helper
+  manifest="$RUNTIME_ROOT/$target/manifest.json"
+  output_kind=$(json_value '.outputs.wallpaper.kind // "artifact"' "$manifest")
+  if [ "$output_kind" = "artifact" ]; then
+    artifact=$(json_value '.outputs.wallpaper.artifact' "$manifest")
+    "$WALLPAPER_BIN" apply-global "$RUNTIME_ROOT/$target/$artifact"
+  elif [ "$output_kind" = "provider-state" ] && [ -f "$WALLPAPER_BASELINE" ]; then
+    "$WALLPAPER_BIN" restore "$WALLPAPER_BASELINE"
+  else
+    echo "wallpaper provider-state restore unavailable: no topology-aware baseline" >&2
+    return 1
+  fi
+}
+
+write_state() {
+  profile=$1
+  current_target=$2
+  previous_target=$3
+  scope=$4
+  temporary="$RUNTIME_ROOT/.state.next.$$"
+  jq -n \
+    --arg profile "$profile" \
+    --arg current "$current_target" \
+    --arg previous "$previous_target" \
+    --arg scope "$scope" \
+    --arg appliedAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+    --arg wallpaperCurrent "${wallpaper_current_target:-}" \
+    --arg wallpaperPrevious "${wallpaper_previous_target:-}" \
+    '{schemaVersion: 1, profile: $profile, current: $current, previous: $previous, scope: $scope, wallpaperCurrent: $wallpaperCurrent, wallpaperPrevious: $wallpaperPrevious, appliedAt: $appliedAt}' \
+    > "$temporary"
+  mv -f "$temporary" "$RUNTIME_ROOT/state.json"
+}
+
+apply_profile() {
+  profile=$1
+  scope=$2
+  if [ "$profile" != "default" ] && ! loaders_installed; then
+    echo "generated apply refused: stable target loaders are not installed" >&2
+    echo "default can still seed the runtime before loader installation" >&2
+    exit 1
+  fi
+  staged=$(render_profile "$profile")
+  target=$(install_runtime_profile "$profile" "$staged")
+  previous_target=""
+  active_profile=""
+  if [ -L "$RUNTIME_ROOT/current" ]; then
+    previous_target=$(readlink "$RUNTIME_ROOT/current")
+    active_profile=$(jq -r '.id' "$RUNTIME_ROOT/$previous_target/manifest.json")
+  fi
+  record_history=0
+  if [ "$active_profile" != "$profile" ]; then
+    record_history=1
+  fi
+
+  wallpaper_before="$RUNTIME_ROOT/.wallpaper-before.$$"
+  wallpaper_after="$RUNTIME_ROOT/.wallpaper-after.$$"
+  wallpaper_before_metadata="$RUNTIME_ROOT/.wallpaper-before.$$.json"
+  wallpaper_after_metadata="$RUNTIME_ROOT/.wallpaper-after.$$.json"
+  capture_wallpaper "$wallpaper_before"
+  capture_wallpaper_topology "$wallpaper_before_metadata"
+
+  atomic_link current "$target"
+  if [ "$profile" = "default" ]; then
+    atomic_link default "$target"
+  fi
+  if { [ "$scope" = "look" ] && ! apply_wallpaper_for_target "$target"; } \
+    || ! reload_live_targets
+  then
+    echo "target apply failed; restoring previous profile and wallpaper" >&2
+    if [ -n "$previous_target" ]; then
+      atomic_link current "$previous_target"
+      reload_live_targets || true
+    else
+      unlink "$RUNTIME_ROOT/current"
+    fi
+    restore_wallpaper "$wallpaper_before" || true
+    rm -f \
+      "$wallpaper_before" "$wallpaper_after" \
+      "$wallpaper_before_metadata" "$wallpaper_after_metadata"
+    exit 1
+  fi
+
+  capture_wallpaper "$wallpaper_after"
+  capture_wallpaper_topology "$wallpaper_after_metadata"
+  wallpaper_before_target=$(install_wallpaper_snapshot "$wallpaper_before" "$wallpaper_before_metadata")
+  wallpaper_current_target=$(install_wallpaper_snapshot "$wallpaper_after" "$wallpaper_after_metadata")
+  if [ "$record_history" = "1" ] || [ ! -L "$WALLPAPER_RUNTIME/previous" ]; then
+    atomic_link wallpaper/previous "$wallpaper_before_target"
+  fi
+  atomic_link wallpaper/current "$wallpaper_current_target"
+
+  if [ "$record_history" = "1" ] && [ -n "$previous_target" ]; then
+    atomic_link previous "$previous_target"
+  fi
+  rollback_target=""
+  if [ -L "$RUNTIME_ROOT/previous" ]; then
+    rollback_target=$(readlink "$RUNTIME_ROOT/previous")
+  fi
+  wallpaper_previous_target=$(readlink "$WALLPAPER_RUNTIME/previous")
+  write_state "$profile" "$target" "$rollback_target" "$scope"
+
+  rm -f \
+    "$wallpaper_before" "$wallpaper_after" \
+    "$wallpaper_before_metadata" "$wallpaper_after_metadata"
+
+  echo "applied profile: $profile ($scope)"
+  echo "current: $target"
+  echo "reloaded: Ghostty, SketchyBar, borders"
+  if [ "$scope" = "look" ]; then
+    echo "wallpaper: synchronized"
+  else
+    echo "wallpaper: unchanged"
+  fi
+}
+
+rollback_profile() {
+  if [ ! -L "$RUNTIME_ROOT/current" ] || [ ! -L "$RUNTIME_ROOT/previous" ]; then
+    echo "rollback unavailable: both current and previous profiles are required" >&2
+    exit 1
+  fi
+
+  current_target=$(readlink "$RUNTIME_ROOT/current")
+  previous_target=$(readlink "$RUNTIME_ROOT/previous")
+  if [ ! -L "$WALLPAPER_RUNTIME/current" ] || [ ! -L "$WALLPAPER_RUNTIME/previous" ]; then
+    echo "rollback unavailable: wallpaper history has not been seeded by the space-aware engine" >&2
+    exit 1
+  fi
+  wallpaper_current_target=$(readlink "$WALLPAPER_RUNTIME/current")
+  wallpaper_previous_target=$(readlink "$WALLPAPER_RUNTIME/previous")
+  wallpaper_before="$RUNTIME_ROOT/.wallpaper-before.$$"
+  capture_wallpaper "$wallpaper_before"
+  atomic_link current "$previous_target"
+  if ! restore_wallpaper "$WALLPAPER_RUNTIME/$wallpaper_previous_target" \
+    || ! reload_live_targets
+  then
+    echo "rollback failed; restoring current profile and wallpaper" >&2
+    atomic_link current "$current_target"
+    reload_live_targets || true
+    restore_wallpaper "$wallpaper_before" || true
+    exit 1
+  fi
+  atomic_link previous "$current_target"
+  atomic_link wallpaper/current "$wallpaper_previous_target"
+  atomic_link wallpaper/previous "$wallpaper_current_target"
+  rm -f "$wallpaper_before"
+
+  profile=$(jq -r '.id' "$RUNTIME_ROOT/current/manifest.json")
+  wallpaper_current_target=$(readlink "$WALLPAPER_RUNTIME/current")
+  wallpaper_previous_target=$(readlink "$WALLPAPER_RUNTIME/previous")
+  write_state "$profile" "$previous_target" "$current_target" "look"
+  echo "rolled back profile: $profile"
+  echo "reloaded: Ghostty, SketchyBar, borders"
+  echo "wallpaper: synchronized"
+}
+
+current_status() {
+  if [ ! -L "$RUNTIME_ROOT/current" ]; then
+    echo "no active Livery runtime profile"
+    exit 0
+  fi
+  current_target=$(readlink "$RUNTIME_ROOT/current")
+  current_profile=$(jq -r '.id' "$RUNTIME_ROOT/current/manifest.json")
+  echo "current:  $current_profile ($current_target)"
+  if [ -L "$RUNTIME_ROOT/previous" ]; then
+    previous_target=$(readlink "$RUNTIME_ROOT/previous")
+    previous_profile=$(jq -r '.id' "$RUNTIME_ROOT/previous/manifest.json")
+    echo "previous: $previous_profile ($previous_target)"
+  else
+    echo "previous: none"
+  fi
+  if [ -L "$WALLPAPER_RUNTIME/current" ]; then
+    echo "wallpaper: global ($(readlink "$WALLPAPER_RUNTIME/current"))"
+  else
+    echo "wallpaper: untracked"
+  fi
+}
+
+require_tools
+command=${1:-}
+
+case "$command" in
+  list)
+    echo "default"
+    combined_catalog | jq -r '
+      .fixtures[]
+      | .name as $fixture
+      | .palettes[]
+      | "wallpaper:\($fixture):\(.name)"
+    '
+    combined_catalog | jq -r '
+      .fixtures[]
+      | .name as $fixture
+      | ["subtle", "balanced", "theme-forward"][]
+      | "theme:default@\($fixture):\(.)"
+    '
+    ;;
+  wallpapers)
+    [ "$#" -eq 1 ] || [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+    if [ "$#" -eq 2 ]; then
+      [ "$2" = "--json" ] || { usage >&2; exit 2; }
+      combined_catalog
+    else
+      combined_catalog | jq -r '
+        .fixtures[]
+        | [
+            .id,
+            .name,
+            .subtitle,
+            (if .assetPath then "local" else "built-in" end)
+          ]
+        | @tsv
+      '
+    fi
+    ;;
+  import-wallpaper)
+    [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+    source=$2
+    shift 2
+    import_wallpaper "$source" "$@"
+    ;;
+  themes)
+    [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+    jq -r '
+      .themes[]
+      | [.ref, .label, .style, (.tags | join(","))]
+      | @tsv
+    ' "$THEME_CATALOG"
+    ;;
+  resolve)
+    [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+    temporary=$(mktemp -d "${TMPDIR:-/tmp}/livery-resolved.XXXXXX")
+    trap 'rm -rf "$temporary"' EXIT HUP INT TERM
+    resolve_look "$2" "$temporary"
+    validate_look_bundle "$temporary"
+    jq '.' "$temporary/manifest.json"
+    ;;
+  render)
+    [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+    output=$(render_profile "$2")
+    echo "rendered and validated: $output"
+    ;;
+  validate)
+    [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+    output=$(render_profile "$2")
+    echo "valid: $2"
+    echo "staged: $output"
+    ;;
+  plan)
+    [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+    plan_profile "$2"
+    ;;
+  current)
+    [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+    current_status
+    ;;
+  apply)
+    [ "$#" -eq 2 ] || [ "$#" -eq 3 ] || { usage >&2; exit 2; }
+    scope=look
+    if [ "$#" -eq 3 ]; then
+      case "$3" in
+        --colors-only|--theme-only) scope=colors-only ;;
+        *) usage >&2; exit 2 ;;
+      esac
+    fi
+    apply_profile "$2" "$scope"
+    ;;
+  rollback)
+    [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+    rollback_profile
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

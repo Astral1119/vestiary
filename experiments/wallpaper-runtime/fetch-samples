@@ -1,0 +1,29 @@
+#!/bin/sh
+# Clone author-published, ready-to-run Wallpaper Engine web wallpapers
+# from their own GitHub repos (their sanctioned distribution — no Steam,
+# no workshop mirrors). Cloned locally, not vendored into this repo.
+set -eu
+
+ROOT=$(unset CDPATH; cd -- "$(dirname -- "$0")" && pwd)
+DEST="$ROOT/samples/third-party"
+mkdir -p "$DEST"
+
+clone() {
+  name=$(basename "$1")
+  if [ -d "$DEST/$name" ]; then
+    echo "already present: $name"
+  else
+    git clone --depth 1 "https://github.com/$1.git" "$DEST/$name"
+  fi
+}
+
+clone Pazox/Audio-responsive-wallpaper   # audio bars + particles, user properties
+clone lucashzhang/SoundDancer            # WebGL audio-reactive trails
+clone maxijonson/Poly-Wallpaper          # shader-based audio visualizer
+
+echo
+echo "run one with:"
+echo "  ./run samples/third-party/SoundDancer"
+echo
+echo "(hexxone/audiorbits is the heavyweight open WE wallpaper but needs a"
+echo " TypeScript build — try it later if these three behave.)"

@@ -1,0 +1,299 @@
+#!/usr/bin/env python3
+"""Steam Workshop client for the wallpaper runtime.
+
+  workshop search <query> [--type web|video|scene|all] [--n 15]
+  workshop browse <query> [--type ...] [--n 30] [--no-open]
+                                # generate a Livery-themed local gallery
+                                # with animated previews and run commands
+  workshop info   <id>
+  workshop get    <id>          # download via steamcmd (cached login)
+  workshop run    <id>          # get + launch with ./run
+
+Search uses IPublishedFileService/QueryFiles when STEAM_API_KEY is set,
+otherwise scrapes the public workshop browse page. Downloads require the
+Steam username in $STEAM_USER or the .steam-user file next to this script
+(account must own Wallpaper Engine; log in once with
+`steamcmd +login <user> +quit`).
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.parse
+import urllib.request
+
+APP_ID = 431960
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONTENT_DIR = os.path.expanduser(
+    f"~/Library/Application Support/Steam/steamapps/workshop/content/{APP_ID}")
+TYPE_TAGS = {"web": "Web", "video": "Video", "scene": "Scene"}
+
+
+def http(url, data=None):
+    request = urllib.request.Request(url, data=data, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.read().decode("utf-8", "replace")
+
+
+def steam_user():
+    user = os.environ.get("STEAM_USER")
+    if not user:
+        path = os.path.join(SCRIPT_DIR, ".steam-user")
+        if os.path.exists(path):
+            user = open(path).read().strip()
+    if not user:
+        sys.exit("set STEAM_USER or write your Steam username to .steam-user")
+    return user
+
+
+def query_ids(query, kind, count):
+    key = os.environ.get("STEAM_API_KEY")
+    if key:
+        params = {
+            "key": key, "appid": APP_ID, "search_text": query,
+            "query_type": 3, "numperpage": count, "cursor": "*",
+        }
+        if kind in TYPE_TAGS:
+            params["requiredtags[0]"] = TYPE_TAGS[kind]
+        url = ("https://api.steampowered.com/IPublishedFileService/QueryFiles/v1/?"
+               + urllib.parse.urlencode(params))
+        files = json.loads(http(url)).get("response", {}).get("publishedfiledetails", []) or []
+        return [str(f["publishedfileid"]) for f in files][:count]
+
+    # Keyless: the browse page is a React SSR app, so scrape only item IDs.
+    sort = "textsearch" if query else "toprated"
+    ids = []
+    for page in range(1, 4):
+        params = {"appid": APP_ID, "searchtext": query, "browsesort": sort,
+                  "actualsort": sort, "p": page}
+        if kind in TYPE_TAGS:
+            params["requiredtags[]"] = TYPE_TAGS[kind]
+        url = "https://steamcommunity.com/workshop/browse/?" + urllib.parse.urlencode(params)
+        page_ids = [i for i in dict.fromkeys(re.findall(r"filedetails/\?id=(\d+)", http(url)))
+                    if i not in ids]
+        if not page_ids:
+            break
+        ids.extend(page_ids)
+        if len(ids) >= count:
+            break
+    return ids[:count]
+
+
+def query_details(query, kind, count):
+    ids = query_ids(query, kind, count)
+    if not ids:
+        return []
+    data = {"itemcount": len(ids)}
+    for i, item_id in enumerate(ids):
+        data[f"publishedfileids[{i}]"] = item_id
+    url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
+    files = json.loads(http(url, urllib.parse.urlencode(data).encode()))
+    return [f for f in files["response"]["publishedfiledetails"] if f.get("result") == 1]
+
+
+def search(query, kind, count):
+    files = query_details(query, kind, count)
+    if not files:
+        print("no results")
+    for f in files:
+        tags = ",".join(t.get("tag", "") for t in f.get("tags", []))
+        size = int(f.get("file_size", 0)) / 1e6
+        print(f"{f['publishedfileid']}  {f.get('title','?')}  ({size:.1f} MB)  [{tags}]")
+
+
+def livery_colors():
+    colors = {"surface": "#141419", "background": "#1e1e2e", "text": "#f5e0dc",
+              "muted": "#8f8a94", "accent_a": "#87d6bc", "accent_b": "#a8cbe2"}
+    manifest = os.path.expanduser("~/.config/livery/current/manifest.json")
+    try:
+        with open(manifest) as handle:
+            data = json.load(handle)
+        ui = data.get("ui", {})
+        colors["surface"] = ui.get("surface", colors["surface"])
+        colors["background"] = ui.get("background", colors["background"])
+        colors["text"] = ui.get("text", colors["text"])
+        colors["muted"] = ui.get("textMuted", colors["muted"])
+        gradient = data.get("presentation", {}).get("visualizerGradient", [])
+        if len(gradient) == 2:
+            colors["accent_a"], colors["accent_b"] = gradient
+    except OSError:
+        pass
+    return colors
+
+
+def fetch_preview(f, cache):
+    url = f.get("preview_url")
+    if not url:
+        return None
+    item_id = str(f["publishedfileid"])
+    for ext in (".gif", ".jpg", ".png"):
+        cached = os.path.join(cache, item_id + ext)
+        if os.path.exists(cached):
+            return os.path.basename(cached)
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            kind = response.headers.get("Content-Type", "")
+            ext = {"image/gif": ".gif", "image/png": ".png"}.get(kind, ".jpg")
+            path = os.path.join(cache, item_id + ext)
+            with open(path, "wb") as handle:
+                handle.write(response.read())
+        return os.path.basename(path)
+    except OSError:
+        return None
+
+
+def browse(query, kind, count, auto_open):
+    files = query_details(query, kind, count)
+    if not files:
+        sys.exit("no results")
+    cache = os.path.join(SCRIPT_DIR, ".browse-cache")
+    os.makedirs(cache, exist_ok=True)
+    palette = livery_colors()
+
+    cards = []
+    for f in files:
+        item_id = f["publishedfileid"]
+        preview = fetch_preview(f, cache)
+        image = (f'<img src=".browse-cache/{preview}" loading="lazy">'
+                 if preview else '<div class="noimg">no preview</div>')
+        tags = " · ".join(t.get("tag", "") for t in f.get("tags", [])
+                          if t.get("tag") not in ("Wallpaper", "Everyone", "Approved"))
+        size = int(f.get("file_size", 0)) / 1e6
+        subs = int(f.get("subscriptions", 0))
+        playable = any(t.get("tag") in ("Web", "Video") for t in f.get("tags", []))
+        note = "" if playable else '<span class="scene-note">scene — phase 2</span>'
+        cards.append(f"""
+        <article>
+          {image}
+          <h2>{f.get('title','?')}</h2>
+          <p class="meta">{size:.1f} MB · {subs:,} subs {note}</p>
+          <p class="tags">{tags}</p>
+          <p class="row">
+            <code onclick="copy(this)" data-cmd="./workshop run {item_id}">./workshop run {item_id}</code>
+            <a href="https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}">page →</a>
+          </p>
+        </article>""")
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>workshop · {query or "top rated"}</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{ background: {palette['surface']}; color: {palette['text']};
+         font: 14px/1.5 -apple-system, system-ui, sans-serif; padding: 32px 40px; }}
+  header {{ margin-bottom: 6px; }}
+  h1 {{ font-size: 17px; font-weight: 600; display: inline; }}
+  .look {{ color: {palette['muted']}; font-size: 13px; margin-left: 1em; }}
+  .rule {{ height: 1px; margin: 14px 0 26px;
+           background: linear-gradient(90deg, {palette['accent_a']}, {palette['accent_b']}, transparent 60%); }}
+  main {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 22px; }}
+  article {{ background: {palette['background']}; border: 1px solid rgba(255,255,255,.09);
+             border-radius: 10px; overflow: hidden; }}
+  img, .noimg {{ width: 100%; height: 190px; object-fit: cover; display: block;
+                 background: #000; }}
+  .noimg {{ display: flex; align-items: center; justify-content: center; color: {palette['muted']}; }}
+  h2 {{ font-size: 14px; font-weight: 600; padding: 10px 14px 0; }}
+  .meta {{ padding: 2px 14px 0; color: {palette['muted']}; font-size: 12px; }}
+  .scene-note {{ color: {palette['accent_b']}; }}
+  .tags {{ padding: 2px 14px; color: {palette['muted']}; font-size: 11px; }}
+  .row {{ display: flex; justify-content: space-between; align-items: center;
+          padding: 6px 14px 12px; gap: 8px; }}
+  code {{ font: 11px ui-monospace, Menlo, monospace; color: {palette['accent_a']};
+          cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+  a {{ color: {palette['muted']}; font-size: 12px; text-decoration: none; flex: none; }}
+</style></head>
+<body>
+<header><h1>workshop · {query or "top rated"}</h1>
+<span class="look">{len(files)} items · themed by the current look · click a command to copy</span></header>
+<div class="rule"></div>
+<main>{"".join(cards)}</main>
+<script>
+function copy(el) {{
+  navigator.clipboard && navigator.clipboard.writeText(el.dataset.cmd);
+  const original = el.textContent; el.textContent = "copied";
+  setTimeout(() => el.textContent = original, 900);
+}}
+</script>
+</body></html>"""
+
+    path = os.path.join(SCRIPT_DIR, "browse.html")
+    with open(path, "w") as handle:
+        handle.write(html)
+    print(path)
+    if auto_open:
+        subprocess.run(["open", path])
+
+
+def details(item_id):
+    data = urllib.parse.urlencode(
+        {"itemcount": 1, "publishedfileids[0]": item_id}).encode()
+    url = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/"
+    f = json.loads(http(url, data))["response"]["publishedfiledetails"][0]
+    return f
+
+
+def info(item_id):
+    f = details(item_id)
+    tags = ",".join(t.get("tag", "") for t in f.get("tags", []))
+    size = int(f.get("file_size", 0)) / 1e6
+    print(f"{f.get('title','?')}  ({size:.1f} MB)")
+    print(f"tags: {tags}")
+    print(f"https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}")
+    playable = "Web" in tags or "Video" in tags
+    if not playable:
+        print("note: scene wallpaper — downloads fine, but this runtime "
+              "renders web/video only (see FEASIBILITY.md phase 2)")
+
+
+def get(item_id):
+    target = os.path.join(CONTENT_DIR, str(item_id))
+    result = subprocess.run(
+        ["steamcmd", f"+login {steam_user()}",
+         f"+workshop_download_item {APP_ID} {item_id}", "+quit"],
+        capture_output=True, text=True)
+    if "Success" not in result.stdout:
+        print(result.stdout.strip().splitlines()[-3:], file=sys.stderr)
+        sys.exit("download failed (is the cached login still valid?)")
+    print(target)
+    return target
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        sys.exit(__doc__.strip())
+    command = args[0]
+    if command in ("search", "browse"):
+        kind = "web"
+        count = 30 if command == "browse" else 15
+        auto_open = True
+        rest = []
+        i = 1
+        while i < len(args):
+            if args[i] == "--type":
+                kind = args[i + 1]; i += 2
+            elif args[i] == "--n":
+                count = int(args[i + 1]); i += 2
+            elif args[i] == "--no-open":
+                auto_open = False; i += 1
+            else:
+                rest.append(args[i]); i += 1
+        if command == "search":
+            search(" ".join(rest), kind, count)
+        else:
+            browse(" ".join(rest), kind, count, auto_open)
+    elif command == "info" and len(args) > 1:
+        info(args[1])
+    elif command == "get" and len(args) > 1:
+        get(args[1])
+    elif command == "run" and len(args) > 1:
+        path = get(args[1])
+        os.execv(os.path.join(SCRIPT_DIR, "run"), ["run", path])
+    else:
+        sys.exit(__doc__.strip())
+
+
+if __name__ == "__main__":
+    main()

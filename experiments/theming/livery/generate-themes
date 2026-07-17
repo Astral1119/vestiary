@@ -1,0 +1,75 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+BASE="$ROOT/profiles/default.json"
+PRESETS="$ROOT/theme-presets.json"
+OUTPUT="$ROOT/themes.json"
+
+for command in jq mktemp; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "missing required command: $command" >&2
+    exit 1
+  fi
+done
+
+temporary=$(mktemp "${TMPDIR:-/tmp}/livery-themes.XXXXXX")
+trap 'rm -f "$temporary"' EXIT HUP INT TERM
+
+jq -nS \
+  --slurpfile base "$BASE" \
+  --slurpfile presets "$PRESETS" '
+    $base[0] as $baseTheme
+    | {
+        schemaVersion: 1,
+        generatedBy: "livery curated semantic themes v1",
+        themes: [
+          $presets[0][]
+          | . as $preset
+          | (
+              $baseTheme
+              * $preset.overrides
+              | .schemaVersion = 2
+              | .kind = "semantic-theme"
+              | .id = $preset.id
+              | .label = $preset.label
+              | if $preset.id == "default" then . else del(.targets) end
+              | .presentation.barLegibility = {
+                  strategy: "open",
+                  polarity: (if .variant == "light" then "dark" else "light" end),
+                  text: .ui.text,
+                  textMuted: .ui.textMuted,
+                  accent: .ui.primary,
+                  scrim: (if .variant == "light" then "#ffffff" else "#000000" end),
+                  scrimAlpha: 0,
+                  textContrastP10: 4.5,
+                  textContrastMedian: 4.5,
+                  sampleCount: 0,
+                  roles: {
+                    red: .signals.error,
+                    green: .signals.success,
+                    blue: .signals.info,
+                    yellow: .signals.warning,
+                    orange: .signals.attention,
+                    magenta: .ui.secondary,
+                    grey: .ui.textMuted,
+                    maroon: .signals.error,
+                    mauve: .ui.secondary,
+                    lavender: .ui.secondary,
+                    teal: .ui.tertiary,
+                    peach: .signals.attention
+                  }
+                }
+            ) as $theme
+          | ($preset | del(.overrides))
+            + {
+                ref: (if $preset.id == "default" then "default" else $preset.id end),
+                theme: $theme
+              }
+        ]
+      }
+  ' > "$temporary"
+
+mv -f "$temporary" "$OUTPUT"
+trap - EXIT HUP INT TERM
+echo "generated $OUTPUT"

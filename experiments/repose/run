@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(unset CDPATH; cd -- "$(dirname -- "$0")" && pwd)
+BIN="/tmp/repose-cover-spike-$(id -u)"
+
+swiftc -O -warnings-as-errors \
+  -framework AppKit \
+  "$ROOT/CoverSpike.swift" \
+  -o "$BIN"
+
+exec "$BIN" "$@"
