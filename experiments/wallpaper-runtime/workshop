@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Steam Workshop client for the wallpaper runtime.
 
-  workshop search <query> [--type web|video|scene|all] [--n 15]
+  workshop search <query> [--type web|video|scene|all] [--n 15] [--json]
+  workshop ingest <id> [--json]            # theme + live import, machine output
   workshop browse <query> [--type ...] [--n 30] [--no-open]
                                 # generate a static Livery-themed gallery
   workshop gallery [--port 8991] [--no-open]
@@ -98,14 +99,41 @@ def query_details(query, kind, count):
     return [f for f in files["response"]["publishedfiledetails"] if f.get("result") == 1]
 
 
-def search(query, kind, count):
+def search_items(query, kind, count, with_previews=False):
     files = query_details(query, kind, count)
-    if not files:
+    previews = [None] * len(files)
+    if with_previews and files:
+        from concurrent.futures import ThreadPoolExecutor
+        cache = os.path.join(SCRIPT_DIR, ".browse-cache")
+        os.makedirs(cache, exist_ok=True)
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            previews = list(pool.map(lambda f: fetch_preview(f, cache), files))
+        previews = [os.path.join(cache, p) if p else None for p in previews]
+    items = []
+    for f, preview in zip(files, previews):
+        tags = [t.get("tag", "") for t in f.get("tags", [])]
+        items.append({
+            "id": str(f["publishedfileid"]),
+            "title": f.get("title", "?"),
+            "size": round(int(f.get("file_size", 0)) / 1e6, 1),
+            "subs": int(f.get("subscriptions", 0)),
+            "preview": preview,
+            "playable": "Web" in tags or "Video" in tags,
+            "tags": tags,
+        })
+    return items
+
+
+def search(query, kind, count, as_json=False):
+    if as_json:
+        print(json.dumps(search_items(query, kind, count, with_previews=True)))
+        return
+    items = search_items(query, kind, count)
+    if not items:
         print("no results")
-    for f in files:
-        tags = ",".join(t.get("tag", "") for t in f.get("tags", []))
-        size = int(f.get("file_size", 0)) / 1e6
-        print(f"{f['publishedfileid']}  {f.get('title','?')}  ({size:.1f} MB)  [{tags}]")
+    for item in items:
+        print(f"{item['id']}  {item['title']}  ({item['size']:.1f} MB)  "
+              f"[{','.join(item['tags'])}]")
 
 
 def livery_colors():
@@ -495,14 +523,20 @@ def video_duration(path):
         return 0.0
 
 
-def theme(target):
+def theme(target, as_json=False):
     # Resolve the wallpaper (workshop id, project folder, or bare video).
     item_id = target if target.isdigit() else None
     if item_id:
         base = os.path.join(CONTENT_DIR, item_id)
         if not os.path.exists(os.path.join(base, "project.json")):
-            print(f"fetching workshop item {item_id}…")
-            get(item_id)
+            if not as_json:
+                print(f"fetching workshop item {item_id}…")
+            download = subprocess.run(
+                ["steamcmd", f"+login {steam_user()}",
+                 f"+workshop_download_item {APP_ID} {item_id}", "+quit"],
+                capture_output=True, text=True)
+            if "Success" not in download.stdout:
+                sys.exit("workshop download failed")
     else:
         base = os.path.abspath(os.path.expanduser(target))
         if not os.path.exists(base):
@@ -556,15 +590,19 @@ def theme(target):
 
     credit = (f"Steam Workshop https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}"
               if item_id else f"Wallpaper Engine item {title}")
-    print(f"frame: {frame}  ({origin})")
+    if not as_json:
+        print(f"frame: {frame}  ({origin})")
     result = subprocess.run(
         ["livery", "import-wallpaper", frame, "--name", title,
          "--subtitle", "Wallpaper Engine", "--credit", credit,
          "--live", base],
         capture_output=True, text=True)
     output = (result.stdout + result.stderr).strip()
-    print(output)
+    if not as_json:
+        print(output)
     if result.returncode != 0:
+        if as_json:
+            print(output, file=sys.stderr)
         sys.exit("livery import failed")
     source = slug
     has_live = False
@@ -572,11 +610,16 @@ def theme(target):
         record = json.loads(result.stdout)
         source = record.get("id", slug)
         has_live = bool(record.get("live"))
-        if not has_live and min(record.get("dimensions", [9999, 9999])) < 800:
+        if not as_json and not has_live \
+                and min(record.get("dimensions", [9999, 9999])) < 800:
             print("\nnote: low-res frame — good palette source, poor static "
                   "wallpaper; consider --colors-only")
     except (ValueError, TypeError):
         pass
+    if as_json:
+        print(json.dumps({"fixture": source, "live": has_live,
+                          "profile": f"wallpaper:{source}:content"}))
+        return
     if has_live:
         print(f"""
 imported with live payload — Livery now treats it like any wallpaper:
@@ -597,6 +640,7 @@ def main():
         kind = "web"
         count = 30 if command == "browse" else 15
         auto_open = True
+        as_json = False
         rest = []
         i = 1
         while i < len(args):
@@ -606,12 +650,16 @@ def main():
                 count = int(args[i + 1]); i += 2
             elif args[i] == "--no-open":
                 auto_open = False; i += 1
+            elif args[i] == "--json":
+                as_json = True; i += 1
             else:
                 rest.append(args[i]); i += 1
         if command == "search":
-            search(" ".join(rest), kind, count)
+            search(" ".join(rest), kind, count, as_json)
         else:
             browse(" ".join(rest), kind, count, auto_open)
+    elif command == "ingest" and len(args) > 1:
+        theme(args[1], as_json="--json" in args)
     elif command == "gallery":
         port = 8991
         auto_open = True
