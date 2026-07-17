@@ -8,6 +8,8 @@ and not supported here.
 
 ## Run
 
+Foreground (development):
+
 ```sh
 ./run                                  # the bundled aurora shim-test wallpaper
 ./run ~/path/to/some-wallpaper-folder  # a WE project folder (project.json)
@@ -17,6 +19,19 @@ and not supported here.
 Ctrl-C stops it and the desktop returns to the static wallpaper. The
 window sits just below the desktop icons (Plash-style), joins all
 Spaces, ignores the mouse, and is invisible to yabai.
+
+Daemon (daily driver):
+
+```sh
+./wallpaperctl set 3208430444          # workshop id (fetches if needed) or path;
+                                       # starts the daemon, or hot-swaps via SIGUSR1
+./wallpaperctl status | stop | restart
+./wallpaperctl install-agent           # launchd: start at login, KeepAlive
+```
+
+State lives in `~/.config/wallpaper-runtime/` (`current`, `pid`, `log`,
+and the compiled `bin/wallpaper-runtime`); `wallpaperctl` recompiles
+automatically when the source is newer than the binary.
 
 ## What's implemented
 

@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+"""Lifecycle control for the wallpaper runtime.
+
+  wallpaperctl set <path-or-workshop-id>   # switch wallpaper (starts if needed)
+  wallpaperctl start | stop | restart
+  wallpaperctl status
+  wallpaperctl build                       # (re)compile the daemon binary
+  wallpaperctl install-agent               # launchd agent: start at login
+  wallpaperctl uninstall-agent
+
+State lives in ~/.config/wallpaper-runtime/: `current` (wallpaper path),
+`pid`, `log`, and `bin/wallpaper-runtime`. A running daemon hot-swaps on
+SIGUSR1; `stop` uses launchctl when the agent is loaded so KeepAlive
+doesn't resurrect it.
+"""
+
+import os
+import signal
+import subprocess
+import sys
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SOURCE = os.path.join(SCRIPT_DIR, "WallpaperRuntime.swift")
+STATE_DIR = os.path.expanduser("~/.config/wallpaper-runtime")
+BIN = os.path.join(STATE_DIR, "bin", "wallpaper-runtime")
+CONFIG = os.path.join(STATE_DIR, "current")
+PIDFILE = os.path.join(STATE_DIR, "pid")
+LOG = os.path.join(STATE_DIR, "log")
+LABEL = "local.wallpaper-runtime"
+PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
+APP_ID = 431960
+WORKSHOP_DIR = os.path.expanduser(
+    f"~/Library/Application Support/Steam/steamapps/workshop/content/{APP_ID}")
+
+
+def build(force=False):
+    os.makedirs(os.path.dirname(BIN), exist_ok=True)
+    if (not force and os.path.exists(BIN)
+            and os.path.getmtime(BIN) >= os.path.getmtime(SOURCE)):
+        return
+    print("compiling runtime…")
+    subprocess.run(
+        ["swiftc", "-O", "-warnings-as-errors",
+         "-framework", "AppKit", "-framework", "WebKit",
+         "-framework", "AVFoundation", SOURCE, "-o", BIN],
+        check=True)
+
+
+def runtime_pid():
+    try:
+        pid = int(open(PIDFILE).read().strip())
+        os.kill(pid, 0)
+        return pid
+    except (OSError, ValueError):
+        return None
+
+
+def agent_installed():
+    return os.path.exists(PLIST)
+
+
+def agent_loaded():
+    result = subprocess.run(
+        ["launchctl", "print", f"gui/{os.getuid()}/{LABEL}"],
+        capture_output=True)
+    return result.returncode == 0
+
+
+def resolve(target):
+    if target.isdigit():
+        path = os.path.join(WORKSHOP_DIR, target)
+        if not os.path.exists(os.path.join(path, "project.json")):
+            print(f"fetching workshop item {target}…")
+            subprocess.run([os.path.join(SCRIPT_DIR, "workshop"), "get", target],
+                           check=True, capture_output=True, text=True)
+        return path
+    path = os.path.abspath(os.path.expanduser(target))
+    if not os.path.exists(path):
+        sys.exit(f"no such wallpaper: {path}")
+    return path
+
+
+def start():
+    build()
+    os.makedirs(STATE_DIR, exist_ok=True)
+    if runtime_pid():
+        print("already running")
+        return
+    if agent_installed():
+        if agent_loaded():
+            subprocess.run(["launchctl", "kickstart", f"gui/{os.getuid()}/{LABEL}"])
+        else:
+            subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", PLIST])
+        print("started (launchd)")
+        return
+    with open(LOG, "a") as log:
+        subprocess.Popen([BIN, "--daemon"], stdout=log, stderr=log,
+                         start_new_session=True)
+    print(f"started (background; log: {LOG})")
+
+
+def stop():
+    if agent_loaded():
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{LABEL}"])
+        print("stopped (agent unloaded; `start` reloads it)")
+        return
+    pid = runtime_pid()
+    if pid:
+        os.kill(pid, signal.SIGTERM)
+        print("stopped")
+    else:
+        print("not running")
+
+
+def set_wallpaper(target):
+    path = resolve(target)
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(CONFIG, "w") as handle:
+        handle.write(path + "\n")
+    pid = runtime_pid()
+    if pid:
+        os.kill(pid, signal.SIGUSR1)
+        print(f"switched: {path}")
+    else:
+        start()
+        print(f"set: {path}")
+
+
+def status():
+    pid = runtime_pid()
+    print(f"running: {'yes (pid ' + str(pid) + ')' if pid else 'no'}")
+    current = open(CONFIG).read().strip() if os.path.exists(CONFIG) else "(none)"
+    print(f"wallpaper: {current}")
+    agent = ("installed + loaded" if agent_loaded()
+             else "installed" if agent_installed() else "none")
+    print(f"agent: {agent}")
+    print(f"log: {LOG}")
+
+
+def install_agent():
+    build()
+    os.makedirs(os.path.dirname(PLIST), exist_ok=True)
+    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>{LABEL}</string>
+  <key>ProgramArguments</key><array>
+    <string>{BIN}</string><string>--daemon</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>{LOG}</string>
+  <key>StandardErrorPath</key><string>{LOG}</string>
+</dict></plist>
+"""
+    with open(PLIST, "w") as handle:
+        handle.write(plist)
+    if runtime_pid() and not agent_loaded():
+        pid = runtime_pid()
+        os.kill(pid, signal.SIGTERM)   # hand the process over to launchd
+    subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", PLIST])
+    print(f"agent installed and loaded: {PLIST}")
+
+
+def uninstall_agent():
+    if agent_loaded():
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/{LABEL}"])
+    if os.path.exists(PLIST):
+        os.remove(PLIST)
+    print("agent removed")
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        sys.exit(__doc__.strip())
+    command = args[0]
+    if command == "set" and len(args) > 1:
+        set_wallpaper(args[1])
+    elif command == "start":
+        start()
+    elif command == "stop":
+        stop()
+    elif command == "restart":
+        stop()
+        start()
+    elif command == "status":
+        status()
+    elif command == "build":
+        build(force=True)
+        print(BIN)
+    elif command == "install-agent":
+        install_agent()
+    elif command == "uninstall-agent":
+        uninstall_agent()
+    else:
+        sys.exit(__doc__.strip())
+
+
+if __name__ == "__main__":
+    main()
