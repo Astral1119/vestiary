@@ -47,8 +47,8 @@ import subprocess
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SOURCE = os.path.join(SCRIPT_DIR, "WallpaperRuntime.swift")
-HOST_SOURCE = os.path.join(SCRIPT_DIR, "WallpaperRuntimeHost.swift")
+SOURCE = os.path.join(SCRIPT_DIR, "Fresco.swift")
+HOST_SOURCE = os.path.join(SCRIPT_DIR, "FrescoHost.swift")
 HOST_INFO = os.path.join(SCRIPT_DIR, "HostInfo.plist")
 STATE_DIR = os.path.expanduser("~/.config/wallpaper-runtime")
 BIN = os.path.join(STATE_DIR, "bin", "wallpaper-runtime")

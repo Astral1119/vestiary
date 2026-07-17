@@ -31,7 +31,7 @@ LEGIBILITY_SOURCE="$ROOT/LegibilityAnalyzer.swift"
 LEGIBILITY_SHARED="$ROOT/BarLegibility.swift"
 IMAGE_BIN="$BUILD_ROOT/bin/livery-image"
 IMAGE_SOURCE="$ROOT/ImagePipeline.swift"
-WALLPAPERCTL="$ROOT/../fresco/wallpaperctl"
+WALLPAPERCTL="$ROOT/../fresco/fresco"
 DERIVATIVE_CACHE="$BUILD_ROOT/cache/derivatives"
 ORIGINAL_STORE="$BUILD_ROOT/store/originals"
 
