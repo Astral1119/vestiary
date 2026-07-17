@@ -1,0 +1,475 @@
+[
+  {
+    "id": "default",
+    "label": "Current",
+    "style": "captured glass",
+    "summary": "The current Catppuccin-adjacent local state.",
+    "tags": ["captured", "blue", "lavender", "glass"],
+    "overrides": {}
+  },
+  {
+    "id": "violet-hour",
+    "label": "Violet Hour",
+    "style": "muted anime glass",
+    "summary": "Low-saturation aubergine, periwinkle, and smoky rose.",
+    "tags": ["anime", "purple", "muted", "glass"],
+    "overrides": {
+      "ui": {
+        "background": "#17131f",
+        "surface": "#1d1827",
+        "surfaceElevated": "#292235",
+        "text": "#ddd6e7",
+        "textMuted": "#91889f",
+        "primary": "#a99ac8",
+        "secondary": "#c09aaa",
+        "tertiary": "#8da6b8",
+        "outline": "#62596e",
+        "selection": "#40364f"
+      },
+      "signals": {
+        "success": "#91ad96",
+        "warning": "#c5aa78",
+        "error": "#c98191",
+        "info": "#8da6b8",
+        "attention": "#c09aaa"
+      },
+      "terminal": {
+        "background": "#17131f",
+        "foreground": "#d8d1e2",
+        "cursor": "#c6b7dd",
+        "cursorText": "#17131f",
+        "selectionBackground": "#40364f",
+        "selectionForeground": "#eee8f5",
+        "minimumContrast": 3,
+        "ansi": [
+          "#272130", "#bd7187", "#86a487", "#baa06d",
+          "#829bb8", "#a98fc2", "#80a8aa", "#c7bfce",
+          "#675f72", "#d18499", "#99b49a", "#ccb27e",
+          "#96aec8", "#bca2d2", "#93babc", "#e1d9e8"
+        ]
+      },
+      "presentation": {
+        "visualizerGradient": ["#8da6b8", "#a99ac8", "#c09aaa"]
+      },
+      "effects": {
+        "ghosttyBackgroundOpacity": 0.42,
+        "ghosttyBlur": 16,
+        "barBackgroundAlpha": 108,
+        "popupBackgroundAlpha": 112,
+        "popupBorderAlpha": 50,
+        "surfaceAlpha": 116,
+        "secondaryWashAlpha": 62,
+        "chipAlpha": 66,
+        "borderInactiveAlpha": 102,
+        "hairline": "#e8deef"
+      }
+    }
+  },
+  {
+    "id": "sakura-static",
+    "label": "Sakura Static",
+    "style": "anime nocturne",
+    "summary": "Ink navy with dusty sakura, lilac, and screen-blue light.",
+    "tags": ["anime", "pink", "navy", "soft"],
+    "overrides": {
+      "ui": {
+        "background": "#111522",
+        "surface": "#171c2b",
+        "surfaceElevated": "#23293a",
+        "text": "#e5deea",
+        "textMuted": "#938d9f",
+        "primary": "#d6a0b6",
+        "secondary": "#a9a2d2",
+        "tertiary": "#82a9c8",
+        "outline": "#596175",
+        "selection": "#343b55"
+      },
+      "signals": {
+        "success": "#8eb59d",
+        "warning": "#d0b27c",
+        "error": "#df8297",
+        "info": "#82a9c8",
+        "attention": "#d6a0b6"
+      },
+      "terminal": {
+        "background": "#111522",
+        "foreground": "#ded9e7",
+        "cursor": "#e1b3c5",
+        "cursorText": "#111522",
+        "selectionBackground": "#343b55",
+        "selectionForeground": "#f3edf6",
+        "minimumContrast": 3,
+        "ansi": [
+          "#202637", "#d77991", "#83ae96", "#c7a96e",
+          "#7c9fc5", "#a99bcf", "#79aeb8", "#c8c4d1",
+          "#60697f", "#eb8ca2", "#96c0a7", "#d9bc81",
+          "#90b2d7", "#bcaee0", "#8cc1cb", "#e4dfe9"
+        ]
+      },
+      "presentation": {
+        "visualizerGradient": ["#82a9c8", "#a9a2d2", "#d6a0b6"]
+      },
+      "effects": {
+        "ghosttyBackgroundOpacity": 0.46,
+        "ghosttyBlur": 14,
+        "barBackgroundAlpha": 116,
+        "popupBackgroundAlpha": 118,
+        "popupBorderAlpha": 52,
+        "surfaceAlpha": 122,
+        "secondaryWashAlpha": 68,
+        "chipAlpha": 72,
+        "borderInactiveAlpha": 108,
+        "hairline": "#e7dfec"
+      }
+    }
+  },
+  {
+    "id": "moss-ledger",
+    "label": "Moss Ledger",
+    "style": "organic editorial",
+    "summary": "Charcoal, moss, lichen, and old-paper warmth.",
+    "tags": ["green", "earth", "muted", "editorial"],
+    "overrides": {
+      "ui": {
+        "background": "#151913",
+        "surface": "#1c211a",
+        "surfaceElevated": "#282e24",
+        "text": "#d9dccd",
+        "textMuted": "#909887",
+        "primary": "#9cab78",
+        "secondary": "#b2a078",
+        "tertiary": "#739c8b",
+        "outline": "#596252",
+        "selection": "#35402f"
+      },
+      "signals": {
+        "success": "#91ae79",
+        "warning": "#c1a36c",
+        "error": "#c47d71",
+        "info": "#739c8b",
+        "attention": "#b2a078"
+      },
+      "terminal": {
+        "background": "#151913",
+        "foreground": "#d5d8ca",
+        "cursor": "#b8c58f",
+        "cursorText": "#151913",
+        "selectionBackground": "#35402f",
+        "selectionForeground": "#eef0e5",
+        "minimumContrast": 3,
+        "ansi": [
+          "#252b22", "#b86f68", "#829f6d", "#b69a62",
+          "#718e98", "#9a8198", "#6f9b8a", "#c3c8b9",
+          "#626b5c", "#ca8279", "#95b17f", "#c8ad75",
+          "#84a1aa", "#ad94aa", "#82ae9d", "#dde1d2"
+        ]
+      },
+      "presentation": {
+        "visualizerGradient": ["#739c8b", "#9cab78", "#b2a078"]
+      },
+      "effects": {
+        "ghosttyBackgroundOpacity": 0.56,
+        "ghosttyBlur": 11,
+        "barBackgroundAlpha": 132,
+        "popupBackgroundAlpha": 128,
+        "popupBorderAlpha": 54,
+        "surfaceAlpha": 132,
+        "secondaryWashAlpha": 64,
+        "chipAlpha": 72,
+        "borderInactiveAlpha": 116,
+        "hairline": "#e2e6d5"
+      }
+    }
+  },
+  {
+    "id": "ember-archive",
+    "label": "Ember Archive",
+    "style": "warm archival",
+    "summary": "Umber glass, faded brick, amber, and oxidized teal.",
+    "tags": ["warm", "amber", "rust", "vintage"],
+    "overrides": {
+      "ui": {
+        "background": "#1b1412",
+        "surface": "#241b18",
+        "surfaceElevated": "#33241f",
+        "text": "#eadbd0",
+        "textMuted": "#a68f82",
+        "primary": "#d39a69",
+        "secondary": "#be7f70",
+        "tertiary": "#6f9b95",
+        "outline": "#705b51",
+        "selection": "#4b332a"
+      },
+      "signals": {
+        "success": "#8fa476",
+        "warning": "#d0a05e",
+        "error": "#cf756b",
+        "info": "#6f9b95",
+        "attention": "#d39a69"
+      },
+      "terminal": {
+        "background": "#1b1412",
+        "foreground": "#e4d5ca",
+        "cursor": "#e0aa78",
+        "cursorText": "#1b1412",
+        "selectionBackground": "#4b332a",
+        "selectionForeground": "#f6e9df",
+        "minimumContrast": 3,
+        "ansi": [
+          "#2d211d", "#c4675d", "#83986c", "#c29050",
+          "#748f9a", "#a87783", "#66958e", "#d1c0b5",
+          "#745e54", "#d9796e", "#96aa7f", "#d4a763",
+          "#879faa", "#bb8995", "#79a8a1", "#ecddd2"
+        ]
+      },
+      "presentation": {
+        "visualizerGradient": ["#6f9b95", "#d39a69", "#be7f70"]
+      },
+      "effects": {
+        "ghosttyBackgroundOpacity": 0.53,
+        "ghosttyBlur": 12,
+        "barBackgroundAlpha": 126,
+        "popupBackgroundAlpha": 124,
+        "popupBorderAlpha": 56,
+        "surfaceAlpha": 130,
+        "secondaryWashAlpha": 70,
+        "chipAlpha": 74,
+        "borderInactiveAlpha": 112,
+        "hairline": "#f1ddd0"
+      }
+    }
+  },
+  {
+    "id": "polar-signal",
+    "label": "Polar Signal",
+    "style": "cold technical",
+    "summary": "Deep marine surfaces with ice, cyan, and ultraviolet signal.",
+    "tags": ["cyan", "blue", "technical", "cold"],
+    "overrides": {
+      "ui": {
+        "background": "#09151c",
+        "surface": "#0f1d26",
+        "surfaceElevated": "#172a35",
+        "text": "#d8e5e8",
+        "textMuted": "#8299a1",
+        "primary": "#65c4d6",
+        "secondary": "#7d9ed0",
+        "tertiary": "#9c8ec9",
+        "outline": "#49626b",
+        "selection": "#1f3b48"
+      },
+      "signals": {
+        "success": "#74b89b",
+        "warning": "#d1b267",
+        "error": "#e17d88",
+        "info": "#65c4d6",
+        "attention": "#9c8ec9"
+      },
+      "terminal": {
+        "background": "#09151c",
+        "foreground": "#d2e1e5",
+        "cursor": "#82d6e4",
+        "cursorText": "#09151c",
+        "selectionBackground": "#1f3b48",
+        "selectionForeground": "#eaf5f7",
+        "minimumContrast": 3,
+        "ansi": [
+          "#142630", "#d76c7a", "#67ad90", "#c3a553",
+          "#6295c7", "#987fc2", "#55b6c4", "#bfd1d6",
+          "#516d78", "#eb8090", "#7bc1a4", "#d5b866",
+          "#76a9d9", "#ac93d4", "#69cad8", "#dcebef"
+        ]
+      },
+      "presentation": {
+        "visualizerGradient": ["#65c4d6", "#7d9ed0", "#9c8ec9"]
+      },
+      "effects": {
+        "ghosttyBackgroundOpacity": 0.48,
+        "ghosttyBlur": 13,
+        "barBackgroundAlpha": 118,
+        "popupBackgroundAlpha": 116,
+        "popupBorderAlpha": 58,
+        "surfaceAlpha": 120,
+        "secondaryWashAlpha": 72,
+        "chipAlpha": 76,
+        "borderInactiveAlpha": 108,
+        "hairline": "#d9f2f5"
+      }
+    }
+  },
+  {
+    "id": "graphite-mono",
+    "label": "Graphite Mono",
+    "style": "near-monochrome",
+    "summary": "Carbon, silver, and one restrained steel-blue accent.",
+    "tags": ["monochrome", "minimal", "graphite", "quiet"],
+    "overrides": {
+      "ui": {
+        "background": "#121314",
+        "surface": "#181a1c",
+        "surfaceElevated": "#24272a",
+        "text": "#dedfdf",
+        "textMuted": "#898d91",
+        "primary": "#9aaeba",
+        "secondary": "#aaa7ad",
+        "tertiary": "#879e9b",
+        "outline": "#565b60",
+        "selection": "#343a3e"
+      },
+      "signals": {
+        "success": "#91a894",
+        "warning": "#b7a47f",
+        "error": "#b9868b",
+        "info": "#9aaeba",
+        "attention": "#aaa7ad"
+      },
+      "terminal": {
+        "background": "#121314",
+        "foreground": "#d9dada",
+        "cursor": "#c4c8ca",
+        "cursorText": "#121314",
+        "selectionBackground": "#343a3e",
+        "selectionForeground": "#f1f2f2",
+        "minimumContrast": 3,
+        "ansi": [
+          "#222528", "#a9757c", "#829985", "#a49170",
+          "#839aa7", "#969099", "#789491", "#c0c3c4",
+          "#5e6469", "#bc878e", "#94ab97", "#b6a483",
+          "#96adb9", "#a9a2ac", "#8ba7a4", "#daddde"
+        ]
+      },
+      "presentation": {
+        "visualizerGradient": ["#879e9b", "#9aaeba", "#aaa7ad"]
+      },
+      "effects": {
+        "ghosttyBackgroundOpacity": 0.60,
+        "ghosttyBlur": 10,
+        "barBackgroundAlpha": 140,
+        "popupBackgroundAlpha": 136,
+        "popupBorderAlpha": 54,
+        "surfaceAlpha": 140,
+        "secondaryWashAlpha": 52,
+        "chipAlpha": 68,
+        "borderInactiveAlpha": 122,
+        "hairline": "#f1f2f2"
+      }
+    }
+  },
+  {
+    "id": "acid-relay",
+    "label": "Acid Relay",
+    "style": "high-contrast signal",
+    "summary": "Blackened green, phosphor lime, and safety amber.",
+    "tags": ["high-contrast", "green", "industrial", "bright"],
+    "overrides": {
+      "ui": {
+        "background": "#090d09",
+        "surface": "#0e140e",
+        "surfaceElevated": "#172017",
+        "text": "#e0ead8",
+        "textMuted": "#84917e",
+        "primary": "#a8d65f",
+        "secondary": "#d2b85d",
+        "tertiary": "#62b69c",
+        "outline": "#52604b",
+        "selection": "#263722"
+      },
+      "signals": {
+        "success": "#8fd052",
+        "warning": "#ddb94f",
+        "error": "#ed6f6f",
+        "info": "#62b69c",
+        "attention": "#d2b85d"
+      },
+      "terminal": {
+        "background": "#090d09",
+        "foreground": "#dae6d3",
+        "cursor": "#b8e66b",
+        "cursorText": "#090d09",
+        "selectionBackground": "#263722",
+        "selectionForeground": "#f1f9ec",
+        "minimumContrast": 4.5,
+        "ansi": [
+          "#152015", "#df6262", "#7fc643", "#d0aa3e",
+          "#559da8", "#a27bc2", "#4eab91", "#c8d4c2",
+          "#52634e", "#f27676", "#92da56", "#e2bd51",
+          "#69b1bc", "#b68fd4", "#62bea5", "#e4efde"
+        ]
+      },
+      "presentation": {
+        "visualizerGradient": ["#62b69c", "#a8d65f", "#d2b85d"]
+      },
+      "effects": {
+        "ghosttyBackgroundOpacity": 0.72,
+        "ghosttyBlur": 7,
+        "barBackgroundAlpha": 164,
+        "popupBackgroundAlpha": 158,
+        "popupBorderAlpha": 68,
+        "surfaceAlpha": 156,
+        "secondaryWashAlpha": 58,
+        "chipAlpha": 80,
+        "borderInactiveAlpha": 138,
+        "hairline": "#efffe5"
+      }
+    }
+  },
+  {
+    "id": "porcelain-day",
+    "label": "Porcelain Day",
+    "style": "warm light",
+    "summary": "Warm porcelain, graphite ink, faded blue, and clay.",
+    "tags": ["light", "warm", "paper", "editorial"],
+    "overrides": {
+      "variant": "light",
+      "ui": {
+        "background": "#e8e2d9",
+        "surface": "#ddd7ce",
+        "surfaceElevated": "#f1ece4",
+        "text": "#2d3033",
+        "textMuted": "#6d6f71",
+        "primary": "#526f82",
+        "secondary": "#8c665f",
+        "tertiary": "#65786b",
+        "outline": "#92908b",
+        "selection": "#c3d0d5"
+      },
+      "signals": {
+        "success": "#55745c",
+        "warning": "#8c6c34",
+        "error": "#9a4f51",
+        "info": "#526f82",
+        "attention": "#8c665f"
+      },
+      "terminal": {
+        "background": "#e8e2d9",
+        "foreground": "#2d3033",
+        "cursor": "#405f72",
+        "cursorText": "#f5f0e8",
+        "selectionBackground": "#c3d0d5",
+        "selectionForeground": "#24282b",
+        "minimumContrast": 4.5,
+        "ansi": [
+          "#3b3f42", "#945457", "#5d785f", "#8d713c",
+          "#597589", "#806884", "#5d7d79", "#d6d0c7",
+          "#74777a", "#a96769", "#708b72", "#a0844f",
+          "#6c889b", "#937b97", "#708f8b", "#f3eee6"
+        ]
+      },
+      "presentation": {
+        "visualizerGradient": ["#65786b", "#526f82", "#8c665f"]
+      },
+      "effects": {
+        "ghosttyBackgroundOpacity": 0.88,
+        "ghosttyBlur": 8,
+        "barBackgroundAlpha": 184,
+        "popupBackgroundAlpha": 214,
+        "popupBorderAlpha": 72,
+        "surfaceAlpha": 210,
+        "secondaryWashAlpha": 54,
+        "chipAlpha": 86,
+        "borderInactiveAlpha": 148,
+        "hairline": "#ffffff"
+      }
+    }
+  }
+]

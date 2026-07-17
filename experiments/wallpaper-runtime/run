@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(unset CDPATH; cd -- "$(dirname -- "$0")" && pwd)
+BIN="/tmp/wallpaper-runtime-$(id -u)"
+
+swiftc -O -warnings-as-errors \
+  -framework AppKit -framework WebKit -framework AVFoundation \
+  "$ROOT/WallpaperRuntime.swift" \
+  -o "$BIN"
+
+exec "$BIN" "${@:-$ROOT/samples/aurora-web}"

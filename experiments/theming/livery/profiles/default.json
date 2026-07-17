@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 2,
+  "kind": "semantic-theme",
+  "id": "default",
+  "label": "Current local default",
+  "variant": "dark",
+  "ui": {
+    "background": "#1e1e2e",
+    "surface": "#1b1b1b",
+    "surfaceElevated": "#313244",
+    "text": "#f5e0dc",
+    "textMuted": "#7f8490",
+    "primary": "#89b4fa",
+    "secondary": "#cba6f7",
+    "tertiary": "#94e2d5",
+    "outline": "#a6adc8",
+    "selection": "#585b70"
+  },
+  "signals": {
+    "success": "#9ed072",
+    "warning": "#e7c664",
+    "error": "#fc5d7c",
+    "info": "#89b4fa",
+    "attention": "#fab387"
+  },
+  "terminal": {
+    "background": "#1e1e2e",
+    "foreground": "#cdd6f4",
+    "cursor": "#f5e0dc",
+    "cursorText": "#1e1e2e",
+    "selectionBackground": "#353749",
+    "selectionForeground": "#cdd6f4",
+    "minimumContrast": 1,
+    "ansi": [
+      "#45475a",
+      "#f38ba8",
+      "#a6e3a1",
+      "#f9e2af",
+      "#89b4fa",
+      "#f5c2e7",
+      "#94e2d5",
+      "#bac2de",
+      "#585b70",
+      "#f38ba8",
+      "#a6e3a1",
+      "#f9e2af",
+      "#89b4fa",
+      "#f5c2e7",
+      "#94e2d5",
+      "#a6adc8"
+    ]
+  },
+  "presentation": {
+    "visualizerGradient": ["#87d6bc", "#a8cbe2"],
+    "barLegibility": {
+      "strategy": "open",
+      "polarity": "light",
+      "text": "#f5e0dc",
+      "textMuted": "#7f8490",
+      "accent": "#89b4fa",
+      "scrim": "#000000",
+      "scrimAlpha": 0,
+      "textContrastP10": 4.5,
+      "textContrastMedian": 4.5,
+      "sampleCount": 0,
+      "roles": {
+        "red": "#fc5d7c",
+        "green": "#9ed072",
+        "blue": "#89b4fa",
+        "yellow": "#e7c664",
+        "orange": "#f39660",
+        "magenta": "#b4befe",
+        "grey": "#7f8490",
+        "maroon": "#eba0ac",
+        "mauve": "#cba6f7",
+        "lavender": "#b4befe",
+        "teal": "#94e2d5",
+        "peach": "#fab387"
+      }
+    }
+  },
+  "effects": {
+    "ghosttyBackgroundOpacity": 0.5,
+    "ghosttyBlur": 10,
+    "barBackgroundAlpha": 144,
+    "popupBackgroundAlpha": 128,
+    "popupBorderAlpha": 64,
+    "surfaceAlpha": 136,
+    "secondaryWashAlpha": 85,
+    "chipAlpha": 77,
+    "borderInactiveAlpha": 136,
+    "hairline": "#ffffff"
+  },
+  "locks": {
+    "signals": true,
+    "effects": true,
+    "presentation": true
+  },
+  "targets": {
+    "sketchybar": {
+      "colors": {
+        "black": "#181819",
+        "white": "#f5e0dc",
+        "red": "#fc5d7c",
+        "green": "#9ed072",
+        "blue": "#89b4fa",
+        "yellow": "#e7c664",
+        "orange": "#f39660",
+        "magenta": "#b4befe",
+        "grey": "#7f8490",
+        "maroon": "#eba0ac",
+        "mauve": "#cba6f7",
+        "lavender": "#b4befe",
+        "teal": "#94e2d5",
+        "peach": "#fab387"
+      },
+      "barBorder": "#a6adc8",
+      "surface": "#1b1b1b"
+    },
+    "borders": {
+      "active": "#948ada",
+      "inactive": "#948ada",
+      "width": 4.0,
+      "hidpi": "on",
+      "axFocus": "on"
+    }
+  }
+}

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Aurora — WE shim test</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0e14; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #status {
+    position: fixed; left: 16px; bottom: 12px;
+    font: 12px ui-monospace, Menlo, monospace; color: rgba(255,255,255,.45);
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="status">aurora shim test · waiting for bridge…</div>
+<script>
+  // A deliberately simple Wallpaper Engine-compatible web wallpaper.
+  // Exercises the three shimmed APIs: wallpaperPropertyListener
+  // (schemecolor + livery* roles), wallpaperRegisterAudioListener
+  // (128-sample frames), and document mousemove (cursor parallax).
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const status = document.getElementById("status");
+  let width, height;
+  function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  let scheme = [0.53, 0.84, 0.74];   // overwritten by properties push
+  let secondary = [0.66, 0.80, 0.89];
+  let audio = new Array(128).fill(0);
+  let audioSeen = false, propsSeen = false;
+  let mouseX = 0.5, mouseY = 0.5;
+
+  window.wallpaperPropertyListener = {
+    applyUserProperties(props) {
+      const parse = (p) => p && p.value ? p.value.split(" ").map(Number) : null;
+      scheme = parse(props.schemecolor) || parse(props.liveryprimary) || scheme;
+      secondary = parse(props.liverytertiary) || parse(props.liverysecondary) || secondary;
+      propsSeen = true;
+      updateStatus();
+    }
+  };
+  if (window.wallpaperRegisterAudioListener) {
+    window.wallpaperRegisterAudioListener((frame) => {
+      audio = frame;
+      if (!audioSeen) { audioSeen = true; updateStatus(); }
+    });
+  }
+  document.addEventListener("mousemove", (event) => {
+    mouseX = event.clientX / width;
+    mouseY = event.clientY / height;
+  });
+
+  function updateStatus() {
+    status.textContent = `aurora shim test · props:${propsSeen ? "livery" : "defaults"}` +
+      ` · audio:${audioSeen ? "live" : "silent"}`;
+  }
+  updateStatus();
+
+  const rgb = (c, a) =>
+    `rgba(${Math.round(c[0]*255)},${Math.round(c[1]*255)},${Math.round(c[2]*255)},${a})`;
+
+  let t = 0;
+  function frame() {
+    t += 0.005;
+    ctx.fillStyle = "#0b0e14";
+    ctx.fillRect(0, 0, width, height);
+
+    const bass = audio.slice(0, 16).reduce((a, b) => a + b, 0) / 16;
+    const parallaxX = (mouseX - 0.5) * 60;
+    const parallaxY = (mouseY - 0.5) * 40;
+
+    // three drifting aurora ribbons, audio-swelled, cursor-parallaxed
+    for (let ribbon = 0; ribbon < 3; ribbon++) {
+      const color = ribbon === 1 ? secondary : scheme;
+      const alpha = 0.10 + ribbon * 0.05 + bass * 0.25;
+      const baseY = height * (0.30 + ribbon * 0.18);
+      const drift = Math.sin(t * (0.7 + ribbon * 0.3)) * 60;
+      ctx.beginPath();
+      ctx.moveTo(-100, baseY);
+      for (let x = -100; x <= width + 100; x += 40) {
+        const band = audio[Math.floor((x / width) * 60) + 2] || 0;
+        const y = baseY + drift
+          + Math.sin(x * 0.004 + t * (2 + ribbon)) * (40 + band * 160)
+          + parallaxY * (ribbon + 1) * 0.4;
+        ctx.lineTo(x + parallaxX * (ribbon + 1) * 0.3, y);
+      }
+      ctx.lineTo(width + 100, height + 100);
+      ctx.lineTo(-100, height + 100);
+      ctx.closePath();
+      const gradient = ctx.createLinearGradient(0, baseY - 150, 0, height);
+      gradient.addColorStop(0, rgb(color, alpha));
+      gradient.addColorStop(1, rgb(color, 0));
+      ctx.fillStyle = gradient;
+      ctx.fill();
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+</script>
+</body>
+</html>

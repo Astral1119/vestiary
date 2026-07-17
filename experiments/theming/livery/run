@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+APP="/tmp/Livery-$(id -u).app"
+BIN="$APP/Contents/MacOS/lvry"
+
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
+cp "$ROOT"/../assets/*.jpg "$APP/Contents/Resources/"
+cp "$ROOT/palettes.json" "$APP/Contents/Resources/"
+cp "$ROOT/themes.json" "$APP/Contents/Resources/"
+
+swiftc \
+  -O \
+  -parse-as-library \
+  -warnings-as-errors \
+  -framework AppKit \
+  -framework SwiftUI \
+  -framework UniformTypeIdentifiers \
+  "$ROOT/BarLegibility.swift" \
+  "$ROOT/LiveryPreview.swift" \
+  -o "$BIN"
+
+open "$APP"

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "local.astral.livery.semantic-theme.v2",
+  "title": "Livery semantic theme",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "label",
+    "variant",
+    "ui",
+    "signals",
+    "terminal",
+    "presentation",
+    "effects",
+    "locks"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "kind": { "const": "semantic-theme" },
+    "id": { "type": "string", "minLength": 1 },
+    "label": { "type": "string", "minLength": 1 },
+    "variant": { "enum": ["dark", "light"] },
+    "ui": {
+      "type": "object",
+      "required": ["background", "surface", "surfaceElevated", "text", "textMuted", "primary", "secondary", "tertiary", "outline", "selection"],
+      "additionalProperties": { "$ref": "#/$defs/color" }
+    },
+    "signals": {
+      "type": "object",
+      "required": ["success", "warning", "error", "info", "attention"],
+      "additionalProperties": { "$ref": "#/$defs/color" }
+    },
+    "terminal": {
+      "type": "object",
+      "required": ["background", "foreground", "cursor", "cursorText", "selectionBackground", "selectionForeground", "minimumContrast", "ansi"],
+      "properties": {
+        "minimumContrast": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 21
+        },
+        "base16": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/color" }
+        },
+        "ansi": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/color" }
+        }
+      },
+      "additionalProperties": { "$ref": "#/$defs/color" }
+    },
+    "presentation": {
+      "type": "object",
+      "required": ["barLegibility"],
+      "properties": {
+        "barLegibility": {
+          "type": "object",
+          "required": [
+            "strategy",
+            "polarity",
+            "text",
+            "textMuted",
+            "accent",
+            "scrim",
+            "scrimAlpha",
+            "textContrastP10",
+            "textContrastMedian",
+            "roles",
+            "sampleCount"
+          ],
+          "properties": {
+            "strategy": { "enum": ["open", "scrim"] },
+            "polarity": { "enum": ["light", "dark"] },
+            "text": { "$ref": "#/$defs/color" },
+            "textMuted": { "$ref": "#/$defs/color" },
+            "accent": { "$ref": "#/$defs/color" },
+            "scrim": { "$ref": "#/$defs/color" },
+            "scrimAlpha": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "textContrastP10": { "type": "number", "minimum": 4.5 },
+            "textContrastMedian": { "type": "number", "minimum": 0 },
+            "roles": {
+              "type": "object",
+              "required": [
+                "red",
+                "green",
+                "blue",
+                "yellow",
+                "orange",
+                "magenta",
+                "grey",
+                "maroon",
+                "mauve",
+                "lavender",
+                "teal",
+                "peach"
+              ],
+              "additionalProperties": { "$ref": "#/$defs/color" }
+            },
+            "sampleCount": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": true
+    },
+    "effects": { "type": "object" },
+    "locks": { "type": "object" },
+    "targets": { "type": "object" }
+  },
+  "$defs": {
+    "color": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "title": "Aurora (runtime shim test)",
+  "type": "web",
+  "file": "index.html",
+  "general": {
+    "properties": {
+      "schemecolor": {
+        "type": "color",
+        "text": "Scheme color",
+        "value": "0.53 0.84 0.74"
+      }
+    }
+  }
+}
