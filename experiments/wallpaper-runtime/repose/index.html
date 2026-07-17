@@ -28,12 +28,28 @@
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
     color: var(--text);
   }
+  body[data-backdrop="clear"] { background: transparent; }
 
   .monolith {
     position: fixed; left: 50%; top: 21vh; transform: translateX(-50%);
     display: flex; flex-direction: column; align-items: center; gap: 2.2vh;
+    transition: top .6s cubic-bezier(0.23, 1, 0.32, 1);
   }
   #date { font-size: 1.15vw; letter-spacing: .08em; color: var(--muted); }
+
+  /* loud variant: the visualizer is the star — clock retreats to the
+     top-right (bar-clock muscle memory), media steps forward */
+  body[data-variant="loud"] .monolith {
+    left: auto; right: 4vw; top: 6vh; transform: none; align-items: flex-end;
+  }
+  body[data-variant="loud"] #clock { font-size: 3.4vw; }
+  body[data-variant="loud"] #date { font-size: .85vw; }
+  body[data-variant="loud"] #strings { bottom: 18vh; height: 52vh; }
+  body[data-variant="loud"] #media { font-size: 1.5vw; bottom: 8vh; }
+  #devhint {
+    position: fixed; left: 14px; bottom: 10px; display: none;
+    font-size: 11px; color: var(--muted); opacity: .7;
+  }
 
   /* plaque odometer clock: hours in primary, minutes ÷1.5, seconds ÷2;
      digits knocked out toward the surface; columns roll 500ms OutQuint */
@@ -74,6 +90,7 @@
   </div>
   <canvas id="strings"></canvas>
   <div id="media"></div>
+  <div id="devhint">dev · q quiet · l loud · p synth audio · a agents · m media</div>
 
 <script>
   // ---------- theme (Livery roles arrive as WE user properties) ----------
@@ -91,6 +108,15 @@
   let surface = [0.10, 0.10, 0.12];
   let viz = [[0.53, 0.84, 0.74], [0.66, 0.80, 0.89]];
   let agents = { working: 0, waiting: 0, done: 0 };
+  let variant = "quiet";
+  let lastLoudAudio = Date.now();
+
+  function setVariant(next) {
+    if (next !== "quiet" && next !== "loud") return;
+    variant = next;
+    document.body.dataset.variant = variant;
+    resize();
+  }
 
   window.wallpaperPropertyListener = {
     applyUserProperties(p) {
@@ -108,6 +134,11 @@
       if (v1) { viz[0] = v1; set("--viz1", v1); }
       if (v2) { viz[1] = v2; set("--viz2", v2); }
       if (primaryColor || surfaceColor) buildClock();
+      if (p.reposevariant && p.reposevariant.value) setVariant(String(p.reposevariant.value));
+      if (p.reposebackdrop && p.reposebackdrop.value) {
+        document.body.dataset.backdrop =
+          String(p.reposebackdrop.value) === "clear" ? "clear" : "opaque";
+      }
 
       let agentsChanged = false;
       for (const key of ["working", "waiting", "done"]) {
@@ -191,7 +222,8 @@
   let width, height;
   function resize() {
     width = canvas.width = window.innerWidth;
-    height = canvas.height = Math.round(window.innerHeight * 0.24);
+    height = canvas.height =
+      Math.round(window.innerHeight * (variant === "loud" ? 0.52 : 0.24));
   }
   window.addEventListener("resize", resize);
   resize();
@@ -206,16 +238,27 @@
     window.wallpaperRegisterAudioListener((frame) => {
       // mono 64 bands → 10 strand groups
       const bands = frame.slice(0, 64);
+      const gain = variant === "loud" ? 2.5 : 1.85;
+      let frameEnergy = 0;
       for (let s = 0; s < STRANDS; s++) {
         const start = Math.floor(s * 64 / STRANDS);
         const end = Math.floor((s + 1) * 64 / STRANDS);
         let sum = 0;
         for (let i = start; i < end; i++) sum += bands[i];
-        target[s] = Math.min(1, sum / (end - start) * 1.85);
+        target[s] = Math.min(1, sum / (end - start) * gain);
+        frameEnergy += target[s];
       }
+      if (frameEnergy > 0.1) lastLoudAudio = Date.now();
       if (!animating) { animating = true; requestAnimationFrame(draw); }
     });
   }
+
+  // loud is a music surface: after three silent minutes, settle to quiet
+  setInterval(() => {
+    if (variant === "loud" && Date.now() - lastLoudAudio > 180000) {
+      setVariant("quiet");
+    }
+  }, 10000);
 
   function strand(i, amplitude, phase) {
     const x0 = 8, x1 = width - 8, yc = height / 2, span = x1 - x0;
@@ -266,6 +309,48 @@
     if (animating) requestAnimationFrame(draw);
   }
   draw();   // one parked frame so the strings exist before audio arrives
+
+  // ---------- dev harness (standalone browser only: no WE bridge) ----------
+  if (!window.wallpaperRegisterAudioListener) {
+    document.getElementById("devhint").style.display = "block";
+    const params = new URLSearchParams(location.search);
+    if (params.get("variant")) setVariant(params.get("variant"));
+    let synth = true;
+    const AGENT_STATES = [
+      { working: 2, waiting: 1, done: 1 }, { working: 1, waiting: 0, done: 0 },
+      { working: 0, waiting: 0, done: 2 }, { working: 0, waiting: 0, done: 0 },
+    ];
+    let agentIndex = 0, mediaOn = true;
+    agents = AGENT_STATES[0];
+    renderAgents();
+    const media = document.getElementById("media");
+    const showMedia = () => {
+      media.style.display = mediaOn ? "block" : "none";
+      media.innerHTML = `♪ <span class="t">Synthesis</span> — TN-SHI`;
+    };
+    showMedia();
+    setInterval(() => {
+      if (!synth) return;
+      let energy = 0;
+      for (let s = 0; s < STRANDS; s++) {
+        target[s] = Math.min(1,
+          Math.abs(Math.sin(Date.now() / 260 + s * 1.3)) * 0.55);
+        energy += target[s];
+      }
+      if (energy > 0.1) lastLoudAudio = Date.now();
+      if (!animating) { animating = true; requestAnimationFrame(draw); }
+    }, 33);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "q") setVariant("quiet");
+      else if (event.key === "l") setVariant("loud");
+      else if (event.key === "p") { synth = !synth; if (!synth) target.fill(0); }
+      else if (event.key === "a") {
+        agentIndex = (agentIndex + 1) % AGENT_STATES.length;
+        agents = AGENT_STATES[agentIndex];
+        renderAgents();
+      } else if (event.key === "m") { mediaOn = !mediaOn; showMedia(); }
+    });
+  }
 </script>
 </body>
 </html>
