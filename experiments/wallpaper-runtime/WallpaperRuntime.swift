@@ -30,11 +30,13 @@ func loadConfiguredWallpaper() -> Wallpaper? {
 struct ReposeState {
     var look = "zephyr"
     var scene = "desktop"
+    var viz = "strings"
     var variant = "quiet"
     var grade = "on"
     var night = "off"
     var pixels = "on"
     var label = "on"
+    var scenePool: [String] = []
 
     static func load() -> ReposeState {
         var state = ReposeState()
@@ -43,18 +45,22 @@ struct ReposeState {
         else { return state }
         if let value = object["look"] as? String { state.look = value }
         if let value = object["scene"] as? String { state.scene = value }
+        if let value = object["viz"] as? String { state.viz = value }
         if let value = object["variant"] as? String { state.variant = value }
         if let value = object["grade"] as? String { state.grade = value }
         if let value = object["night"] as? String { state.night = value }
         if let value = object["pixels"] as? String { state.pixels = value }
         if let value = object["label"] as? String { state.label = value }
+        if let value = object["scenePool"] as? [String] { state.scenePool = value }
+        state.reconcileScene()
         return state
     }
 
     func save() {
-        let object: [String: Any] = ["look": look, "scene": scene, "variant": variant,
+        let object: [String: Any] = ["look": look, "scene": scene, "viz": viz,
+                                     "variant": variant,
                                      "grade": grade, "night": night, "pixels": pixels,
-                                     "label": label]
+                                     "label": label, "scenePool": scenePool]
         if let data = try? JSONSerialization.data(
             withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: reposeStateFile)
@@ -67,9 +73,17 @@ struct ReposeState {
             : ((scene as NSString).lastPathComponent as NSString).deletingPathExtension
     }
 
+    mutating func reconcileScene() {
+        let rotation = reposeRotation(scenePool)
+        if !rotation.contains(scene), let first = rotation.first {
+            scene = first
+        }
+    }
+
     // the record as WE user properties
     var properties: [String: Any] {
         ["reposelook": ["value": look],
+         "reposeviz": ["value": viz],
          "reposevariant": ["value": variant],
          "reposegrade": ["value": grade],
          "reposenight": ["value": night],
@@ -97,6 +111,25 @@ func sceneLibrary() -> [String] {
         }
     }
     return library
+}
+
+func reposeSceneID(_ scene: String) -> String {
+    scene == "desktop" ? "desktop" : (scene as NSString).lastPathComponent
+}
+
+// An absent pool preserves the pre-pool behavior (all catalog scenes in
+// deterministic order). Explicit pools are ordered, de-duplicated, and
+// filtered against the current catalog without mutating that catalog.
+func reposeRotation(_ scenePool: [String]) -> [String] {
+    let library = sceneLibrary()
+    guard !scenePool.isEmpty else { return library }
+    let byID = Dictionary(uniqueKeysWithValues: library.map { (reposeSceneID($0), $0) })
+    var seen = Set<String>()
+    let rotation = scenePool.compactMap { sceneID -> String? in
+        guard seen.insert(sceneID).inserted else { return nil }
+        return byID[sceneID]
+    }
+    return rotation.isEmpty ? ["desktop"] : rotation
 }
 
 func jsonString(_ object: [String: Any]) -> String {
@@ -271,8 +304,17 @@ final class AudioTap {
     var onFrame: (([Double]) -> Void)?
     private(set) var live = false
     private(set) var framesReceived = 0
+    private(set) var capturePermissionAvailable = true
 
     func start() {
+        // Never let a background wallpaper process initiate macOS's capture
+        // permission flow. Rebuilding this ad-hoc-signed binary can invalidate
+        // its old TCC grant; launching cava's system-output tap in that state
+        // repeatedly opens System Settings as the watchdog retries it.
+        guard CGPreflightScreenCaptureAccess() else {
+            capturePermissionAvailable = false
+            return
+        }
         guard let cava = findCava() else { return }
         cavaPath = cava
         // Mirrors the proven zephyr-strings tap config (Core Audio system
@@ -560,10 +602,16 @@ final class MediaFeed {
 
 // MARK: - Agent-state feed (hook-truth from tmux @agent_state)
 
+struct AgentCounts: Equatable {
+    var working: Int
+    var waiting: Int
+    var done: Int
+}
+
 final class AgentFeed {
     private let queue = DispatchQueue(label: "wallpaper.runtime.agents", qos: .utility)
     private var timer: DispatchSourceTimer?
-    private var lastCounts = (working: -1, waiting: -1, done: -1)
+    private var lastCounts = AgentCounts(working: -1, waiting: -1, done: -1)
     // last pushed counts (main-thread) — seeded into webviews created later
     private(set) var lastProperties: [String: Any] = [:]
     var onChange: (([String: Any]) -> Void)?
@@ -580,18 +628,33 @@ final class AgentFeed {
 
     func stop() { timer?.cancel() }
 
-    private func poll() {
-        let result = shell(["tmux", "list-panes", "-a", "-F", "#{@agent_state}"])
-        guard result.status == 0 else { return }
-        var counts = (working: 0, waiting: 0, done: 0)
-        for line in result.stdout.split(separator: "\n") {
-            switch line.trimmingCharacters(in: .whitespaces) {
+    // Grouped tmux sessions expose the same linked windows once per client
+    // session. `list-panes -a` therefore repeats physical panes; pane_id is
+    // the server-wide identity and must be folded before counting states.
+    static func counts(from listing: String) -> AgentCounts {
+        var counts = AgentCounts(working: 0, waiting: 0, done: 0)
+        var seenPaneIDs = Set<Substring>()
+        for line in listing.split(separator: "\n") {
+            guard let separator = line.firstIndex(of: "|") else { continue }
+            let paneID = line[..<separator]
+            guard !paneID.isEmpty, seenPaneIDs.insert(paneID).inserted else { continue }
+            let state = line[line.index(after: separator)...]
+                .trimmingCharacters(in: .whitespaces)
+            switch state {
             case "working": counts.working += 1
             case "waiting": counts.waiting += 1
             case "done": counts.done += 1
             default: break
             }
         }
+        return counts
+    }
+
+    private func poll() {
+        let result = shell(["tmux", "list-panes", "-a", "-F",
+                            "#{pane_id}|#{@agent_state}"])
+        guard result.status == 0 else { return }
+        let counts = Self.counts(from: result.stdout)
         guard counts != lastCounts else { return }
         lastCounts = counts
         let properties: [String: Any] = [
@@ -1106,6 +1169,10 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         default: break
         }
         switch event.charactersIgnoringModifiers {
+        case "b":
+            reposeState.viz = reposeState.viz == "strings" ? "spectrum" : "strings"
+            persistAndApply()
+            return true
         case "x":
             reposeState.pixels = reposeState.pixels == "on" ? "off" : "on"
             persistAndApply()
@@ -1132,7 +1199,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     }
 
     private func cycleScene(_ step: Int) {
-        let library = sceneLibrary()
+        let library = reposeRotation(reposeState.scenePool)
         let current = library.firstIndex(of: reposeState.scene) ?? 0
         reposeState.scene = library[(current + step + library.count) % library.count]
         persistAndApply()
@@ -1216,7 +1283,11 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             self?.allWebHosts.forEach { $0.push(audio: frame) }
         }
         audioTap.start()
-        print(audioTap.live ? "audio: cava launched" : "audio: cava unavailable (no audio response)")
+        if !audioTap.capturePermissionAvailable {
+            print("audio: disabled — capture permission unavailable (no prompt requested)")
+        } else {
+            print(audioTap.live ? "audio: cava launched" : "audio: cava unavailable (no audio response)")
+        }
         if audioTap.live {
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
                 guard let self else { return }
@@ -1350,6 +1421,30 @@ setvbuf(stdout, nil, _IOLBF, 0)
 let flags = CommandLine.arguments.dropFirst().filter { $0.hasPrefix("--") }
 let positional = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("--") }
 let daemonMode = flags.contains("--daemon")
+
+if flags.contains("--self-test-agent-counts") {
+    let groupedFixture = """
+    %1|working
+    %2|done
+    %3|waiting
+    %4|
+    %1|working
+    %2|done
+    %3|waiting
+    %4|
+    %1|working
+    %2|done
+    %3|waiting
+    %4|
+    """
+    let expected = AgentCounts(working: 1, waiting: 1, done: 1)
+    guard AgentFeed.counts(from: groupedFixture) == expected else {
+        fputs("agent-count self-test failed\n", stderr)
+        exit(1)
+    }
+    print("agent-count self-test passed")
+    exit(0)
+}
 
 var initialWallpaper: Wallpaper?
 if daemonMode {

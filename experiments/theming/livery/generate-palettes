@@ -74,6 +74,10 @@ jq -c '.[]' "$SOURCES" | while IFS= read -r source; do
         textMuted: .colors.on_surface_variant.default.color,
         outline: .colors.outline.default.color,
         error: .colors.error.default.color,
+        terminalBackground: .colors.background.default.color,
+        terminalForeground: .colors.on_surface.default.color,
+        minimumContrast: 3,
+        ghosttyBackgroundOpacity: 0.5,
         terminal: [
           .base16.base00.default.color,
           .base16.base01.default.color,

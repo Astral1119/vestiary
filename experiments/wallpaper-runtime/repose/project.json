@@ -18,9 +18,18 @@
           { "label": "Pixel (qylock)", "value": "pixel" }
         ]
       },
+      "reposeviz": {
+        "type": "combo",
+        "text": "Visualizer",
+        "value": "strings",
+        "options": [
+          { "label": "Strings", "value": "strings" },
+          { "label": "Spectrum", "value": "spectrum" }
+        ]
+      },
       "reposepixels": {
         "type": "combo",
-        "text": "Pixelated strings",
+        "text": "Pixelated visualizer",
         "value": "on",
         "options": [
           { "label": "On", "value": "on" },

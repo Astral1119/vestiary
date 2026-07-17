@@ -22,6 +22,20 @@ sh -n \
   "$ROOT/generate-themes" \
   "$ROOT/run" \
   "$ROOT/lvry"
+python3 -m py_compile "$ROOT/../../wallpaper-runtime/wallpaperctl"
+plutil -lint "$ROOT/../../wallpaper-runtime/HostInfo.plist" >/dev/null
+swiftc \
+  -warnings-as-errors \
+  "$ROOT/../../wallpaper-runtime/WallpaperRuntimeHost.swift" \
+  -o "$TMP/wallpaper-runtime-host"
+swiftc \
+  -warnings-as-errors \
+  -framework AppKit \
+  -framework WebKit \
+  -framework AVFoundation \
+  "$ROOT/../../wallpaper-runtime/WallpaperRuntime.swift" \
+  -o "$TMP/wallpaper-runtime"
+"$TMP/wallpaper-runtime" --self-test-agent-counts >/dev/null
 swiftc \
   -parse-as-library \
   -warnings-as-errors \
@@ -54,7 +68,16 @@ swiftc \
   -typecheck \
   "$ROOT/BarLegibility.swift" \
   "$ROOT/LiveryPreview.swift"
-jq -e '.schemaVersion == 1 and (.fixtures | length == 6)' "$ROOT/palettes.json" >/dev/null
+jq -e '
+  .schemaVersion == 1
+    and (.fixtures | length == 6)
+    and ([.fixtures[].palettes[]] | all(
+      .terminalBackground == .background
+        and .terminalForeground == .text
+        and .minimumContrast == 3
+        and .ghosttyBackgroundOpacity == 0.5
+    ))
+' "$ROOT/palettes.json" >/dev/null
 jq -e '.oneOf | length == 2' "$ROOT/schema/look.schema.json" >/dev/null
 jq -e '
   .schemaVersion == 1
@@ -99,6 +122,12 @@ jq -e '
     and .credit == "validation fixture"
     and (.assetDigest | test("^sha256:[0-9a-f]{64}$"))
     and (.palettes | map(.name)) == ["content", "vibrant", "neutral"]
+    and (.palettes | all(
+      .terminalBackground == .background
+        and .terminalForeground == .text
+        and .minimumContrast == 3
+        and .ghosttyBackgroundOpacity == 0.5
+    ))
 ' "$TMP/imported.json" >/dev/null
 
 LIVERY_RUNTIME_ROOT="$library_runtime" \
@@ -462,11 +491,29 @@ LIVERY_SKIP_RELOAD=1 \
   "$ROOT/liveryctl" apply "$theme_profile" >/dev/null
 [ "$(jq -r '.source' "$TMP/runtime/lock.json")" = "file" ]
 [ "$(jq -r '.image' "$TMP/runtime/lock.json")" = "$pinned_image" ]
+
+# Lock-only application renders the exact selected Look wallpaper and caches it
+# independently from the mutable staging directory.
+LIVERY_CONFIG_ROOT="$TMP/config" \
+LIVERY_RUNTIME_ROOT="$TMP/runtime" \
+LIVERY_SKIP_RELOAD=1 \
+  "$ROOT/liveryctl" lock "look:$theme_profile" >/dev/null
+[ "$(jq -r '.source' "$TMP/runtime/lock.json")" = "look" ]
+[ "$(jq -r '.selection' "$TMP/runtime/lock.json")" = "$theme_profile" ]
+look_lock_image=$(jq -r '.image' "$TMP/runtime/lock.json")
+case "$look_lock_image" in
+  "$TMP/runtime/lock/looks/"*) ;;
+  *) echo "Look lock image was not cached under the runtime" >&2; exit 1 ;;
+esac
+[ -f "$look_lock_image" ]
+[ "$(shasum -a 256 "$look_lock_image" | awk '{print $1}')" \
+  = "$(jq -r '.outputs.wallpaper.digest | sub("^sha256:"; "")' "$theme_candidate")" ]
 LIVERY_CONFIG_ROOT="$TMP/config" \
 LIVERY_RUNTIME_ROOT="$TMP/runtime" \
 LIVERY_SKIP_RELOAD=1 \
   "$ROOT/liveryctl" rollback >/dev/null
-[ "$(jq -r '.image' "$TMP/runtime/lock.json")" = "$pinned_image" ]
+[ "$(jq -r '.source' "$TMP/runtime/lock.json")" = "look" ]
+[ "$(jq -r '.image' "$TMP/runtime/lock.json")" = "$look_lock_image" ]
 
 # Scene selection retains its library identity. Video scenes are reduced to a
 # cached, content-addressed representative still for the macOS wallpaper store.
@@ -510,6 +557,32 @@ LIVERY_RUNTIME_ROOT="$TMP/runtime" \
 LIVERY_SKIP_RELOAD=1 \
   "$ROOT/liveryctl" lock off >/dev/null
 [ ! -e "$TMP/runtime/lock.json" ]
+
+# Repose rotations are ordered catalog membership, not current-scene
+# selection. Missing state migrates to every scene; membership writes preserve
+# order, remove duplicates, and reconcile an excluded current scene.
+repose_home="$TMP/repose-home"
+mkdir -p "$repose_home/.config/wallpaper-runtime/scenes" \
+  "$repose_home/.config/wallpaper-runtime/bin"
+: > "$repose_home/.config/wallpaper-runtime/scenes/alpha.mp4"
+: > "$repose_home/.config/wallpaper-runtime/scenes/beta.mp4"
+: > "$repose_home/.config/wallpaper-runtime/bin/wallpaper-runtime"
+HOME="$repose_home" "$ROOT/../../wallpaper-runtime/wallpaperctl" repose-state \
+  > "$TMP/repose-default.json"
+jq -e '
+  .scenePool == ["desktop", "alpha.mp4", "beta.mp4"]
+    and .viz == "strings"
+' \
+  "$TMP/repose-default.json" >/dev/null
+HOME="$repose_home" "$ROOT/../../wallpaper-runtime/wallpaperctl" \
+  repose-pool beta.mp4 alpha.mp4 beta.mp4 >/dev/null
+HOME="$repose_home" "$ROOT/../../wallpaper-runtime/wallpaperctl" \
+  repose-viz spectrum >/dev/null
+jq -e '
+  .scenePool == ["beta.mp4", "alpha.mp4"]
+    and (.scene | endswith("/scenes/beta.mp4"))
+    and .viz == "spectrum"
+' "$repose_home/.config/wallpaper-runtime/repose.json" >/dev/null
 
 production_hashes > "$TMP/after.sha"
 diff -u "$TMP/before.sha" "$TMP/after.sha"

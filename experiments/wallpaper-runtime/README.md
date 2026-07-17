@@ -26,12 +26,18 @@ Daemon (daily driver):
 ./wallpaperctl set 3208430444          # workshop id (fetches if needed) or path;
                                        # starts the daemon, or hot-swaps via SIGUSR1
 ./wallpaperctl status | stop | restart
+./wallpaperctl audio-permission        # show the stable app to grant once
 ./wallpaperctl install-agent           # launchd: start at login, KeepAlive
 ```
 
 State lives in `~/.config/wallpaper-runtime/` (`current`, `pid`, `log`,
 and the compiled `bin/wallpaper-runtime`); `wallpaperctl` recompiles
-automatically when the source is newer than the binary.
+automatically when the source is newer than the binary. Daily-driver starts run
+that mutable worker beneath `~/Applications/Wallpaper Runtime.app`, a tiny
+frozen host with bundle ID `local.astral.wallpaper-runtime`. Grant that app
+Screen & System Audio Recording once. Normal worker rebuilds never rewrite or
+re-sign the host, so its TCC identity and permission remain stable. The host is
+only replaced if it is missing or its signature is invalid.
 
 ## What's implemented
 
@@ -41,7 +47,9 @@ automatically when the source is newer than the binary.
   textures.
 - **WE JS API shim** (injected at document start):
   `wallpaperRegisterAudioListener` fed 128-sample frames from a 64-bar
-  Cava system tap at 30 fps (falls back to silence when cava is absent);
+  Cava system tap at 30 fps. The daemon preflights capture access without
+  prompting and falls back to silence when Cava or permission is unavailable;
+  it never opens System Settings to request access in the background.
   `wallpaperPropertyListener` implemented with WE's real semantics — a
   setter trap applies pending properties the moment the page registers
   its listener, even when registration happens late behind an async CDN
@@ -167,3 +175,15 @@ The repose cover host's transparent-backdrop mode (see
 this layer through the cover: the live wallpaper becomes the star,
 repose the stage lighting. During repose, cursor forwarding keeps the
 wallpaper reactive while the cover swallows clicks.
+
+The scene directory is the catalog, while `repose.json.scenePool` is the
+ordered rotation. Missing `scenePool` means every catalog scene in the legacy
+sorted order. The Livery panel toggles membership and drag order; in-cover
+left/right keys cycle only that list. Exclusion never deletes a scene.
+
+`repose.json.viz` selects the composition's audio renderer. `strings` keeps
+the frozen 10-band Zephyr geometry; `spectrum` uses 24 frequency groups mirrored
+around the center (bass inward, treble outward). Both share the same rolling
+normalization and attack/release model, settle and park in silence, and react to
+quiet/loud placement independently of the selected Look. In-cover `b` cycles
+the renderer; `wallpaperctl repose-viz strings|spectrum` is the external editor.
