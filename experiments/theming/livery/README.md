@@ -56,6 +56,14 @@ user-requested activation even after Livery has returned to accessory status.
   artifact with `x`.
 - Inspect the extracted source color, seven semantic roles, a token-colored Lua sample, and Matugen's 16-color Base16 `wal` output.
 - Inspect a coherent Look in which the palette and wallpaper are intentionally related.
+- Switch to the top-level Repose workspace (`cmd+2`) to browse cached
+  first-frame scene thumbnails. The library grid toggles rotation membership;
+  the filmstrip above it is the arrow-key order and can be rearranged by drag.
+  Composition remains an in-cover instrument (`tab`, `v`, `g`, `n`, `x`,
+  `l`), not a panel control stack.
+- Add a live Wallpaper Engine item from the selected Livery wallpaper to the
+  Repose scene library. This phase is additive only; keep/remove/kill curation
+  is intentionally absent.
 
 The checked-in `palettes.json` is generated in dark mode using each image's most dominant extracted source (`--source-color-index 0`). Semantic roles come from the selected Material scheme; the terminal map comes from Matugen's Base16 `wal` backend. The detail view shows this provenance rather than presenting the values as hand-authored choices.
 
@@ -153,19 +161,28 @@ global policy, independently from Look history:
 ```sh
 livery lock                         # show the current policy
 livery lock ~/Pictures/lock.png     # pin an image across apply and rollback
+livery lock 'look:theme:violet-hour@warm-dunes:balanced'
+                                    # render a Look and pin only its wallpaper
 livery lock scene:pixel-dusk-city   # pin a cached still from a Repose scene
 livery lock theme                   # follow the current Look's wallpaper
 livery lock off                     # stop lock-specific management
 ```
 
-File and scene pins live in `~/.config/livery/lock.json` and win whenever a
-normal Look apply or rollback touches the wallpaper store. `theme` follows the
-active profile and updates with later Look changes; `off` leaves the current
-store alone and returns future applies to their normal wallpaper behavior.
+File, Look, and scene pins live in `~/.config/livery/lock.json` and win whenever
+a normal Look apply or rollback touches the wallpaper store. Look-only pins
+cache the exact resolved wallpaper artifact beneath `lock/looks/` without
+applying the Look's desktop wallpaper or colors. `theme` follows the active
+profile and updates with later Look changes; `off` leaves the current store
+alone and returns future applies to their normal wallpaper behavior.
 Video scenes are resolved from `~/.config/wallpaper-runtime/scenes/` and
 reduced with ffmpeg to a content-addressed PNG beneath
 `~/.config/livery/lock/scenes/`. The source scene selection remains in the
 state record so the native panel can expose the same policy later.
+
+The panel keeps lock orthogonal to Repose. A Look's footer offers `[shift+p]
+lock only` beside normal `[p] apply`; the global header uses custom mono chrome
+for compact policy/status and the `theme` / unmanaged choices. No lock control
+appears in Repose.
 
 ## Personal wallpaper library
 
@@ -239,8 +256,12 @@ Generated Looks set Ghostty's native `minimum-contrast` floor to `3`. Ghostty
 checks foreground text against its cell background at render time without
 modifying background colors, including colors selected by terminal
 applications. The captured `default` retains Ghostty's native `1` setting.
-Livery's terminal specimen previews that behavior over the selected wallpaper
-and translucent terminal background.
+Livery's terminal specimen is an illustrative Lua syntax map rendered through
+the actual terminal contract: semantic terminal background/foreground, the
+resolved ANSI slots, `ghosttyBackgroundOpacity`, and the configured minimum
+contrast floor. Its representative cell background composites the terminal
+background over sampled wallpaper color before simulating Ghostty's fallback;
+UI surface/text roles no longer stand in for terminal roles.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the semantic/UI, signal, Base16,
 ANSI, presentation, and effects boundaries.

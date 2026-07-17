@@ -77,7 +77,7 @@
   }
   body[data-variant="loud"] #clock { font-size: calc(3.4vw * var(--typescale, 1)); }
   body[data-variant="loud"] #date { font-size: calc(.85vw * var(--typescale, 1)); }
-  body[data-variant="loud"] #strings {
+  body[data-variant="loud"] #visualizer {
     position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
     width: 78vw; height: 42vh;
   }
@@ -132,7 +132,8 @@
 
   /* strings live in the monolith at the accepted 260x80 proportions —
      a compact element under the clock, not a screen-wide band */
-  #strings { display: block; width: 34vw; height: 10.5vw; }
+  #visualizer { display: block; width: 34vw; height: 10.5vw; }
+  body[data-viz="spectrum"] #visualizer { height: 9vw; }
   #media { display: none; font-size: calc(.95vw * var(--typescale, 1));
            color: var(--muted); letter-spacing: .04em;
            max-width: 34vw; white-space: nowrap; overflow: hidden; }
@@ -215,12 +216,15 @@
   }
   /* strings go chunky: low-res backing store upscaled crisp (set in JS);
      the pixels axis (x key) switches back to smooth rendering */
-  body[data-look="pixel"] #strings { image-rendering: pixelated; width: 26vw;
+  body[data-look="pixel"] #visualizer { image-rendering: pixelated; width: 26vw;
     height: 8vw; }
-  body[data-pixels="off"] #strings { image-rendering: auto; }
+  body[data-pixels="off"] #visualizer { image-rendering: auto; }
   body[data-look="pixel"][data-variant="loud"] .monolith { right: auto; }
   body[data-look="pixel"][data-variant="loud"] #clock {
     font-size: calc(3.2vw * var(--typescale, 1));
+  }
+  body[data-look="pixel"][data-variant="loud"] #visualizer {
+    width: 78vw; height: 42vh;
   }
 </style>
 </head>
@@ -233,10 +237,10 @@
     <div id="clock"></div>
     <div id="agents"></div>
     <div id="agentline"></div>
-    <canvas id="strings"></canvas>
+    <canvas id="visualizer" aria-label="Audio visualizer"></canvas>
     <div id="media"></div>
   </div>
-  <div id="coverhint">←→ scene · tab look · x pixels · v variant · g grade · n night · l label · esc exits</div>
+  <div id="coverhint">←→ scene · tab look · b visualizer · x pixels · v variant · g grade · n night · l label · esc exits</div>
   <div id="scenelabel"></div>
   <div id="devhint"></div>
 
@@ -262,6 +266,7 @@
   let agents = { working: 0, waiting: 0, done: 0 };
   let variant = "quiet";
   let look = "zephyr";
+  let vizMode = "strings";
   let lastLoudAudio = Date.now();
 
   function setVariant(next) {
@@ -278,6 +283,13 @@
     look = next;
     document.body.dataset.look = look;
     resize();   // the pixel look changes the canvas backing resolution
+  }
+
+  function setViz(next) {
+    if (next !== "strings" && next !== "spectrum") return;
+    vizMode = next;
+    document.body.dataset.viz = vizMode;
+    resize();
   }
 
   let pixels = true;
@@ -333,6 +345,7 @@
       if (primaryColor || surfaceColor) buildClock();
       if (p.reposevariant && p.reposevariant.value) setVariant(String(p.reposevariant.value));
       if (p.reposelook && p.reposelook.value) setLook(String(p.reposelook.value));
+      if (p.reposeviz && p.reposeviz.value) setViz(String(p.reposeviz.value));
       if (p.reposepixels && p.reposepixels.value) setPixels(String(p.reposepixels.value));
       if (p.reposecover && String(p.reposecover.value) === "on") showCoverHint();
       if (p.reposebackdrop && p.reposebackdrop.value) {
@@ -455,12 +468,12 @@
     });
   }
 
-  // ---------- Zephyr strings: the accepted math from
-  // ZephyrStringsPreview.swift, frozen in ../../zephyr-strings/BASELINE.md —
-  // 12ms/45ms envelope, soft rolling median-relative normalization (0.85–1.4x,
-  // 0.55 exponent, frozen in silence), FastMusicLine cubic layout with
-  // 1.5-segment lateral spill and 1.85x vertical gain ----------
-  const canvas = document.getElementById("strings");
+  // ---------- shared audio model + renderers ----------
+  // Strings preserve the accepted math from ZephyrStringsPreview.swift,
+  // frozen in ../../zephyr-strings/BASELINE.md. Spectrum consumes the same
+  // magnitude/envelope contract at a finer frequency resolution; renderers
+  // own geometry only, never audio smoothing.
+  const canvas = document.getElementById("visualizer");
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
   let width, height;
@@ -468,34 +481,35 @@
     const rect = canvas.getBoundingClientRect();
     width = rect.width;
     height = rect.height;
-    // pixel look: low-res backing upscaled crisp (image-rendering:
-    // pixelated) — chunky pixel-art strands, fine enough to read.
-    // the pixels axis toggles this off for smooth strands over the scene
+    // Pixel language uses a deliberately coarse backing store. The pixels
+    // axis switches both renderers back to smooth retina rendering.
     const factor = look === "pixel" && pixels ? 0.4 : dpr;
     canvas.width = Math.max(1, Math.round(rect.width * factor));
     canvas.height = Math.max(1, Math.round(rect.height * factor));
     ctx.setTransform(factor, 0, 0, factor, 0, 0);
-    wake();   // repaint the parked frame at the new size
+    wake();
   }
   window.addEventListener("resize", resize);
-  // the observer fires once on observe, after setup — that first delivery
-  // paints the initial parked frame
   new ResizeObserver(resize).observe(canvas);
 
-  const STRANDS = 10;
-  const target = new Array(STRANDS).fill(0);      // raw grouped bands
-  const displayed = new Array(STRANDS).fill(0);   // enveloped levels
-  const rolling = new Array(STRANDS).fill(0.15);  // normalization tracker
+  const makeBandModel = (count) => ({
+    count,
+    target: new Array(count).fill(0),
+    displayed: new Array(count).fill(0),
+    rolling: new Array(count).fill(0.15),
+  });
+  const audioModels = {
+    strings: makeBandModel(10),
+    spectrum: makeBandModel(24),
+  };
   let animating = false;
   let quietFrames = 0;
   let lastAudioAt = -Infinity;
   let lastFrameAt = 0;
   let lastDrawAt = 0;
-  let chain = 0;   // draw-loop token: a superseded chain stops itself
+  let chain = 0;
 
   function wake() {
-    // if the loop claims to run but hasn't drawn in 2s, it was stranded
-    // (webview suspension mid-animation) — arm a fresh chain over it
     const stranded = animating && performance.now() - lastDrawAt > 2000;
     if (!animating || stranded) {
       animating = true;
@@ -505,27 +519,34 @@
     }
   }
 
-  if (window.wallpaperRegisterAudioListener) {
-    window.wallpaperRegisterAudioListener((frame) => {
-      // WE delivers 64 bands per channel; mono-average, group to 10 strands.
-      // The 1.85x motion gain lives in the geometry (baseline), not here —
-      // loud keeps its extra push on the input.
-      const gain = variant === "loud" ? 1.35 : 1;
-      let frameEnergy = 0;
-      for (let s = 0; s < STRANDS; s++) {
-        const start = Math.floor(s * 64 / STRANDS);
-        const end = Math.floor((s + 1) * 64 / STRANDS);
-        let sum = 0;
-        for (let i = start; i < end; i++) {
-          sum += (frame[i] + (frame[i + 64] !== undefined ? frame[i + 64] : frame[i])) / 2;
-        }
-        target[s] = Math.min(1, sum / (end - start) * gain);
-        frameEnergy += target[s];
+  function groupFrame(frame, model, gain) {
+    let energy = 0;
+    for (let band = 0; band < model.count; band++) {
+      const start = Math.floor(band * 64 / model.count);
+      const end = Math.floor((band + 1) * 64 / model.count);
+      let sum = 0;
+      for (let i = start; i < end; i++) {
+        const left = frame[i] || 0;
+        const right = frame[i + 64] !== undefined ? frame[i + 64] : left;
+        sum += (left + right) / 2;
       }
-      lastAudioAt = performance.now();
-      if (frameEnergy > 0.1) lastLoudAudio = Date.now();
-      wake();
-    });
+      model.target[band] = Math.min(1, sum / Math.max(1, end - start) * gain);
+      energy += model.target[band];
+    }
+    return energy;
+  }
+
+  function ingestAudio(frame) {
+    const gain = variant === "loud" ? 1.35 : 1;
+    const frameEnergy = groupFrame(frame, audioModels.strings, gain);
+    groupFrame(frame, audioModels.spectrum, gain);
+    lastAudioAt = performance.now();
+    if (frameEnergy > 0.1) lastLoudAudio = Date.now();
+    wake();
+  }
+
+  if (window.wallpaperRegisterAudioListener) {
+    window.wallpaperRegisterAudioListener(ingestAudio);
   }
 
   // loud is a music surface: after three silent minutes, settle to quiet
@@ -535,61 +556,61 @@
     }
   }, 10000);
 
-  function draw(t, token) {
-    if (token !== chain) return;   // superseded by a fresh wake
-    lastDrawAt = performance.now();
-    const dt = lastFrameAt ? Math.min(0.1, (t - lastFrameAt) / 1000) : 1 / 60;
-    lastFrameAt = t;
-    const fresh = performance.now() - lastAudioAt < 1500;
-    const active = Math.max(...target) > 0.02;
-
-    // rolling per-band level: 750ms rise / 5s fall, frozen during silence
+  function advanceModel(model, dt, fresh) {
+    const active = Math.max(...model.target) > 0.02;
+    // The 10-band strings model remains byte-for-byte equivalent in behavior:
+    // 750ms/5s rolling level, median-relative normalization, 12ms/45ms
+    // attack/release. Generalizing the loop only admits a different band count.
     if (fresh && active) {
-      for (let s = 0; s < STRANDS; s++) {
-        const trackingTime = target[s] > rolling[s] ? 0.75 : 5.0;
-        rolling[s] += (target[s] - rolling[s]) * (1 - Math.exp(-dt / trackingTime));
+      for (let band = 0; band < model.count; band++) {
+        const trackingTime = model.target[band] > model.rolling[band] ? 0.75 : 5.0;
+        model.rolling[band] += (model.target[band] - model.rolling[band]) *
+          (1 - Math.exp(-dt / trackingTime));
       }
     }
-    const sorted = [...rolling].sort((a, b) => a - b);
-    const median = (sorted[4] + sorted[5]) / 2;
+    const sorted = [...model.rolling].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    const median = sorted.length % 2
+      ? sorted[middle]
+      : (sorted[middle - 1] + sorted[middle]) / 2;
 
     let energy = 0;
-    for (let s = 0; s < STRANDS; s++) {
-      const relative = median / Math.max(0.04, rolling[s]);
+    for (let band = 0; band < model.count; band++) {
+      const relative = median / Math.max(0.04, model.rolling[band]);
       const normalization = Math.min(1.4, Math.max(0.85, Math.pow(relative, 0.55)));
-      const goal = Math.min(1, target[s] * normalization);
-      const timeConstant = goal > displayed[s] ? 0.012 : 0.045;
-      displayed[s] += (goal - displayed[s]) * (1 - Math.exp(-dt / timeConstant));
-      energy += displayed[s];
+      const goal = Math.min(1, model.target[band] * normalization);
+      const timeConstant = goal > model.displayed[band] ? 0.012 : 0.045;
+      model.displayed[band] += (goal - model.displayed[band]) *
+        (1 - Math.exp(-dt / timeConstant));
+      energy += model.displayed[band];
     }
+    return energy;
+  }
 
-    ctx.clearRect(0, 0, width, height);
-    const scale = height / 80;                 // native reference: 260x80
+  function drawStrings(levels) {
+    const scale = height / 80;
     const curveWidth = width / 1.3;
     const curveHeight = height / 2;
-    const segmentWidth = curveWidth / STRANDS;
+    const segmentWidth = curveWidth / levels.length;
     const spillInset = (width - curveWidth) / 2;
     const yc = height / 2;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    for (let s = 0; s < STRANDS; s++) {
-      const pulse = Math.max(displayed[s], 0.012);
+    for (let s = 0; s < levels.length; s++) {
+      const pulse = Math.max(levels[s], 0.012);
       const direction = (s < 3 || s > 7) ? -1 : 1;
       const lateral = s > 5 ? 1 : -1;
       const c1x = spillInset + ((s - 1) + lateral * pulse * 1.5) * segmentWidth;
       const c1y = yc + direction * curveHeight * pulse * 1.85;
-      const mix = s / STRANDS;
+      const mix = s / levels.length;
       const color = viz[0].map((v, i) => v + (viz[1][i] - v) * mix);
-      // the darkened even strands are zephyr depth; pixel keeps flat accents
       const stroke = look !== "pixel" && s % 2 === 0 ? color.map(v => v * 2 / 3) : color;
       ctx.save();
-      // hard pixels don't glow — the soft shadow is zephyr-only
       ctx.shadowBlur = look === "pixel" ? 0 : 15 * scale;
       ctx.shadowColor = "rgba(0,0,0,0.20)";
       ctx.strokeStyle = css(stroke);
       ctx.globalAlpha = 0.72;
-      // pixel strands stay thin — one or two chunky raster pixels
       ctx.lineWidth = (look === "pixel" ? 1.6 - pulse * 0.4 : 3.25 - pulse) * scale;
       ctx.beginPath();
       ctx.moveTo(spillInset, yc);
@@ -605,9 +626,76 @@
     ctx.fillStyle = css(viz[1]);
     ctx.beginPath(); ctx.arc(spillInset + curveWidth, yc, radius, 0, 7); ctx.fill();
     ctx.globalAlpha = 1;
+  }
 
-    // settle-and-park: strings decay to a calm line, then the loop stops
-    if (energy < 0.02 && Math.max(...target) < 0.01) {
+  function spectrumBar(x, y, barWidth, barHeight, color, radius) {
+    ctx.fillStyle = css(color);
+    if (radius <= 0) {
+      ctx.fillRect(x, y, barWidth, barHeight);
+      return;
+    }
+    const r = Math.min(radius, barWidth / 2, barHeight / 2);
+    ctx.beginPath();
+    ctx.roundRect(x, y, barWidth, barHeight, [r, r, 0, 0]);
+    ctx.fill();
+  }
+
+  function drawSpectrum(levels) {
+    const pixel = look === "pixel" && pixels;
+    const centerGap = width * 0.045;
+    const sideWidth = (width - centerGap) / 2;
+    const slotWidth = sideWidth / levels.length;
+    const spacing = pixel ? Math.max(1, Math.round(slotWidth * 0.28))
+                          : Math.max(2, slotWidth * 0.30);
+    const barWidth = Math.max(1, slotWidth - spacing);
+    const baseline = height * 0.88;
+    const maxBarHeight = height * (variant === "loud" ? 0.80 : 0.72);
+    const step = pixel ? Math.max(2, Math.round(height / 18)) : 0;
+
+    ctx.save();
+    ctx.globalAlpha = pixel ? 0.86 : 0.76;
+    ctx.shadowBlur = pixel ? 0 : Math.max(5, height * 0.055);
+    ctx.shadowColor = "rgba(0,0,0,0.22)";
+    for (let band = 0; band < levels.length; band++) {
+      const mix = band / Math.max(1, levels.length - 1);
+      const color = viz[0].map((value, i) => value + (viz[1][i] - value) * mix);
+      let barHeight = levels[band] * maxBarHeight;
+      if (pixel) barHeight = Math.round(barHeight / step) * step;
+      if (barHeight < (pixel ? step : 0.75)) continue;
+      const y = baseline - barHeight;
+      const rightX = width / 2 + centerGap / 2 + band * slotWidth + spacing / 2;
+      const leftX = width / 2 - centerGap / 2 - (band + 1) * slotWidth + spacing / 2;
+      const radius = pixel ? 0 : Math.min(3, barWidth / 2);
+      spectrumBar(leftX, y, barWidth, barHeight, color, radius);
+      spectrumBar(rightX, y, barWidth, barHeight, color, radius);
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = pixel ? 0.32 : 0.20;
+    ctx.fillStyle = css(viz[0]);
+    const baselineHeight = pixel ? Math.max(1, step / 3) : 1;
+    ctx.fillRect(0, baseline, width / 2 - centerGap / 2, baselineHeight);
+    ctx.fillRect(width / 2 + centerGap / 2, baseline,
+                 width / 2 - centerGap / 2, baselineHeight);
+    ctx.restore();
+  }
+
+  function draw(t, token) {
+    if (token !== chain) return;
+    lastDrawAt = performance.now();
+    const dt = lastFrameAt ? Math.min(0.1, (t - lastFrameAt) / 1000) : 1 / 60;
+    lastFrameAt = t;
+    const fresh = performance.now() - lastAudioAt < 1500;
+    const energies = {
+      strings: advanceModel(audioModels.strings, dt, fresh),
+      spectrum: advanceModel(audioModels.spectrum, dt, fresh),
+    };
+
+    ctx.clearRect(0, 0, width, height);
+    if (vizMode === "spectrum") drawSpectrum(audioModels.spectrum.displayed);
+    else drawStrings(audioModels.strings.displayed);
+
+    const activeModel = audioModels[vizMode];
+    if (energies[vizMode] < 0.02 && Math.max(...activeModel.target) < 0.01) {
       quietFrames += 1;
       if (quietFrames > 90) { animating = false; quietFrames = 0; return; }
     } else {
@@ -623,6 +711,7 @@
     const params = new URLSearchParams(location.search);
     if (params.get("variant")) setVariant(params.get("variant"));
     setLook(params.get("look") || localStorage.getItem("repose-look") || "zephyr");
+    setViz(params.get("viz") || localStorage.getItem("repose-viz") || "strings");
     setPixels(params.get("pixels") || localStorage.getItem("repose-pixels") || "on");
     if (params.get("grade")) document.body.dataset.grade =
       params.get("grade") === "off" ? "off" : "on";
@@ -653,15 +742,17 @@
     showMedia();
     setInterval(() => {
       if (!synth) return;
-      let energy = 0;
-      for (let s = 0; s < STRANDS; s++) {
-        target[s] = Math.min(1,
-          Math.abs(Math.sin(Date.now() / 260 + s * 1.3)) * 0.55);
-        energy += target[s];
+      const frame = new Array(128).fill(0);
+      const now = Date.now();
+      const beat = Math.pow(Math.max(0, Math.sin(now / 245)), 3);
+      for (let band = 0; band < 64; band++) {
+        const texture = Math.abs(Math.sin(now / 310 + band * 0.42));
+        const bass = beat * Math.exp(-band / 15);
+        const value = Math.min(1, 0.04 + texture * 0.34 + bass * 0.62);
+        frame[band] = value;
+        frame[band + 64] = value;
       }
-      lastAudioAt = performance.now();
-      if (energy > 0.1) lastLoudAudio = Date.now();
-      wake();
+      ingestAudio(frame);
     }, 33);
     let typescale = Number(localStorage.getItem("repose-typescale")) || 1;
     const WALLS = ["moonlit-ocean", "blue-alps", "forest-path", "warm-dunes",
@@ -670,7 +761,7 @@
     const hint = document.getElementById("devhint");
     const refreshHint = () => {
       hint.textContent = "dev · q quiet · l loud · k look (" + look + ") · " +
-        `x pixels (${pixels ? "on" : "off"}) · p synth audio · a agents · ` +
+        `v viz (${vizMode}) · x pixels (${pixels ? "on" : "off"}) · p synth audio · a agents · ` +
         `m media · s grade · n night · w wall (${wallIndex < 0 ? "off" : WALLS[wallIndex]}) · ` +
         `[ ] type ×${typescale.toFixed(2)}`;
     };
@@ -704,12 +795,23 @@
         localStorage.setItem("repose-look", look);
         refreshHint();
       }
+      else if (event.key === "v") {
+        setViz(vizMode === "strings" ? "spectrum" : "strings");
+        localStorage.setItem("repose-viz", vizMode);
+        refreshHint();
+      }
       else if (event.key === "x") {
         setPixels(pixels ? "off" : "on");
         localStorage.setItem("repose-pixels", pixels ? "on" : "off");
         refreshHint();
       }
-      else if (event.key === "p") { synth = !synth; if (!synth) target.fill(0); }
+      else if (event.key === "p") {
+        synth = !synth;
+        if (!synth) {
+          Object.values(audioModels).forEach(model => model.target.fill(0));
+          wake();
+        }
+      }
       else if (event.key === "a") {
         agentIndex = (agentIndex + 1) % AGENT_STATES.length;
         agents = AGENT_STATES[agentIndex];

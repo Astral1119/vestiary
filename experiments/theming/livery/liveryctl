@@ -53,6 +53,7 @@ commands:
   rollback                     restore the previous theme and wallpaper
   lock [status]                show the lock-image policy
   lock <image>                 pin an image across Look changes
+  lock look:<profile>          render a Look and pin only its wallpaper
   lock scene:<name>            pin a representative still from a Repose scene
   lock theme                   follow the current Look's wallpaper still
   lock off                     stop managing a separate lock-image policy
@@ -292,6 +293,10 @@ generate_import_palette() (
       textMuted: .colors.on_surface_variant.default.color,
       outline: .colors.outline.default.color,
       error: .colors.error.default.color,
+      terminalBackground: .colors.background.default.color,
+      terminalForeground: .colors.on_surface.default.color,
+      minimumContrast: 3,
+      ghosttyBackgroundOpacity: 0.5,
       terminal: [
         .base16.base00.default.color,
         .base16.base01.default.color,
@@ -1952,7 +1957,7 @@ lock_source() {
   fi
   if ! jq -e '
     .schemaVersion == 1
-      and (.source == "file" or .source == "scene" or .source == "theme")
+      and (.source == "file" or .source == "look" or .source == "scene" or .source == "theme")
       and (.image == null or (.image | type == "string"))
   ' "$LOCK_STATE" >/dev/null
   then
@@ -1996,7 +2001,7 @@ apply_wallpaper_for_target() {
   target=$1
   source=$(lock_source)
   case "$source" in
-    file|scene)
+    file|look|scene)
       image=$(pinned_lock_image)
       apply_global_wallpaper "$image"
       ;;
@@ -2102,6 +2107,31 @@ scene_lock_image() {
   esac
 }
 
+look_lock_image() {
+  profile=$1
+  staged=$(render_profile "$profile")
+  artifact=$(jq -r '.outputs.wallpaper.artifact // empty' "$staged/manifest.json")
+  [ -n "$artifact" ] || {
+    echo "Look has no lockable wallpaper artifact: $profile" >&2
+    return 1
+  }
+  source="$staged/$artifact"
+  [ -f "$source" ] || {
+    echo "rendered Look artifact is unavailable: $source" >&2
+    return 1
+  }
+  digest=$(shasum -a 256 "$source" | awk '{print $1}')
+  extension=${source##*.}
+  destination="$LOCK_CACHE/looks/$digest.$extension"
+  if [ ! -f "$destination" ]; then
+    mkdir -p "$LOCK_CACHE/looks"
+    temporary="$LOCK_CACHE/looks/.$digest.$$.${extension}"
+    cp "$source" "$temporary"
+    mv -f "$temporary" "$destination"
+  fi
+  printf '%s\n' "$destination"
+}
+
 lock_status() {
   source=$(lock_source)
   case "$source" in
@@ -2112,7 +2142,7 @@ lock_status() {
       image=$(jq -r '.image // empty' "$LOCK_STATE")
       echo "lock: follows current Look${image:+ ($image)}"
       ;;
-    file|scene)
+    file|look|scene)
       image=$(jq -r '.image // empty' "$LOCK_STATE")
       selection=$(jq -r '.selection // empty' "$LOCK_STATE")
       echo "lock: pinned $source${selection:+ ($selection)}"
@@ -2140,6 +2170,17 @@ lock_command() {
       ;;
     off)
       rm -f "$LOCK_STATE"
+      lock_status
+      ;;
+    look:*)
+      profile=${action#look:}
+      [ -n "$profile" ] || {
+        echo "usage: ./liveryctl lock look:<profile>" >&2
+        return 2
+      }
+      image=$(look_lock_image "$profile")
+      apply_global_wallpaper "$image"
+      write_lock_state look "$image" "$profile"
       lock_status
       ;;
     scene:*)
@@ -2171,6 +2212,9 @@ lock_command() {
 sync_live_wallpaper() {
   # Live-wallpaper adapter: point the runtime at the current Look's live
   # payload, or clear it for static Looks. Decorative layer — non-fatal.
+  # Dry runs must not escape their isolated Livery roots and mutate the
+  # user's real wallpaper daemon.
+  [ "${LIVERY_SKIP_RELOAD:-0}" != "1" ] || return 0
   [ -x "$WALLPAPERCTL" ] || return 0
   manifest="$RUNTIME_ROOT/current/manifest.json"
   [ -f "$manifest" ] || return 0

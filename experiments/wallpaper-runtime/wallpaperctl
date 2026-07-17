@@ -8,18 +8,27 @@
   wallpaperctl repose-bg <scene|desktop>   # cover scene (path, workshop id,
                                            # or "desktop" to mirror it)
   wallpaperctl repose-look <zephyr|pixel>  # composition language
+  wallpaperctl repose-viz <strings|spectrum> # audio visualizer shape
+  wallpaperctl repose-variant <quiet|loud> # composition arrangement
+  wallpaperctl repose-grade [on|off]       # backdrop grade treatment
+  wallpaperctl repose-night [on|off]       # StandBy night tint
+  wallpaperctl repose-pixels [on|off]      # pixelated visualizer treatment
   wallpaperctl repose-label [on|off]       # scene-name label (bottom right)
+  wallpaperctl repose-pool <scene-id>...   # ordered scenes cycled by arrow keys
+  wallpaperctl repose-state                # print the persisted state as JSON
+  wallpaperctl repose-add <path-or-id>     # add a live source to scenes/
   wallpaperctl lock-bg [<image>|theme]     # lock-screen wallpaper (the system
                                            # wallpaper — only visible locked)
 
 Repose selection lives in one record (~/.config/wallpaper-runtime/
-repose.json: look, scene, variant, grade, night, pixels, label); these
-subcommands and the in-cover keys (arrows scene, tab look, x pixels,
+repose.json: look, scene, scenePool, viz, variant, grade, night, pixels, label); these
+subcommands and the in-cover keys (arrows scene, tab look, b visualizer, x pixels,
 v variant, g/n treatments, l label) are both thin writers over it,
 applied live to an open cover.
   wallpaperctl start | stop | restart
   wallpaperctl status
   wallpaperctl build                       # (re)compile the daemon binary
+  wallpaperctl audio-permission            # show the stable app to grant once
   wallpaperctl install-agent               # launchd agent: start at login
   wallpaperctl uninstall-agent
 
@@ -31,14 +40,22 @@ doesn't resurrect it.
 
 import json
 import os
+import re
 import signal
+import shutil
 import subprocess
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SOURCE = os.path.join(SCRIPT_DIR, "WallpaperRuntime.swift")
+HOST_SOURCE = os.path.join(SCRIPT_DIR, "WallpaperRuntimeHost.swift")
+HOST_INFO = os.path.join(SCRIPT_DIR, "HostInfo.plist")
 STATE_DIR = os.path.expanduser("~/.config/wallpaper-runtime")
 BIN = os.path.join(STATE_DIR, "bin", "wallpaper-runtime")
+HOST_APP = os.path.expanduser("~/Applications/Wallpaper Runtime.app")
+HOST_BIN = os.path.join(HOST_APP, "Contents", "MacOS", "wallpaper-runtime-host")
+HOST_PIDFILE = os.path.join(STATE_DIR, "host-pid")
+HOST_BUNDLE_ID = "local.astral.wallpaper-runtime"
 CONFIG = os.path.join(STATE_DIR, "current")
 PIDFILE = os.path.join(STATE_DIR, "pid")
 LOG = os.path.join(STATE_DIR, "log")
@@ -65,6 +82,46 @@ def build(force=False):
         check=True)
 
 
+def host_valid():
+    """The host's exact bits are its rebuild-stable TCC identity."""
+    if not os.path.isfile(HOST_BIN) or not os.access(HOST_BIN, os.X_OK):
+        return False
+    verification = subprocess.run(
+        ["codesign", "--verify", "--strict", HOST_APP],
+        capture_output=True)
+    identifier = subprocess.run(
+        ["plutil", "-extract", "CFBundleIdentifier", "raw", "-o", "-",
+         os.path.join(HOST_APP, "Contents", "Info.plist")],
+        capture_output=True, text=True)
+    return (verification.returncode == 0
+            and identifier.stdout.strip() == HOST_BUNDLE_ID)
+
+
+def build_host(force=False):
+    """Install the stable responsible app once.
+
+    Ordinary renderer rebuilds deliberately never touch this bundle: an ad-hoc
+    signature identifies one exact build, so preserving the host preserves its
+    Screen & System Audio Recording grant. Force is an explicit identity reset.
+    """
+    if not force and host_valid():
+        return
+    if os.path.exists(HOST_APP):
+        shutil.rmtree(HOST_APP)
+    contents = os.path.join(HOST_APP, "Contents")
+    os.makedirs(os.path.join(contents, "MacOS"), exist_ok=True)
+    shutil.copy2(HOST_INFO, os.path.join(contents, "Info.plist"))
+    subprocess.run(
+        ["swiftc", "-O", "-warnings-as-errors", HOST_SOURCE, "-o", HOST_BIN],
+        check=True)
+    subprocess.run(
+        ["codesign", "--force", "--sign", "-", "--identifier", HOST_BUNDLE_ID,
+         HOST_APP], check=True, capture_output=True)
+    if not host_valid():
+        sys.exit(f"installed wallpaper host failed signature validation: {HOST_APP}")
+    print(f"installed stable permission host: {HOST_APP}")
+
+
 def runtime_pid():
     try:
         pid = int(open(PIDFILE).read().strip())
@@ -72,6 +129,33 @@ def runtime_pid():
         return pid
     except (OSError, ValueError):
         return None
+
+
+def host_pid():
+    try:
+        pid = int(open(HOST_PIDFILE).read().strip())
+        os.kill(pid, 0)
+        return pid
+    except (OSError, ValueError):
+        return None
+
+
+def wait_for_runtime(attempts=40):
+    import time
+    for _ in range(attempts):
+        pid = runtime_pid()
+        if pid:
+            return pid
+        time.sleep(0.1)
+    return None
+
+
+def wait_for_host_exit(attempts=40):
+    import time
+    for _ in range(attempts):
+        if not host_pid():
+            return
+        time.sleep(0.1)
 
 
 def runtime_stale(pid):
@@ -132,6 +216,7 @@ def resolve(target):
 
 def start():
     build()
+    build_host()
     os.makedirs(STATE_DIR, exist_ok=True)
     if runtime_pid():
         print("already running")
@@ -143,10 +228,12 @@ def start():
             subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", PLIST])
         print("started (launchd)")
         return
-    with open(LOG, "a") as log:
-        subprocess.Popen([BIN, "--daemon"], stdout=log, stderr=log,
-                         start_new_session=True)
-    print(f"started (background; log: {LOG})")
+    # LaunchServices makes the stable app bundle the responsible process for
+    # privacy attribution. The mutable renderer runs beneath it as a child.
+    subprocess.run(["open", "-gj", HOST_APP], check=True)
+    if not wait_for_runtime():
+        sys.exit(f"stable host did not start the runtime; check {LOG}")
+    print(f"started (stable host; log: {LOG})")
 
 
 def stop():
@@ -164,6 +251,7 @@ def stop():
             if not runtime_pid():
                 break
             time.sleep(0.1)
+        wait_for_host_exit()
         print("stopped")
     else:
         print("not running")
@@ -184,6 +272,7 @@ def set_wallpaper(target):
                 break
             import time
             time.sleep(0.1)
+        wait_for_host_exit()
         pid = None
     if pid:
         os.kill(pid, signal.SIGUSR1)
@@ -194,16 +283,44 @@ def set_wallpaper(target):
 
 
 REPOSE_STATE = os.path.join(STATE_DIR, "repose.json")
+SCENES_DIR = os.path.join(STATE_DIR, "scenes")
+
+
+def repose_scene_entries():
+    """The catalog as (stable-id, runtime-path), in its fallback order."""
+    entries = [("desktop", "desktop")]
+    try:
+        names = sorted(name for name in os.listdir(SCENES_DIR)
+                       if not name.startswith("."))
+    except OSError:
+        return entries
+    for name in names:
+        path = os.path.join(SCENES_DIR, name)
+        if os.path.isdir(path):
+            if os.path.isfile(os.path.join(path, "project.json")):
+                entries.append((name, path))
+        elif os.path.splitext(name)[1].lower() in (".mp4", ".mov", ".m4v"):
+            entries.append((name, path))
+    return entries
+
+
+def repose_scene_id(scene):
+    return "desktop" if scene == "desktop" else os.path.basename(scene.rstrip(os.sep))
 
 
 def load_repose_state():
-    state = {"look": "zephyr", "scene": "desktop", "variant": "quiet",
+    state = {"look": "zephyr", "scene": "desktop", "viz": "strings",
+             "variant": "quiet",
              "grade": "on", "night": "off", "pixels": "on", "label": "on"}
     try:
         with open(REPOSE_STATE) as handle:
             state.update(json.load(handle))
     except (OSError, ValueError):
         pass
+    # Backward compatibility: absence means every catalog scene in the same
+    # deterministic order the cover used before ordered rotations existed.
+    if "scenePool" not in state:
+        state["scenePool"] = [scene_id for scene_id, _ in repose_scene_entries()]
     return state
 
 
@@ -231,6 +348,7 @@ def signal_repose(verb):
             if not runtime_pid():
                 break
             time.sleep(0.1)
+        wait_for_host_exit()
         pid = None
     if not pid:
         if verb in ("exit", "refresh"):
@@ -272,6 +390,9 @@ def repose_bg(args):
         state["scene"] = "desktop"
     else:
         state["scene"] = resolve(args[0])
+    scene_id = repose_scene_id(state["scene"])
+    if scene_id not in state["scenePool"]:
+        state["scenePool"].append(scene_id)
     save_repose_state(state)
     signal_repose("refresh")
     print(f"repose scene: {state['scene']}")
@@ -289,6 +410,74 @@ def repose_look(args):
     save_repose_state(state)
     signal_repose("refresh")
     print(f"repose look: {state['look']}")
+
+
+def repose_axis(args, key, choices, command):
+    """Read or immediately persist one Repose axis without entering cover."""
+    state = load_repose_state()
+    if not args:
+        print(f"repose {key}: {state.get(key)}")
+        return
+    if args[0] not in choices:
+        sys.exit(f"usage: wallpaperctl {command} <{'|'.join(choices)}>")
+    state[key] = args[0]
+    save_repose_state(state)
+    signal_repose("refresh")
+    print(f"repose {key}: {state[key]}")
+
+
+def repose_pool(args):
+    """Persist the ordered, non-empty rotation without selecting a scene."""
+    state = load_repose_state()
+    if not args:
+        print(json.dumps(state["scenePool"]))
+        return
+    available = dict(repose_scene_entries())
+    ordered = []
+    for scene_id in args:
+        if scene_id not in available:
+            sys.exit(f"no Repose scene id: {scene_id}")
+        if scene_id not in ordered:
+            ordered.append(scene_id)
+    if not ordered:
+        sys.exit("Repose rotation must contain at least one scene")
+    state["scenePool"] = ordered
+    current_id = repose_scene_id(state.get("scene", "desktop"))
+    if current_id not in ordered:
+        state["scene"] = available[ordered[0]]
+    save_repose_state(state)
+    signal_repose("refresh")
+    print(f"repose rotation: {len(ordered)} scene(s)")
+
+
+def repose_add(args):
+    """Add a live wallpaper to the shared Repose scene directory.
+
+    Deliberately additive: curation/removal remains outside this phase.
+    """
+    if not args:
+        sys.exit("usage: wallpaperctl repose-add <path-or-workshop-id>")
+    source = resolve(args[0])
+    title = os.path.basename(source.rstrip(os.sep))
+    if os.path.isfile(source):
+        title = os.path.splitext(title)[0]
+    try:
+        with open(os.path.join(source, "project.json")) as handle:
+            title = json.load(handle).get("title", title)
+    except (OSError, ValueError, AttributeError):
+        pass
+    stem = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "scene"
+    os.makedirs(SCENES_DIR, exist_ok=True)
+    destination = os.path.join(SCENES_DIR, stem)
+    suffix = 2
+    while os.path.lexists(destination):
+        if os.path.realpath(destination) == os.path.realpath(source):
+            print(f"repose library: already added ({destination})")
+            return
+        destination = os.path.join(SCENES_DIR, f"{stem}-{suffix}")
+        suffix += 1
+    os.symlink(source, destination, target_is_directory=os.path.isdir(source))
+    print(f"repose library: added {destination}")
 
 
 def lock_bg(args):
@@ -358,6 +547,10 @@ def clear():
 def status():
     pid = runtime_pid()
     print(f"running: {'yes (pid ' + str(pid) + ')' if pid else 'no'}")
+    responsible = (f"stable host (pid {host_pid()})" if host_pid()
+                   else "stable host installed" if host_valid() else "not installed")
+    print(f"permission owner: {responsible}")
+    print(f"permission app: {HOST_APP}")
     current = open(CONFIG).read().strip() if os.path.exists(CONFIG) else "(none)"
     print(f"wallpaper: {current}")
     agent = ("installed + loaded" if agent_loaded()
@@ -368,6 +561,7 @@ def status():
 
 def install_agent():
     build()
+    build_host()
     os.makedirs(os.path.dirname(PLIST), exist_ok=True)
     plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -375,7 +569,10 @@ def install_agent():
 <plist version="1.0"><dict>
   <key>Label</key><string>{LABEL}</string>
   <key>ProgramArguments</key><array>
-    <string>{BIN}</string><string>--daemon</string>
+    <string>{HOST_BIN}</string>
+  </array>
+  <key>AssociatedBundleIdentifiers</key><array>
+    <string>{HOST_BUNDLE_ID}</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -388,6 +585,7 @@ def install_agent():
     if runtime_pid() and not agent_loaded():
         pid = runtime_pid()
         os.kill(pid, signal.SIGTERM)   # hand the process over to launchd
+        wait_for_host_exit()
     subprocess.run(["launchctl", "bootstrap", f"gui/{os.getuid()}", PLIST])
     print(f"agent installed and loaded: {PLIST}")
 
@@ -398,6 +596,15 @@ def uninstall_agent():
     if os.path.exists(PLIST):
         os.remove(PLIST)
     print("agent removed")
+
+
+def audio_permission():
+    build_host()
+    print("Screen & System Audio Recording permission owner:")
+    print(f"  {HOST_APP}")
+    print("Grant or enable Wallpaper Runtime once in System Settings > "
+          "Privacy & Security > Screen & System Audio Recording, then run:")
+    print("  wallpaperctl restart")
 
 
 def main():
@@ -413,8 +620,24 @@ def main():
         repose_bg(args[1:])
     elif command == "repose-look":
         repose_look(args[1:])
+    elif command == "repose-viz":
+        repose_axis(args[1:], "viz", ("strings", "spectrum"), command)
+    elif command == "repose-variant":
+        repose_axis(args[1:], "variant", ("quiet", "loud"), command)
+    elif command == "repose-grade":
+        repose_axis(args[1:], "grade", ("on", "off"), command)
+    elif command == "repose-night":
+        repose_axis(args[1:], "night", ("on", "off"), command)
+    elif command == "repose-pixels":
+        repose_axis(args[1:], "pixels", ("on", "off"), command)
     elif command == "repose-label":
         repose_label(args[1:])
+    elif command == "repose-pool":
+        repose_pool(args[1:])
+    elif command == "repose-state":
+        print(json.dumps(load_repose_state(), sort_keys=True))
+    elif command == "repose-add":
+        repose_add(args[1:])
     elif command == "lock-bg":
         lock_bg(args[1:])
     elif command == "clear":
@@ -431,6 +654,8 @@ def main():
     elif command == "build":
         build(force=True)
         print(BIN)
+    elif command == "audio-permission":
+        audio_permission()
     elif command == "install-agent":
         install_agent()
     elif command == "uninstall-agent":

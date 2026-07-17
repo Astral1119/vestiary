@@ -2,7 +2,6 @@ import AppKit
 import Combine
 import Darwin
 import SwiftUI
-import UniformTypeIdentifiers
 
 // Posted by showPanel(); the view refreshes its catalog so imports made
 // outside the panel (liveryctl, workshop theme) appear without a restart.
@@ -15,6 +14,7 @@ private let readinessURL = URL(
 private let runtimeLogURL = URL(
     fileURLWithPath: "/tmp/lvry-runtime.log"
 )
+private let reposeControlQueue = DispatchQueue(label: "local.astral.livery.repose-control")
 
 @MainActor
 private func runtimeLog(_ message: String) {
@@ -56,7 +56,10 @@ private struct ThemePalette: Identifiable, Decodable {
     let error: String
     let terminal: [String]
     let ansi: [String]?
+    let terminalBackground: String?
+    let terminalForeground: String?
     let minimumContrast: Double?
+    let ghosttyBackgroundOpacity: Double?
 
     var key: Character { shortcut.first ?? "?" }
 
@@ -123,6 +126,14 @@ private struct ThemePalette: Identifiable, Decodable {
             (String(format: "%02X", $0.offset), $0.element)
         }
     }
+
+    // Old generated catalogs predate the explicit terminal specimen fields.
+    // These fallbacks mirror resolve_palette_theme(), where wallpaper-derived
+    // themes intentionally map terminal bg/fg to UI bg/text and retain the
+    // default profile's 0.5 opacity.
+    var resolvedTerminalBackground: String { terminalBackground ?? background }
+    var resolvedTerminalForeground: String { terminalForeground ?? text }
+    var resolvedGhosttyBackgroundOpacity: Double { ghosttyBackgroundOpacity ?? 0.5 }
 }
 
 private struct SemanticThemeUI: Decodable {
@@ -203,7 +214,10 @@ private struct ThemeLibraryEntry: Identifiable, Decodable {
             error: theme.signals.error,
             terminal: theme.terminal.ansi,
             ansi: theme.terminal.ansi,
-            minimumContrast: theme.terminal.minimumContrast
+            terminalBackground: theme.terminal.background,
+            terminalForeground: theme.terminal.foreground,
+            minimumContrast: theme.terminal.minimumContrast,
+            ghosttyBackgroundOpacity: theme.effects.ghosttyBackgroundOpacity
         )
     }
 }
@@ -223,6 +237,7 @@ private struct WallpaperFixture: Identifiable, Decodable {
     let credit: String
     let assetPath: String?
     let assetDigest: String?
+    let live: String?
     let palettes: [ThemePalette]
 
     var shortcut: Character? {
@@ -231,10 +246,25 @@ private struct WallpaperFixture: Identifiable, Decodable {
     }
 
     var image: NSImage {
-        if let assetPath, let image = NSImage(contentsOfFile: assetPath) {
+        if let url = imageURL, let image = NSImage(contentsOf: url) {
             return image
         }
         return .fixture(named: fileName)
+    }
+
+    var imageURL: URL? {
+        if let assetPath, FileManager.default.fileExists(atPath: assetPath) {
+            return URL(fileURLWithPath: assetPath)
+        }
+        if let assets = ProcessInfo.processInfo.environment["LIVERY_ASSETS"] {
+            let url = URL(fileURLWithPath: assets).appendingPathComponent(fileName)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        if let resources = Bundle.main.resourceURL {
+            let url = resources.appendingPathComponent(fileName)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        return nil
     }
 }
 
@@ -459,6 +489,61 @@ private enum LabMode: String {
     case detail
 }
 
+private enum LiveryWorkspace: String, CaseIterable, Identifiable {
+    case looks
+    case repose
+
+    var id: String { rawValue }
+}
+
+private struct ReposeSelection: Decodable, Equatable {
+    var look = "zephyr"
+    var scene = "desktop"
+    var variant = "quiet"
+    var grade = "on"
+    var night = "off"
+    var pixels = "on"
+    var label = "on"
+    var scenePool: [String] = []
+
+    var currentSceneID: String {
+        scene == "desktop" ? "desktop" : URL(fileURLWithPath: scene).lastPathComponent
+    }
+}
+
+private struct ReposeScene: Identifiable {
+    let id: String
+    let path: String
+    let name: String
+    let thumbnail: NSImage?
+
+    var isDesktop: Bool { id == "desktop" }
+}
+
+private struct LockPolicy: Decodable, Equatable {
+    let source: String
+    let image: String?
+    let selection: String?
+
+    static let unmanaged = LockPolicy(source: "off", image: nil, selection: nil)
+
+    var shortLabel: String {
+        switch source {
+        case "theme": "lock · follows look"
+        case "file", "look", "scene": "lock · pinned"
+        default: "lock · unmanaged"
+        }
+    }
+
+    var detail: String {
+        switch source {
+        case "theme": "follows the current Look"
+        case "file", "look", "scene": selection ?? image ?? "pinned image"
+        default: "the next Look supplies the system wallpaper"
+        }
+    }
+}
+
 private enum ApplyState: Equatable {
     case idle
     case running(String)
@@ -609,20 +694,52 @@ private func contrastRatio(_ foreground: RGBColor, _ background: RGBColor) -> Do
 
 private func ghosttyTextColor(
     _ foreground: String,
-    over background: String,
+    over background: RGBColor,
     minimumContrast: Double = terminalMinimumContrast
 ) -> String {
     let foregroundColor = RGBColor(hex: foreground)
-    let backgroundColor = RGBColor(hex: background)
-    if contrastRatio(foregroundColor, backgroundColor) >= minimumContrast {
+    if contrastRatio(foregroundColor, background) >= minimumContrast {
         return foreground
     }
 
     let black = RGBColor(hex: "#000000")
     let white = RGBColor(hex: "#ffffff")
-    return contrastRatio(white, backgroundColor) >= contrastRatio(black, backgroundColor)
+    return contrastRatio(white, background) >= contrastRatio(black, background)
         ? white.hex
         : black.hex
+}
+
+private func representativeColor(in image: NSImage, fallback: String) -> RGBColor {
+    guard
+        let bitmap = NSBitmapImageRep(data: image.tiffRepresentation ?? Data()),
+        bitmap.pixelsWide > 0,
+        bitmap.pixelsHigh > 0
+    else { return RGBColor(hex: fallback) }
+
+    var red = 0.0
+    var green = 0.0
+    var blue = 0.0
+    var count = 0.0
+    for row in 0..<5 {
+        for column in 0..<7 {
+            let x = min((2 * column + 1) * bitmap.pixelsWide / 14, bitmap.pixelsWide - 1)
+            let y = min((2 * row + 1) * bitmap.pixelsHigh / 10, bitmap.pixelsHigh - 1)
+            guard let color = bitmap.colorAt(x: x, y: y) else { continue }
+            let sample = RGBColor(nsColor: color)
+            red += sample.red
+            green += sample.green
+            blue += sample.blue
+            count += 1
+        }
+    }
+    guard count > 0 else { return RGBColor(hex: fallback) }
+    let average = NSColor(
+        srgbRed: red / count,
+        green: green / count,
+        blue: blue / count,
+        alpha: 1
+    )
+    return RGBColor(nsColor: average)
 }
 
 private struct ApplyResult {
@@ -762,6 +879,147 @@ private func runWorkshop(_ arguments: [String]) -> ControlResult {
     }
 }
 
+private func wallpaperControlURL() -> URL {
+    liveryControlURL()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("wallpaper-runtime/wallpaperctl")
+}
+
+private func runWallpaperControl(_ arguments: [String]) -> ControlResult {
+    let control = wallpaperControlURL()
+    guard FileManager.default.isExecutableFile(atPath: control.path) else {
+        return ControlResult(status: 127, output: "wallpaperctl not found")
+    }
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = control
+    process.arguments = arguments
+    process.currentDirectoryURL = control.deletingLastPathComponent()
+    process.standardOutput = output
+    process.standardError = output
+    var environment = ProcessInfo.processInfo.environment
+    let inheritedPath = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+    environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:\(inheritedPath)"
+    process.environment = environment
+    do {
+        try process.run()
+        process.waitUntilExit()
+        return ControlResult(
+            status: process.terminationStatus,
+            output: String(
+                data: output.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        )
+    } catch {
+        return ControlResult(status: 126, output: error.localizedDescription)
+    }
+}
+
+private func loadReposeSelection() -> ReposeSelection {
+    let result = runWallpaperControl(["repose-state"])
+    guard
+        result.status == 0,
+        let data = result.output.data(using: .utf8),
+        let state = try? JSONDecoder().decode(ReposeSelection.self, from: data)
+    else { return ReposeSelection() }
+    return state
+}
+
+private func reposeScenesURL() -> URL {
+    FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".config/wallpaper-runtime/scenes")
+}
+
+private func sceneThumbnail(for scene: URL, generate: Bool) -> NSImage? {
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: scene.path, isDirectory: &isDirectory) else {
+        return nil
+    }
+    if isDirectory.boolValue {
+        let project = scene.appendingPathComponent("project.json")
+        if let data = try? Data(contentsOf: project),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for key in ["preview", "file"] {
+                if let relative = object[key] as? String,
+                   let image = NSImage(contentsOf: scene.appendingPathComponent(relative)) {
+                    return image
+                }
+            }
+        }
+        return nil
+    }
+
+    let attributes = try? FileManager.default.attributesOfItem(atPath: scene.path)
+    let modified = Int((attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)
+    let safeName = scene.deletingPathExtension().lastPathComponent
+        .replacingOccurrences(of: "/", with: "-")
+    let cache = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".cache/livery/repose-thumbnails")
+    let destination = cache.appendingPathComponent("\(safeName)-\(modified).jpg")
+    if let image = NSImage(contentsOf: destination) { return image }
+    guard generate else { return nil }
+
+    try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = [
+        "ffmpeg", "-loglevel", "error", "-y", "-ss", "0.8", "-i", scene.path,
+        "-frames:v", "1", "-vf", "scale=640:-2", destination.path,
+    ]
+    process.standardOutput = Pipe()
+    process.standardError = Pipe()
+    do {
+        try process.run()
+        process.waitUntilExit()
+    } catch {
+        return nil
+    }
+    return process.terminationStatus == 0 ? NSImage(contentsOf: destination) : nil
+}
+
+private func loadReposeScenes(generateThumbnails: Bool = false) -> [ReposeScene] {
+    var scenes = [ReposeScene(
+        id: "desktop", path: "desktop", name: "desktop mirror", thumbnail: nil
+    )]
+    let root = reposeScenesURL()
+    let urls = (try? FileManager.default.contentsOfDirectory(
+        at: root,
+        includingPropertiesForKeys: [.isDirectoryKey],
+        options: [.skipsHiddenFiles]
+    )) ?? []
+    let videoExtensions = Set(["mp4", "mov", "m4v"])
+    for url in urls.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+        let supportedDirectory = values?.isDirectory == true
+            && FileManager.default.fileExists(atPath: url.appendingPathComponent("project.json").path)
+        guard supportedDirectory || videoExtensions.contains(url.pathExtension.lowercased()) else {
+            continue
+        }
+        scenes.append(
+            ReposeScene(
+                id: url.lastPathComponent,
+                path: url.path,
+                name: url.deletingPathExtension().lastPathComponent,
+                thumbnail: sceneThumbnail(for: url, generate: generateThumbnails)
+            )
+        )
+    }
+    return scenes
+}
+
+private func loadLockPolicy() -> LockPolicy {
+    let url = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".config/livery/lock.json")
+    guard
+        let data = try? Data(contentsOf: url),
+        let policy = try? JSONDecoder().decode(LockPolicy.self, from: data)
+    else { return .unmanaged }
+    return policy
+}
+
 private func loadWorkshopItems(query: String, count: Int) -> [WorkshopItem]? {
     let result = runWorkshop(["search", query, "--n", "\(count)", "--json"])
     guard
@@ -879,13 +1137,98 @@ private func chooseWallpaperFile() -> URL? {
     return panel.runModal() == .OK ? panel.url : nil
 }
 
+private struct LockPolicyControl: View {
+    let palette: ThemePalette
+    let policy: LockPolicy
+    let busy: Bool
+    let setPolicy: (String) -> Void
+
+    @State private var expanded = false
+
+    var body: some View {
+        Button {
+            expanded.toggle()
+        } label: {
+            Text(busy ? "[lock] updating…" : "[lock] \(policy.shortLabel.replacingOccurrences(of: "lock · ", with: ""))")
+                .font(.lab(9, weight: .medium))
+                .foregroundStyle(palette.panelMuted(0.58))
+                .padding(.horizontal, 7)
+                .frame(height: 25)
+                .contentShape(Rectangle())
+                .overlay(
+                    Rectangle().strokeBorder(
+                        expanded
+                            ? palette.panelAccent(0.48)
+                            : Color(hex: palette.outline).opacity(0.14),
+                        lineWidth: 1
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .overlay(alignment: .topTrailing) {
+            if expanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("LOCK POLICY")
+                        .font(.lab(8, weight: .bold))
+                        .foregroundStyle(palette.panelText(0.64))
+                    Text(policy.detail)
+                        .font(.lab(8))
+                        .foregroundStyle(palette.panelMuted(0.44))
+                        .lineLimit(2)
+
+                    Hairline(palette: palette)
+
+                    Button {
+                        expanded = false
+                        setPolicy("theme")
+                    } label: {
+                        Text("[f] follow applied Look")
+                            .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        expanded = false
+                        setPolicy("off")
+                    } label: {
+                        Text("[u] unmanaged")
+                            .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                .font(.lab(8, weight: .medium))
+                .foregroundStyle(palette.panelAccent(0.72))
+                .padding(11)
+                .frame(width: 224, alignment: .leading)
+                .background(Color(hex: palette.surfaceElevated, opacity: 0.98))
+                .overlay(
+                    Rectangle().strokeBorder(palette.panelAccent(0.42), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.36), radius: 14, y: 8)
+                .offset(y: 29)
+                .zIndex(30)
+            }
+        }
+        .fixedSize()
+        .zIndex(30)
+    }
+}
+
 private struct Header: View {
     let palette: ThemePalette
+    let workspace: LiveryWorkspace
+    let setWorkspace: (LiveryWorkspace) -> Void
     let authority: LookAuthority
     let lookLabel: String
     let mode: LabMode
     let setMode: (LabMode) -> Void
     let beginImport: () -> Void
+    let lockPolicy: LockPolicy
+    let lockBusy: Bool
+    let setLockPolicy: (String) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -896,40 +1239,64 @@ private struct Header: View {
             Text("//")
                 .foregroundStyle(palette.panelMuted(0.34))
 
-            Text(authority.direction)
+            Text(workspace == .looks ? authority.direction : "cover workspace")
                 .foregroundStyle(palette.panelText(0.72))
 
             Text("//")
                 .foregroundStyle(palette.panelMuted(0.34))
 
-            Text(lookLabel)
+            Text(workspace == .looks ? lookLabel : "live + persistent")
                 .foregroundStyle(palette.panelMuted(0.58))
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             Spacer()
 
-            ForEach([LabMode.grid, LabMode.detail], id: \.rawValue) { option in
+            ForEach(LiveryWorkspace.allCases) { option in
                 Button {
-                    setMode(option)
+                    setWorkspace(option)
                 } label: {
-                    Text("[\(option == .grid ? "g" : "d")] \(option.rawValue)")
+                    Text("[⌘\(option == .looks ? "1" : "2")] \(option.rawValue)")
                         .foregroundStyle(
-                            option == mode
+                            option == workspace
                                 ? palette.panelAccent(0.82)
                                 : palette.panelMuted(0.42)
                         )
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(option == .grid ? "g" : "d", modifiers: [])
+                .keyboardShortcut(option == .looks ? "1" : "2", modifiers: .command)
             }
 
-            Button(action: beginImport) {
-                Text("[i] import")
-                    .foregroundStyle(palette.panelAccent(0.72))
+            if workspace == .looks {
+                ForEach([LabMode.grid, LabMode.detail], id: \.rawValue) { option in
+                    Button {
+                        setMode(option)
+                    } label: {
+                        Text("[\(option == .grid ? "g" : "d")] \(option.rawValue)")
+                            .foregroundStyle(
+                                option == mode
+                                    ? palette.panelAccent(0.82)
+                                    : palette.panelMuted(0.42)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut(option == .grid ? "g" : "d", modifiers: [])
+                }
+
+                Button(action: beginImport) {
+                    Text("[i] import")
+                        .foregroundStyle(palette.panelAccent(0.72))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("i", modifiers: [])
             }
-            .buttonStyle(.plain)
-            .keyboardShortcut("i", modifiers: [])
+
+            LockPolicyControl(
+                palette: palette,
+                policy: lockPolicy,
+                busy: lockBusy,
+                setPolicy: setLockPolicy
+            )
 
             Button {
                 dismissLiveryPanel()
@@ -943,6 +1310,8 @@ private struct Header: View {
         .padding(.horizontal, 16)
         .frame(height: 39)
         .background(Color(hex: palette.surface, opacity: 0.72))
+        .gesture(WindowDragGesture())
+        .zIndex(20)
     }
 }
 
@@ -1172,8 +1541,10 @@ private struct SourcePane: View {
     let showingOriginal: Bool
     let selectedFixture: Int
     let fixtures: [WallpaperFixture]
+    let reposeLibraryBusy: Bool
     let chooseFixture: (Int) -> Void
     let toggleComparison: () -> Void
+    let addToRepose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1193,6 +1564,14 @@ private struct SourcePane: View {
                 } else {
                     Text(fixture.name)
                         .foregroundStyle(palette.panelMuted(0.34))
+                }
+                if fixture.live != nil {
+                    Button(action: addToRepose) {
+                        Text(reposeLibraryBusy ? "[·] adding" : "[+] add to repose")
+                            .foregroundStyle(palette.panelAccent(0.62))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(reposeLibraryBusy)
                 }
             }
             .font(.lab(9, weight: .semibold))
@@ -1819,6 +2198,15 @@ private struct TerminalSpecimen: View {
     private var surfaceLiteral: String { "0xff\(palette.surface.dropFirst())" }
     private var accentLiteral: String { "0xff\(palette.primary.dropFirst())" }
     private var ansi: [String] { palette.terminalANSI }
+    private var terminalBackground: String { palette.resolvedTerminalBackground }
+    private var terminalForeground: String { palette.resolvedTerminalForeground }
+    private var terminalOpacity: Double { palette.resolvedGhosttyBackgroundOpacity }
+    private var cellBackground: RGBColor {
+        RGBColor(hex: terminalBackground).composited(
+            over: representativeColor(in: wallpaperImage, fallback: terminalBackground),
+            alpha: terminalOpacity
+        )
+    }
     private var minimumContrast: Double {
         palette.minimumContrast ?? terminalMinimumContrast
     }
@@ -1832,7 +2220,7 @@ private struct TerminalSpecimen: View {
         Color(
             hex: ghosttyTextColor(
                 hex,
-                over: palette.background,
+                over: cellBackground,
                 minimumContrast: minimumContrast
             )
         )
@@ -1844,7 +2232,7 @@ private struct TerminalSpecimen: View {
                 Text("CODE / LUA")
                     .foregroundStyle(palette.panelText(0.46))
                 Spacer()
-                Text("GHOSTTY / MIN \(minimumContrastLabel):1")
+                Text("GHOSTTY SIM / \(Int((terminalOpacity * 100).rounded()))% / MIN \(minimumContrastLabel):1")
                     .foregroundStyle(palette.panelAccent(0.62))
             }
             .font(.lab(8, weight: .semibold))
@@ -1856,7 +2244,7 @@ private struct TerminalSpecimen: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 0) {
                         Text("local ").foregroundStyle(terminalColor(ansi[5]))
-                        Text("theme ").foregroundStyle(terminalColor(palette.text))
+                        Text("theme ").foregroundStyle(terminalColor(terminalForeground))
                         Text("= ").foregroundStyle(terminalColor(ansi[8]))
                         Text("{").foregroundStyle(terminalColor(ansi[6]))
                     }
@@ -1884,7 +2272,7 @@ private struct TerminalSpecimen: View {
                     }
                     HStack(spacing: 0) {
                         Text("return ").foregroundStyle(terminalColor(ansi[5]))
-                        Text("theme").foregroundStyle(terminalColor(palette.text))
+                        Text("theme").foregroundStyle(terminalColor(terminalForeground))
                     }
                 }
                 .font(.lab(9))
@@ -1900,7 +2288,7 @@ private struct TerminalSpecimen: View {
                                 .resizable()
                                 .scaledToFill()
                         }
-                        .overlay(Color(hex: palette.background, opacity: 0.50))
+                        .overlay(Color(hex: terminalBackground, opacity: terminalOpacity))
                         .clipped()
                 }
                 .overlay(Rectangle().stroke(Color(hex: palette.outline).opacity(0.26), lineWidth: 1))
@@ -1922,7 +2310,7 @@ private struct TerminalSpecimen: View {
                     }
                 }
                 .padding(10)
-                .background(Color(hex: palette.background, opacity: 0.88))
+                .background(Color(hex: terminalBackground))
                 .overlay(Rectangle().stroke(Color(hex: palette.outline).opacity(0.26), lineWidth: 1))
             }
             .padding(10)
@@ -2144,10 +2532,308 @@ private struct PalettePane: View {
     }
 }
 
+private struct ReposeSceneCard: View {
+    let scene: ReposeScene
+    let included: Bool
+    let current: Bool
+    let palette: ThemePalette
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            VStack(alignment: .leading, spacing: 0) {
+                Group {
+                    if let thumbnail = scene.thumbnail {
+                        Image(nsImage: thumbnail)
+                            .resizable()
+                            .scaledToFill()
+                    } else if scene.isDesktop {
+                        ZStack {
+                            LinearGradient(
+                                colors: [
+                                    Color(hex: palette.background),
+                                    Color(hex: palette.primary).opacity(0.52),
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                            Text("DESKTOP")
+                                .font(.lab(10, weight: .bold))
+                                .foregroundStyle(palette.panelText(0.72))
+                        }
+                    } else {
+                        Color(hex: palette.surfaceElevated)
+                            .overlay {
+                                Text("generating preview…")
+                                    .font(.lab(8))
+                                    .foregroundStyle(palette.panelMuted(0.40))
+                            }
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 118, maxHeight: 118)
+                .clipped()
+                .overlay(alignment: .topTrailing) {
+                    if current {
+                        Text("NOW")
+                            .font(.lab(7, weight: .bold))
+                            .foregroundStyle(Color(hex: palette.background))
+                            .padding(.horizontal, 5)
+                            .frame(height: 18)
+                            .background(Color(hex: palette.primary))
+                            .padding(5)
+                    }
+                }
+
+                HStack(spacing: 7) {
+                    Text(included ? "[in]" : "[  ]")
+                        .font(.lab(7, weight: .bold))
+                        .foregroundStyle(
+                            included ? palette.panelAccent(0.88) : palette.panelMuted(0.34)
+                        )
+                    Text(scene.name)
+                        .font(.lab(9, weight: included ? .semibold : .regular))
+                        .foregroundStyle(palette.panelText(included ? 0.86 : 0.52))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    if scene.isDesktop {
+                        Text("mirror")
+                            .font(.lab(7, weight: .semibold))
+                            .foregroundStyle(palette.panelMuted(0.38))
+                    }
+                }
+                .padding(.horizontal, 9)
+                .frame(maxWidth: .infinity, minHeight: 34, maxHeight: 34, alignment: .leading)
+                .background(Color(hex: palette.surface, opacity: included ? 0.94 : 0.64))
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            .overlay(
+                Rectangle().strokeBorder(
+                    included
+                        ? palette.panelAccent(0.72)
+                        : Color(hex: palette.outline).opacity(0.20),
+                    lineWidth: 1
+                )
+            )
+            .clipped()
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ReposeRotationCard: View {
+    let scene: ReposeScene
+    let position: Int
+    let current: Bool
+    let palette: ThemePalette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let thumbnail = scene.thumbnail {
+                    Image(nsImage: thumbnail)
+                        .resizable()
+                        .scaledToFill()
+                } else if scene.isDesktop {
+                    LinearGradient(
+                        colors: [Color(hex: palette.background), Color(hex: palette.primary)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                } else {
+                    Color(hex: palette.surfaceElevated)
+                }
+            }
+            .frame(width: 146, height: 76)
+            .clipped()
+            .overlay(alignment: .topLeading) {
+                Text(String(format: "%02d", position + 1))
+                    .font(.lab(7, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.76))
+                    .padding(5)
+                    .background(Color.black.opacity(0.54))
+            }
+            .overlay(alignment: .topTrailing) {
+                if current {
+                    Text("NOW")
+                        .font(.lab(7, weight: .bold))
+                        .foregroundStyle(Color(hex: palette.background))
+                        .padding(.horizontal, 5)
+                        .frame(height: 18)
+                        .background(Color(hex: palette.primary))
+                        .padding(5)
+                }
+            }
+
+            Text(scene.name)
+                .font(.lab(8, weight: current ? .semibold : .regular))
+                .foregroundStyle(palette.panelText(current ? 0.88 : 0.58))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .trailing) {
+                    Text("⠿")
+                        .font(.lab(8, weight: .semibold))
+                        .foregroundStyle(palette.panelMuted(0.44))
+                }
+                .padding(.horizontal, 7)
+                .frame(width: 146, height: 28, alignment: .leading)
+                .background(Color(hex: palette.surface, opacity: 0.82))
+        }
+        .overlay(
+            Rectangle().strokeBorder(
+                current ? palette.panelAccent(0.76) : Color(hex: palette.outline).opacity(0.20),
+                lineWidth: 1
+            )
+        )
+        .contentShape(Rectangle())
+    }
+}
+
+private struct ReposePane: View {
+    let palette: ThemePalette
+    let scenes: [ReposeScene]
+    let selection: ReposeSelection
+    let status: String
+    let toggleMembership: (ReposeScene) -> Void
+    let commitOrder: ([String]) -> Void
+    let toggleCover: () -> Void
+
+    @State private var draggedID: String?
+    @State private var draftOrder: [String]?
+
+    private let rotationCoordinateSpace = "repose.rotation.order"
+    private let rotationCardSpan: CGFloat = 154
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 190, maximum: 270), spacing: 10),
+    ]
+
+    private var displayedOrder: [String] {
+        let persisted = selection.scenePool.isEmpty ? scenes.map(\.id) : selection.scenePool
+        return draftOrder ?? persisted
+    }
+
+    private var rotationScenes: [ReposeScene] {
+        let byID = Dictionary(uniqueKeysWithValues: scenes.map { ($0.id, $0) })
+        return displayedOrder.compactMap { byID[$0] }
+    }
+
+    private func updateDrag(sceneID: String, x: CGFloat) {
+        if draggedID == nil {
+            draggedID = sceneID
+            draftOrder = displayedOrder
+        }
+        guard var order = draftOrder,
+              let from = order.firstIndex(of: sceneID), !order.isEmpty
+        else { return }
+        let proposed = Int(floor(max(x, 0) / rotationCardSpan))
+        let target = min(proposed, order.count - 1)
+        guard target != from else { return }
+        order.move(
+            fromOffsets: IndexSet(integer: from),
+            toOffset: target > from ? target + 1 : target
+        )
+        draftOrder = order
+    }
+
+    private func finishDrag() {
+        if let draftOrder { commitOrder(draftOrder) }
+        draggedID = nil
+        draftOrder = nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text("ROTATION")
+                    .foregroundStyle(palette.panelText(0.68))
+                Text("// \(rotationScenes.count) included · drag to order")
+                    .foregroundStyle(palette.panelMuted(0.38))
+                Spacer()
+                Text(status)
+                    .foregroundStyle(palette.panelMuted(0.44))
+                    .lineLimit(1)
+
+                Button(action: toggleCover) {
+                    Text("[r] open / close cover")
+                        .foregroundStyle(palette.panelAccent(0.82))
+                        .padding(.horizontal, 9)
+                        .frame(height: 27)
+                        .contentShape(Rectangle())
+                        .overlay(Rectangle().strokeBorder(palette.panelAccent(0.42), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("r", modifiers: [])
+            }
+            .font(.lab(9, weight: .semibold))
+
+            ThemedScrollView(axis: .horizontal, palette: palette) {
+                LazyHStack(spacing: 8) {
+                    ForEach(Array(rotationScenes.enumerated()), id: \.element.id) { index, scene in
+                        ReposeRotationCard(
+                            scene: scene,
+                            position: index,
+                            current: scene.id == selection.currentSceneID,
+                            palette: palette
+                        )
+                        .highPriorityGesture(
+                            DragGesture(
+                                minimumDistance: 4,
+                                coordinateSpace: .named(rotationCoordinateSpace)
+                            )
+                            .onChanged { value in
+                                updateDrag(sceneID: scene.id, x: value.location.x)
+                            }
+                            .onEnded { _ in finishDrag() }
+                        )
+                        .opacity(draggedID == scene.id ? 0.48 : 1)
+                    }
+                }
+                .coordinateSpace(name: rotationCoordinateSpace)
+                .animation(.easeOut(duration: 0.12), value: displayedOrder)
+            }
+            .frame(height: 108)
+
+            Hairline(palette: palette)
+
+            HStack {
+                Text("SCENE LIBRARY")
+                    .foregroundStyle(palette.panelText(0.64))
+                Text("// click to include or exclude · catalog remains untouched")
+                    .foregroundStyle(palette.panelMuted(0.36))
+                Spacer()
+                Text("composition: tab look · v variant · g grade · n night · x strings · l label")
+                    .foregroundStyle(palette.panelMuted(0.38))
+            }
+            .font(.lab(8, weight: .semibold))
+
+            ThemedScrollView(axis: .vertical, palette: palette) {
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(scenes) { scene in
+                        ReposeSceneCard(
+                            scene: scene,
+                            included: displayedOrder.contains(scene.id),
+                            current: scene.id == selection.currentSceneID,
+                            palette: palette
+                        ) {
+                            toggleMembership(scene)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(14)
+    }
+}
+
 private struct Footer: View {
     let palette: ThemePalette
     let applyState: ApplyState
+    let lockPolicy: LockPolicy
+    let lockBusy: Bool
+    let lockMessage: String?
     let apply: () -> Void
+    let applyToLock: () -> Void
 
     private var label: String {
         switch applyState {
@@ -2189,12 +2875,25 @@ private struct Footer: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            if let failure {
-                Text(failure)
+            if let message = failure ?? lockMessage {
+                Text(message)
                     .foregroundStyle(Color(hex: palette.error).opacity(0.70))
                     .lineLimit(1)
             }
             Spacer()
+
+            Text(lockPolicy.shortLabel)
+                .foregroundStyle(palette.panelMuted(0.40))
+
+            Button(action: applyToLock) {
+                Text(lockBusy ? "[·] rendering lock" : "[⇧p] lock only")
+                    .foregroundStyle(
+                        lockBusy ? palette.panelMuted(0.42) : palette.panelAccent(0.64)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(lockBusy || isApplying)
+            .keyboardShortcut("p", modifiers: .shift)
 
             Button(action: apply) {
                 Text(label)
@@ -2213,6 +2912,7 @@ private struct Footer: View {
 
 private struct LiveryView: View {
     @State private var wallpapers = loadWallpaperFixtures()
+    @State private var workspace = LiveryWorkspace.looks
     @State private var selectedFixture = 0
     @State private var wallpaperPalette = 0
     @State private var selectedTheme = 0
@@ -2233,6 +2933,14 @@ private struct LiveryView: View {
     @State private var importSubtitle = ""
     @State private var importCredit = ""
     @State private var importState = ImportState.idle
+    @State private var reposeSelection = loadReposeSelection()
+    @State private var reposeScenes = loadReposeScenes()
+    @State private var reposeStatus = "saved · ready for the next cover"
+    @State private var lockPolicy = loadLockPolicy()
+    @State private var lockBusy = false
+    @State private var lockMessage: String?
+    @State private var reposeLibraryBusy = false
+    @State private var reposeMutation = 0
 
     private var fixture: WallpaperFixture { wallpapers[selectedFixture] }
     private var selectedPalette: Int {
@@ -2366,6 +3074,116 @@ private struct LiveryView: View {
         }
     }
 
+    private func refreshReposeWorkspace(generateThumbnails: Bool) {
+        reposeSelection = loadReposeSelection()
+        if generateThumbnails {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let loaded = loadReposeScenes(generateThumbnails: true)
+                DispatchQueue.main.async {
+                    reposeScenes = loaded
+                }
+            }
+        } else {
+            reposeScenes = loadReposeScenes()
+        }
+    }
+
+    private func persistReposePool(_ pool: [String]) {
+        guard !pool.isEmpty else {
+            reposeStatus = "rotation needs at least one scene"
+            return
+        }
+        var next = reposeSelection
+        next.scenePool = pool
+        if !pool.contains(next.currentSceneID), let firstID = pool.first,
+           let first = reposeScenes.first(where: { $0.id == firstID }) {
+            next.scene = first.path
+        }
+        reposeSelection = next
+        reposeMutation += 1
+        let mutation = reposeMutation
+        reposeStatus = "saving rotation…"
+        reposeControlQueue.async {
+            let result = runWallpaperControl(["repose-pool"] + pool)
+            DispatchQueue.main.async {
+                guard mutation == reposeMutation else { return }
+                if result.status == 0 {
+                    reposeSelection = loadReposeSelection()
+                    reposeStatus = "rotation saved · arrows follow this order"
+                } else {
+                    reposeSelection = loadReposeSelection()
+                    reposeStatus = result.output.isEmpty ? "could not save rotation" : result.output
+                }
+            }
+        }
+    }
+
+    private func toggleReposeMembership(_ scene: ReposeScene) {
+        var pool = reposeSelection.scenePool.isEmpty
+            ? reposeScenes.map(\.id)
+            : reposeSelection.scenePool
+        if let index = pool.firstIndex(of: scene.id) {
+            guard pool.count > 1 else {
+                reposeStatus = "rotation needs at least one scene"
+                return
+            }
+            pool.remove(at: index)
+        } else {
+            pool.append(scene.id)
+        }
+        persistReposePool(pool)
+    }
+
+    private func toggleReposeCover() {
+        reposeStatus = "toggling cover…"
+        reposeControlQueue.async {
+            let result = runWallpaperControl(["repose"])
+            DispatchQueue.main.async {
+                reposeStatus = result.status == 0
+                    ? "cover toggled · state remains persistent"
+                    : (result.output.isEmpty ? "could not toggle cover" : result.output)
+            }
+        }
+    }
+
+    private func changeLockPolicy(_ action: String) {
+        guard !lockBusy else { return }
+        lockBusy = true
+        lockMessage = nil
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = runLiveryControl(["lock", action])
+            DispatchQueue.main.async {
+                lockBusy = false
+                if result.status == 0 {
+                    lockPolicy = loadLockPolicy()
+                } else {
+                    lockMessage = result.output.split(separator: "\n").last.map(String.init)
+                        ?? "lock update failed"
+                }
+            }
+        }
+    }
+
+    private func applySelectionToLock() {
+        changeLockPolicy("look:\(profile)")
+    }
+
+    private func addSelectedWallpaperToRepose() {
+        guard !reposeLibraryBusy, let live = fixture.live else { return }
+        reposeLibraryBusy = true
+        reposeControlQueue.async {
+            let result = runWallpaperControl(["repose-add", live])
+            let refreshed = result.status == 0 ? loadReposeScenes(generateThumbnails: true) : nil
+            DispatchQueue.main.async {
+                reposeLibraryBusy = false
+                if let refreshed {
+                    reposeScenes = refreshed
+                    reposeStatus = result.output
+                }
+            }
+        }
+    }
+
     @MainActor
     private func beginImport() {
         guard let sourceURL = chooseWallpaperFile(),
@@ -2425,21 +3243,42 @@ private struct LiveryView: View {
             VStack(spacing: 0) {
                 Header(
                     palette: palette,
+                    workspace: workspace,
+                    setWorkspace: { next in
+                        workspace = next
+                        if next == .repose {
+                            refreshReposeWorkspace(generateThumbnails: true)
+                        }
+                    },
                     authority: authority,
                     lookLabel: lookLabel,
                     mode: mode,
                     setMode: { mode = $0 },
-                    beginImport: beginImport
-                )
-                Hairline(palette: palette)
-                AuthoritySelector(
-                    palette: palette,
-                    authority: authority,
-                    setAuthority: setAuthority
+                    beginImport: beginImport,
+                    lockPolicy: lockPolicy,
+                    lockBusy: lockBusy,
+                    setLockPolicy: changeLockPolicy
                 )
                 Hairline(palette: palette)
 
-                if mode == .grid {
+                if workspace == .repose {
+                    ReposePane(
+                        palette: palette,
+                        scenes: reposeScenes,
+                        selection: reposeSelection,
+                        status: reposeStatus,
+                        toggleMembership: toggleReposeMembership,
+                        commitOrder: persistReposePool,
+                        toggleCover: toggleReposeCover
+                    )
+                    .frame(maxHeight: .infinity)
+                } else if mode == .grid {
+                    AuthoritySelector(
+                        palette: palette,
+                        authority: authority,
+                        setAuthority: setAuthority
+                    )
+                    Hairline(palette: palette)
                     GridPane(
                         selectedFixture: selectedFixture,
                         palette: palette,
@@ -2457,6 +3296,12 @@ private struct LiveryView: View {
                     )
                     .frame(maxHeight: .infinity)
                 } else {
+                    AuthoritySelector(
+                        palette: palette,
+                        authority: authority,
+                        setAuthority: setAuthority
+                    )
+                    Hairline(palette: palette)
                     HStack(spacing: 0) {
                         SourcePane(
                             fixture: fixture,
@@ -2466,11 +3311,14 @@ private struct LiveryView: View {
                             previewStatus: previewStatus,
                             showingOriginal: showingOriginal,
                             selectedFixture: selectedFixture,
-                            fixtures: wallpapers
+                            fixtures: wallpapers,
+                            reposeLibraryBusy: reposeLibraryBusy
                         ) { index in
                             chooseFixture(index)
                         } toggleComparison: {
                             showingOriginal.toggle()
+                        } addToRepose: {
+                            addSelectedWallpaperToRepose()
                         }
                         .frame(minWidth: 340, idealWidth: 424, maxWidth: 520)
                         .layoutPriority(0.85)
@@ -2517,12 +3365,16 @@ private struct LiveryView: View {
                     .frame(maxHeight: .infinity)
                 }
 
-                if mode == .detail {
+                if workspace == .looks, mode == .detail {
                     Hairline(palette: palette)
                     Footer(
                         palette: palette,
                         applyState: applyState,
-                        apply: applySelection
+                        lockPolicy: lockPolicy,
+                        lockBusy: lockBusy,
+                        lockMessage: lockMessage,
+                        apply: applySelection,
+                        applyToLock: applySelectionToLock
                     )
                 }
             }
@@ -2560,9 +3412,14 @@ private struct LiveryView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: liveryPanelShown)) { _ in
             wallpapers = loadWallpaperFixtures()
+            lockPolicy = loadLockPolicy()
+            if workspace == .repose {
+                refreshReposeWorkspace(generateThumbnails: true)
+            }
         }
         .onChange(of: profile) {
             applyState = .idle
+            lockMessage = nil
             showingOriginal = false
             refreshPreview()
         }
@@ -2640,7 +3497,9 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.title = "Livery"
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        panel.isMovableByWindowBackground = true
+        // Only the header is a drag region. Treating the whole borderless
+        // surface as draggable steals Repose's filmstrip reorder gesture.
+        panel.isMovableByWindowBackground = false
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.minSize = NSSize(width: 860, height: 520)
