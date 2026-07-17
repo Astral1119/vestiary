@@ -762,15 +762,15 @@ private func runWorkshop(_ arguments: [String]) -> ControlResult {
     }
 }
 
-private func loadWorkshopItems(query: String) -> [WorkshopItem] {
-    let result = runWorkshop(["search", query, "--n", "12", "--json"])
+private func loadWorkshopItems(query: String, count: Int) -> [WorkshopItem]? {
+    let result = runWorkshop(["search", query, "--n", "\(count)", "--json"])
     guard
         result.status == 0,
         let line = result.output.split(separator: "\n").last(where: { $0.hasPrefix("[") }),
         let data = String(line).data(using: .utf8),
         let items = try? JSONDecoder().decode([WorkshopItem].self, from: data)
     else {
-        return []
+        return nil
     }
     return items
 }
@@ -1328,6 +1328,7 @@ private struct GridPane: View {
     @State private var workshopItems: [WorkshopItem] = []
     @State private var workshopBusy: String?
     @State private var workshopNote: String?
+    @State private var workshopCount = 12
 
     private let columns = [
         GridItem(.adaptive(minimum: 220, maximum: 340), spacing: 10),
@@ -1361,9 +1362,19 @@ private struct GridPane: View {
                         .foregroundStyle(palette.panelMuted(0.45))
                 }
                 if !workshopItems.isEmpty {
+                    if workshopItems.count >= workshopCount {
+                        Button("more") {
+                            workshopCount += 12
+                            searchWorkshop(resetCount: false)
+                        }
+                        .buttonStyle(.plain)
+                        .font(.lab(9, weight: .semibold))
+                        .foregroundStyle(palette.panelAccent(0.62))
+                    }
                     Button("clear") {
                         workshopItems = []
                         workshopNote = nil
+                        workshopCount = 12
                     }
                     .buttonStyle(.plain)
                     .font(.lab(9, weight: .semibold))
@@ -1402,13 +1413,21 @@ private struct GridPane: View {
         .padding(14)
     }
 
-    private func searchWorkshop() {
+    private func searchWorkshop(resetCount: Bool = true) {
+        if resetCount {
+            workshopCount = 12
+        }
         let query = workshopQuery.trimmingCharacters(in: .whitespaces)
+        let count = workshopCount
         workshopNote = "searching…"
         workshopBusy = nil
         DispatchQueue.global(qos: .userInitiated).async {
-            let items = loadWorkshopItems(query: query)
+            let items = loadWorkshopItems(query: query, count: count)
             DispatchQueue.main.async {
+                guard let items else {
+                    workshopNote = "search failed — is the workshop client reachable?"
+                    return
+                }
                 workshopItems = items
                 workshopNote = items.isEmpty ? "no results" : "\(items.count) results"
             }
