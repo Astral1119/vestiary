@@ -55,8 +55,31 @@ func resolveWallpaper(_ path: String) -> Wallpaper? {
 
     let projectURL = url.appendingPathComponent("project.json")
     guard let data = try? Data(contentsOf: projectURL),
-          let project = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let file = project["file"] as? String else { return nil }
+          let project = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return nil }
+
+    // Preset items configure another wallpaper: resolve the dependency and
+    // overlay the preset's property values (WE downloads deps the same way).
+    if let dependency = project["dependency"] as? String, !dependency.isEmpty {
+        let baseURL = url.deletingLastPathComponent().appendingPathComponent(dependency)
+        guard FileManager.default.fileExists(
+            atPath: baseURL.appendingPathComponent("project.json").path) else {
+            print("preset depends on workshop item \(dependency), which is not "
+                + "downloaded — run: workshop get \(dependency)")
+            return nil
+        }
+        guard let base = resolveWallpaper(baseURL.path) else { return nil }
+        guard case .web(let index, let root, var properties) = base else { return base }
+        if let preset = project["preset"] as? [String: Any] {
+            for (key, value) in preset {
+                properties[key] = ["value": value]
+                properties[key.lowercased()] = ["value": value]
+            }
+        }
+        return .web(index: index, root: root, properties: properties)
+    }
+
+    guard let file = project["file"] as? String else { return nil }
     let type = (project["type"] as? String ?? "").lowercased()
     let target = url.appendingPathComponent(file)
 
@@ -701,6 +724,10 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
 }
 
 // MARK: - Bootstrap
+
+// Line-buffer stdout even when it's a log file, so daemon activity is
+// visible as it happens rather than stuck in a full buffer.
+setvbuf(stdout, nil, _IOLBF, 0)
 
 let flags = CommandLine.arguments.dropFirst().filter { $0.hasPrefix("--") }
 let positional = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("--") }

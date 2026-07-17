@@ -56,6 +56,25 @@ def runtime_pid():
         return None
 
 
+def runtime_stale(pid):
+    """True when the daemon process predates the current binary."""
+    try:
+        etime = subprocess.run(["ps", "-p", str(pid), "-o", "etime="],
+                               capture_output=True, text=True).stdout.strip()
+        parts = etime.replace("-", ":").split(":")
+        seconds = 0
+        for part in parts:
+            seconds = seconds * 60 + int(part)
+        if len(parts) == 4:   # dd:hh:mm:ss — the day field is *86400/60^3
+            days, hours, minutes, secs = (int(p) for p in parts)
+            seconds = days * 86400 + hours * 3600 + minutes * 60 + secs
+        import time
+        started = time.time() - seconds
+        return os.path.getmtime(BIN) > started + 5
+    except (OSError, ValueError):
+        return False
+
+
 def agent_installed():
     return os.path.exists(PLIST)
 
@@ -74,10 +93,22 @@ def resolve(target):
             print(f"fetching workshop item {target}…")
             subprocess.run([os.path.join(SCRIPT_DIR, "workshop"), "get", target],
                            check=True, capture_output=True, text=True)
-        return path
-    path = os.path.abspath(os.path.expanduser(target))
-    if not os.path.exists(path):
-        sys.exit(f"no such wallpaper: {path}")
+    else:
+        path = os.path.abspath(os.path.expanduser(target))
+        if not os.path.exists(path):
+            sys.exit(f"no such wallpaper: {path}")
+    # Preset items reference a base wallpaper; make sure it's present too.
+    try:
+        import json as json_module
+        with open(os.path.join(path, "project.json")) as handle:
+            dependency = json_module.load(handle).get("dependency")
+        if dependency and not os.path.exists(
+                os.path.join(WORKSHOP_DIR, str(dependency), "project.json")):
+            print(f"fetching preset dependency {dependency}…")
+            subprocess.run([os.path.join(SCRIPT_DIR, "workshop"), "get", str(dependency)],
+                           check=True, capture_output=True, text=True)
+    except (OSError, ValueError, NotADirectoryError):
+        pass
     return path
 
 
@@ -116,9 +147,19 @@ def stop():
 def set_wallpaper(target):
     path = resolve(target)
     os.makedirs(STATE_DIR, exist_ok=True)
+    build()
     with open(CONFIG, "w") as handle:
         handle.write(path + "\n")
     pid = runtime_pid()
+    if pid and runtime_stale(pid):
+        print("runtime binary is newer than the daemon — restarting")
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(20):
+            if not runtime_pid():
+                break
+            import time
+            time.sleep(0.1)
+        pid = None
     if pid:
         os.kill(pid, signal.SIGUSR1)
         print(f"switched: {path}")
