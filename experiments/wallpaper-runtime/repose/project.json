@@ -8,6 +8,60 @@
         "type": "color",
         "text": "Scheme color",
         "value": "0.54 0.71 0.98"
+      },
+      "reposelook": {
+        "type": "combo",
+        "text": "Look",
+        "value": "zephyr",
+        "options": [
+          { "label": "Zephyr", "value": "zephyr" },
+          { "label": "Pixel (qylock)", "value": "pixel" }
+        ]
+      },
+      "reposepixels": {
+        "type": "combo",
+        "text": "Pixelated strings",
+        "value": "on",
+        "options": [
+          { "label": "On", "value": "on" },
+          { "label": "Off", "value": "off" }
+        ]
+      },
+      "reposevariant": {
+        "type": "combo",
+        "text": "Variant",
+        "value": "quiet",
+        "options": [
+          { "label": "Quiet", "value": "quiet" },
+          { "label": "Loud", "value": "loud" }
+        ]
+      },
+      "reposebackdrop": {
+        "type": "combo",
+        "text": "Backdrop",
+        "value": "opaque",
+        "options": [
+          { "label": "Graded opaque", "value": "opaque" },
+          { "label": "Clear (wallpaper-through)", "value": "clear" }
+        ]
+      },
+      "reposegrade": {
+        "type": "combo",
+        "text": "Grade vignette",
+        "value": "on",
+        "options": [
+          { "label": "On", "value": "on" },
+          { "label": "Off", "value": "off" }
+        ]
+      },
+      "reposenight": {
+        "type": "combo",
+        "text": "Night tint",
+        "value": "off",
+        "options": [
+          { "label": "Off", "value": "off" },
+          { "label": "On", "value": "on" }
+        ]
       }
     }
   }

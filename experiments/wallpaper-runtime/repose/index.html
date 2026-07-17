@@ -19,6 +19,14 @@
     --viz1: #87d6bc;
     --viz2: #a8cbe2;
   }
+  /* the pixel look's face (user verdict from the 13-font trial, 2026-07-17):
+     Instrument Serif, SIL OFL — font/LICENSE.md. The weight range maps every
+     weight to the single file so nothing gets faux-bolded. */
+  @font-face {
+    font-family: "Instrument Serif";
+    src: url("font/InstrumentSerif-Regular.ttf") format("truetype");
+    font-weight: 100 900;
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100vw; height: 100vh; overflow: hidden; }
   body {
@@ -30,31 +38,70 @@
   }
   body[data-backdrop="clear"] { background: transparent; }
 
+  /* grade, don't blur (design record): vignette pushes luminance toward the
+     composition; sits above the backdrop, below the content */
+  #scrim { position: fixed; inset: 0; pointer-events: none; opacity: 0;
+           transition: opacity .4s;
+           background: radial-gradient(ellipse at center,
+             transparent 42%, rgba(0,0,0,.45) 100%); }
+  body[data-grade="on"] #scrim { opacity: 1; }
+  /* StandBy-style night tint: one hue over the whole composition */
+  body[data-night="on"] { filter: sepia(1) hue-rotate(-40deg) saturate(2.2)
+                                  brightness(.6) contrast(1.05); }
+
+  /* dim-then-fade entrance (survey): black dims away first, then the
+     composition settles in behind it — pure keyframes, no JS dependency */
+  #entrance { position: fixed; inset: 0; z-index: 10; background: #000;
+              pointer-events: none; opacity: 0;
+              animation: entrance-dim .45s ease .1s both; }
+  @keyframes entrance-dim { from { opacity: 1; } to { opacity: 0; } }
+  .monolith { animation: entrance-rise .8s ease .35s backwards; }
+  @keyframes entrance-rise { from { opacity: 0; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    #entrance { display: none; }
+    .monolith { animation: none; }
+  }
+
   .monolith {
-    position: fixed; left: 50%; top: 21vh; transform: translateX(-50%);
+    position: fixed; left: 50%; top: 20vh; transform: translateX(-50%);
     display: flex; flex-direction: column; align-items: center; gap: 2.2vh;
     transition: top .6s cubic-bezier(0.23, 1, 0.32, 1);
   }
-  #date { font-size: 1.15vw; letter-spacing: .08em; color: var(--muted); }
+  #date { font-size: calc(1.15vw * var(--typescale, 1)); letter-spacing: .08em;
+          color: var(--muted); }
 
   /* loud variant: the visualizer is the star — clock retreats to the
      top-right (bar-clock muscle memory), media steps forward */
   body[data-variant="loud"] .monolith {
     left: auto; right: 4vw; top: 6vh; transform: none; align-items: flex-end;
   }
-  body[data-variant="loud"] #clock { font-size: 3.4vw; }
-  body[data-variant="loud"] #date { font-size: .85vw; }
-  body[data-variant="loud"] #strings { bottom: 18vh; height: 52vh; }
-  body[data-variant="loud"] #media { font-size: 1.5vw; bottom: 8vh; }
+  body[data-variant="loud"] #clock { font-size: calc(3.4vw * var(--typescale, 1)); }
+  body[data-variant="loud"] #date { font-size: calc(.85vw * var(--typescale, 1)); }
+  body[data-variant="loud"] #strings {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 78vw; height: 42vh;
+  }
+  body[data-variant="loud"] #media {
+    position: fixed; left: 50%; bottom: 8vh; transform: translateX(-50%);
+    font-size: calc(1.5vw * var(--typescale, 1));
+  }
   #devhint {
     position: fixed; left: 14px; bottom: 10px; display: none;
     font-size: 11px; color: var(--muted); opacity: .7;
   }
+  /* in-cover selection hint: shown once on cover entry, then fades */
+  #coverhint {
+    position: fixed; left: 2.2vw; bottom: 2vh; font-size: .72vw;
+    color: var(--muted); letter-spacing: .06em; opacity: 0;
+    transition: opacity .6s; pointer-events: none;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, .4);
+  }
+  body[data-look="pixel"] #coverhint { letter-spacing: .12em; }
 
   /* plaque odometer clock: hours in primary, minutes ÷1.5, seconds ÷2;
      digits knocked out toward the surface; columns roll 500ms OutQuint */
-  #clock { display: flex; align-items: flex-start; gap: .07em; font-size: 7.2vw;
-           font-weight: 700; }
+  #clock { display: flex; align-items: flex-start; gap: .07em;
+           font-size: calc(7.2vw * var(--typescale, 1)); font-weight: 700; }
   .zcol { overflow: hidden; height: 1.16em; width: .82em; border-radius: .045em; }
   .zcol .stack { display: flex; flex-direction: column;
                  transition: transform .5s cubic-bezier(0.23, 1, 0.32, 1); }
@@ -71,28 +118,123 @@
   #agents .dot.working { background: var(--muted); }
   #agents .dot.waiting { background: var(--attention); box-shadow: 0 0 9px var(--attention); }
   #agents .dot.done    { background: var(--success); box-shadow: 0 0 9px var(--success); }
-  #agentline { font-size: .78vw; color: var(--muted); letter-spacing: .05em; }
+  #agentline { font-size: calc(.78vw * var(--typescale, 1)); color: var(--muted);
+               letter-spacing: .05em; }
 
-  #strings { position: fixed; left: 0; bottom: 5vh; width: 100vw; height: 24vh;
-             display: block; }
-  #media { position: fixed; left: 50%; bottom: 1.6vh; transform: translateX(-50%);
-           font-size: .95vw; color: var(--muted); letter-spacing: .04em;
-           display: none; }
+  /* strings live in the monolith at the accepted 260x80 proportions —
+     a compact element under the clock, not a screen-wide band */
+  #strings { display: block; width: 34vw; height: 10.5vw; }
+  #media { display: none; font-size: calc(.95vw * var(--typescale, 1));
+           color: var(--muted); letter-spacing: .04em;
+           max-width: 34vw; white-space: nowrap; overflow: hidden; }
+  body[data-variant="loud"] #media { max-width: 70vw; }
   #media .t { color: var(--text); }
+  /* long titles truncate and scroll: hold, drift to the far end, hold,
+     drift back (alternate) — distance and pace set per-track in JS */
+  #media .inner { display: inline-block; white-space: nowrap; }
+  #media.scroll .inner {
+    animation: marquee var(--marqueedur, 12s) linear infinite alternate;
+  }
+  @keyframes marquee {
+    0%, 12% { transform: translateX(0); }
+    88%, 100% { transform: translateX(var(--marqueeshift, 0px)); }
+  }
+
+  /* dev-harness wallpaper trial layer (production backdrop is a real
+     wallpaper view beneath the composition inside the cover) */
+  #wall { position: fixed; inset: 0; z-index: -1; display: none;
+          background-size: cover; background-position: center; }
+  body[data-wall="on"] { background: transparent; }
+  body[data-wall="on"] #wall { display: block; }
+  /* grade, don't blur (hyprlock recipe) applied to the trial wall */
+  body[data-grade="on"] #wall { filter: contrast(.89) brightness(.82) saturate(.75); }
+
+  /* ---- pixel look (qylock's pixel themes, replicated as a whole language:
+     corner-anchored flat pixel type over the scene — the wallpaper is the
+     star. Hours in text, minutes in primary split by an attention bar,
+     tiny wide-tracked uppercase labels, hard offset shadows, no plaques.
+     Never blended with zephyr; switched wholesale via reposelook. ---- */
+  body[data-look="pixel"] {
+    font-family: "Instrument Serif", Georgia, serif;
+  }
+  body[data-look="pixel"] .monolith {
+    left: 4vw; top: 6vh; transform: none; align-items: flex-start;
+    gap: 1.6vh;
+  }
+  body[data-look="pixel"] #clock {
+    font-size: calc(6.4vw * var(--typescale, 1));
+    text-shadow: .035em .035em 0 rgba(0, 0, 0, .55);
+    gap: .02em;
+    /* digits center inside their columns; pull the clock left so its ink
+       edge lines up with the tracked lines below */
+    margin-left: -.05em;
+  }
+  /* column metric tuned for Instrument Serif digits (zephyr's .82em is
+     SF Mono's) */
+  body[data-look="pixel"] .zcol { width: .5em; }
+  /* flat digits: kill the plaque cells, color per column group */
+  body[data-look="pixel"] .zcol .cell {
+    background: transparent !important; opacity: 1;
+  }
+  body[data-look="pixel"] .zcol.h .cell { color: var(--text) !important; }
+  body[data-look="pixel"] .zcol.m .cell { color: var(--primary) !important; }
+  body[data-look="pixel"] .zcol .cell:not(.on) { opacity: 0; }
+  body[data-look="pixel"] .zsep {
+    background: var(--attention); width: .07em; height: .88em;
+    margin: 0 .1em; align-self: center; border-radius: 0;
+  }
+  /* small seconds counter riding the HH | MM baseline, muted */
+  body[data-look="pixel"] .zsep.sec { display: none; }
+  body[data-look="pixel"] .zcol.sec {
+    font-size: .42em; align-self: flex-end; margin-bottom: .14em;
+  }
+  body[data-look="pixel"] .zcol.sec:nth-last-of-type(2) { margin-left: .7em; }
+  body[data-look="pixel"] .zcol.sec .cell { color: var(--muted) !important; }
+  /* qylock order: clock first, date beneath it */
+  body[data-look="pixel"] #clock { order: -1; }
+  body[data-look="pixel"] #date {
+    letter-spacing: .12em;
+    font-size: calc(1.05vw * var(--typescale, 1)); color: var(--text);
+    opacity: .95; text-shadow: 1px 1px 0 rgba(0, 0, 0, .55);
+  }
+  body[data-look="pixel"] #date::before { content: "— "; color: var(--attention); }
+  body[data-look="pixel"] #agents .dot { border-radius: 0; box-shadow: none;
+    width: 8px; height: 8px; }
+  body[data-look="pixel"] #agentline, body[data-look="pixel"] #media {
+    letter-spacing: .12em;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, .55);
+  }
+  /* strings go chunky: low-res backing store upscaled crisp (set in JS);
+     the pixels axis (x key) switches back to smooth rendering */
+  body[data-look="pixel"] #strings { image-rendering: pixelated; width: 26vw;
+    height: 8vw; }
+  body[data-pixels="off"] #strings { image-rendering: auto; }
+  body[data-look="pixel"][data-variant="loud"] .monolith { right: auto; }
+  body[data-look="pixel"][data-variant="loud"] #clock {
+    font-size: calc(3.2vw * var(--typescale, 1));
+  }
 </style>
 </head>
-<body>
+<body data-grade="on">
+  <div id="wall"></div>
+  <div id="entrance"></div>
+  <div id="scrim"></div>
   <div class="monolith">
     <div id="date"></div>
     <div id="clock"></div>
     <div id="agents"></div>
     <div id="agentline"></div>
+    <canvas id="strings"></canvas>
+    <div id="media"></div>
   </div>
-  <canvas id="strings"></canvas>
-  <div id="media"></div>
-  <div id="devhint">dev · q quiet · l loud · p synth audio · a agents · m media</div>
+  <div id="coverhint">←→ scene · tab look · x pixels · v variant · g grade · n night · esc exits</div>
+  <div id="devhint"></div>
 
 <script>
+  // entrance safety: whatever happens to the animation, the black overlay
+  // must never strand the cover — remove it outright once it's done
+  setTimeout(() => document.getElementById("entrance").remove(), 1600);
+
   // ---------- theme (Livery roles arrive as WE user properties) ----------
   const root = document.documentElement.style;
   const parseColor = (p) => {
@@ -109,6 +251,7 @@
   let viz = [[0.53, 0.84, 0.74], [0.66, 0.80, 0.89]];
   let agents = { working: 0, waiting: 0, done: 0 };
   let variant = "quiet";
+  let look = "zephyr";
   let lastLoudAudio = Date.now();
 
   function setVariant(next) {
@@ -116,6 +259,50 @@
     variant = next;
     document.body.dataset.variant = variant;
     resize();
+    // the media budget changes between variants — re-measure the marquee
+    if (lastMedia) setMediaText(lastMedia[0], lastMedia[1]);
+  }
+
+  function setLook(next) {
+    if (next !== "zephyr" && next !== "pixel") return;
+    look = next;
+    document.body.dataset.look = look;
+    resize();   // the pixel look changes the canvas backing resolution
+  }
+
+  let pixels = true;
+  function setPixels(next) {
+    pixels = next !== "off" && next !== false;
+    document.body.dataset.pixels = pixels ? "on" : "off";
+    resize();   // pixelization changes the canvas backing resolution
+  }
+
+  // media line: truncate-and-scroll for long title/artist combos
+  let lastMedia = null;
+  function setMediaText(title, artist) {
+    lastMedia = [title, artist];
+    const el = document.getElementById("media");
+    el.innerHTML = `<span class="inner">♪ <span class="t"></span> — <span class="a"></span></span>`;
+    el.querySelector(".t").textContent = title;
+    el.querySelector(".a").textContent = artist;
+    requestAnimationFrame(() => {
+      const inner = el.querySelector(".inner");
+      const overflow = inner.scrollWidth - el.clientWidth;
+      el.classList.toggle("scroll", overflow > 2);
+      if (overflow > 2) {
+        el.style.setProperty("--marqueeshift", `-${overflow}px`);
+        el.style.setProperty("--marqueedur", `${Math.max(8, overflow / 30 + 6).toFixed(1)}s`);
+      }
+    });
+  }
+
+  let coverHintShown = false;
+  function showCoverHint() {
+    if (coverHintShown) return;   // once per entry (each entry is a fresh page)
+    coverHintShown = true;
+    const el = document.getElementById("coverhint");
+    el.style.opacity = 1;
+    setTimeout(() => { el.style.opacity = 0; }, 3200);
   }
 
   window.wallpaperPropertyListener = {
@@ -135,9 +322,20 @@
       if (v2) { viz[1] = v2; set("--viz2", v2); }
       if (primaryColor || surfaceColor) buildClock();
       if (p.reposevariant && p.reposevariant.value) setVariant(String(p.reposevariant.value));
+      if (p.reposelook && p.reposelook.value) setLook(String(p.reposelook.value));
+      if (p.reposepixels && p.reposepixels.value) setPixels(String(p.reposepixels.value));
+      if (p.reposecover && String(p.reposecover.value) === "on") showCoverHint();
       if (p.reposebackdrop && p.reposebackdrop.value) {
         document.body.dataset.backdrop =
           String(p.reposebackdrop.value) === "clear" ? "clear" : "opaque";
+      }
+      if (p.reposegrade && p.reposegrade.value !== undefined) {
+        document.body.dataset.grade =
+          String(p.reposegrade.value) === "off" ? "off" : "on";
+      }
+      if (p.reposenight && p.reposenight.value !== undefined) {
+        document.body.dataset.night =
+          String(p.reposenight.value) === "on" ? "on" : "off";
       }
 
       let agentsChanged = false;
@@ -156,34 +354,61 @@
   const clockEl = document.getElementById("clock");
   function buildClock() {
     const bases = [primary, scale(primary, 1 / 1.5), scale(primary, 1 / 2)];
-    const column = (base) => `<span class="zcol"><span class="stack">${
+    const column = (base, kind) => `<span class="zcol ${kind}"><span class="stack">${
       Array.from({ length: 10 }, (_, i) => i === 0
         ? `<span class="cell zero" style="color:${css(base)}">0</span>`
         : `<span class="cell" style="background:${css(scale(base, 1 + i / 10))}">${i}</span>`
       ).join("")}</span></span>`;
     clockEl.innerHTML =
-      column(bases[0]) + column(bases[0]) + `<span class="zsep"></span>` +
-      column(bases[1]) + column(bases[1]) + `<span class="zsep"></span>` +
-      column(bases[2]) + column(bases[2]);
+      column(bases[0], "h") + column(bases[0], "h") + `<span class="zsep"></span>` +
+      column(bases[1], "m") + column(bases[1], "m") + `<span class="zsep sec"></span>` +
+      column(bases[2], "sec") + column(bases[2], "sec");
   }
   buildClock();
 
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const digitsOf = (d) => {
+    const out = [];
+    for (const value of [d.getHours(), d.getMinutes(), d.getSeconds()]) {
+      out.push(Math.floor(value / 10), value % 10);
+    }
+    return out;
+  };
+  // smoothstep minute pre-roll (survey: qylock clockwork/tape): columns that
+  // change at the boundary ease into position over the last 200ms of second
+  // 59, arriving exactly on it. cubic-bezier(1/3, 0, 2/3, 1) is exactly
+  // p*p*(3-2p) — the transform loop below must not touch a column mid-roll.
+  const prerolled = new Set();
   function tick() {
     const now = new Date();
-    const digits = [];
-    for (const value of [now.getHours(), now.getMinutes(), now.getSeconds()]) {
-      digits.push(Math.floor(value / 10), value % 10);
+    const digits = digitsOf(now);
+    const stacks = clockEl.querySelectorAll(".zcol .stack");
+    const ms = now.getMilliseconds();
+    if (now.getSeconds() === 59 && ms >= 800 && prerolled.size === 0) {
+      const next = digitsOf(new Date(now.getTime() + (1000 - ms)));
+      for (let i = 0; i < 4; i++) {          // hour + minute columns only
+        if (next[i] === digits[i]) continue;
+        prerolled.add(i);
+        stacks[i].style.transition =
+          `transform ${1000 - ms}ms cubic-bezier(0.333, 0, 0.667, 1)`;
+        stacks[i].style.transform = `translateY(${(-next[i] * 1.16).toFixed(2)}em)`;
+      }
+    } else if (now.getSeconds() !== 59 && prerolled.size) {
+      prerolled.forEach(i => { stacks[i].style.transition = ""; });
+      prerolled.clear();
     }
-    clockEl.querySelectorAll(".zcol .stack").forEach((stack, i) => {
-      stack.style.transform = `translateY(${(-digits[i] * 1.16).toFixed(2)}em)`;
+    stacks.forEach((stack, i) => {
+      if (!prerolled.has(i)) {
+        stack.style.transform = `translateY(${(-digits[i] * 1.16).toFixed(2)}em)`;
+      }
       stack.querySelectorAll(".cell").forEach((cell, d) =>
         cell.classList.toggle("on", d === digits[i]));
     });
     document.getElementById("date").textContent =
-      `${DAYS[now.getDay()]} ${now.toISOString().slice(0, 10)}`;
+      `${DAYS[now.getDay()]} ${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
   }
-  setInterval(tick, 250);
+  setInterval(tick, 100);
   tick();
 
   // ---------- agent dots (hook-truth via runtime properties) ----------
@@ -206,50 +431,83 @@
     window.wallpaperRegisterMediaPropertiesListener((p) => {
       const el = document.getElementById("media");
       el.style.display = "block";
-      el.innerHTML = `♪ <span class="t"></span> — <span class="a"></span>`;
-      el.querySelector(".t").textContent = p.title || "";
-      el.querySelector(".a").textContent = p.artist || "";
+      setMediaText(p.title || "", p.artist || "");
     });
     window.wallpaperRegisterMediaStatusListener((s) => {
       if (!s.enabled) document.getElementById("media").style.display = "none";
     });
   }
 
-  // ---------- Zephyr strings, live (baseline: 10 strands, shared endpoints,
-  // fast attack / slow release envelope, settle-and-park in silence) ----------
+  // ---------- Zephyr strings: the accepted math from
+  // ZephyrStringsPreview.swift, frozen in ../../zephyr-strings/BASELINE.md —
+  // 12ms/45ms envelope, soft rolling median-relative normalization (0.85–1.4x,
+  // 0.55 exponent, frozen in silence), FastMusicLine cubic layout with
+  // 1.5-segment lateral spill and 1.85x vertical gain ----------
   const canvas = document.getElementById("strings");
   const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
   let width, height;
   function resize() {
-    width = canvas.width = window.innerWidth;
-    height = canvas.height =
-      Math.round(window.innerHeight * (variant === "loud" ? 0.52 : 0.24));
+    const rect = canvas.getBoundingClientRect();
+    width = rect.width;
+    height = rect.height;
+    // pixel look: low-res backing upscaled crisp (image-rendering:
+    // pixelated) — chunky pixel-art strands, fine enough to read.
+    // the pixels axis toggles this off for smooth strands over the scene
+    const factor = look === "pixel" && pixels ? 0.4 : dpr;
+    canvas.width = Math.max(1, Math.round(rect.width * factor));
+    canvas.height = Math.max(1, Math.round(rect.height * factor));
+    ctx.setTransform(factor, 0, 0, factor, 0, 0);
+    wake();   // repaint the parked frame at the new size
   }
   window.addEventListener("resize", resize);
-  resize();
+  // the observer fires once on observe, after setup — that first delivery
+  // paints the initial parked frame
+  new ResizeObserver(resize).observe(canvas);
 
   const STRANDS = 10;
-  const level = new Array(STRANDS).fill(0);   // enveloped per-strand level
-  let target = new Array(STRANDS).fill(0);
+  const target = new Array(STRANDS).fill(0);      // raw grouped bands
+  const displayed = new Array(STRANDS).fill(0);   // enveloped levels
+  const rolling = new Array(STRANDS).fill(0.15);  // normalization tracker
   let animating = false;
   let quietFrames = 0;
+  let lastAudioAt = -Infinity;
+  let lastFrameAt = 0;
+  let lastDrawAt = 0;
+  let chain = 0;   // draw-loop token: a superseded chain stops itself
+
+  function wake() {
+    // if the loop claims to run but hasn't drawn in 2s, it was stranded
+    // (webview suspension mid-animation) — arm a fresh chain over it
+    const stranded = animating && performance.now() - lastDrawAt > 2000;
+    if (!animating || stranded) {
+      animating = true;
+      lastFrameAt = 0;
+      const token = ++chain;
+      requestAnimationFrame((t) => draw(t, token));
+    }
+  }
 
   if (window.wallpaperRegisterAudioListener) {
     window.wallpaperRegisterAudioListener((frame) => {
-      // mono 64 bands → 10 strand groups
-      const bands = frame.slice(0, 64);
-      const gain = variant === "loud" ? 2.5 : 1.85;
+      // WE delivers 64 bands per channel; mono-average, group to 10 strands.
+      // The 1.85x motion gain lives in the geometry (baseline), not here —
+      // loud keeps its extra push on the input.
+      const gain = variant === "loud" ? 1.35 : 1;
       let frameEnergy = 0;
       for (let s = 0; s < STRANDS; s++) {
         const start = Math.floor(s * 64 / STRANDS);
         const end = Math.floor((s + 1) * 64 / STRANDS);
         let sum = 0;
-        for (let i = start; i < end; i++) sum += bands[i];
+        for (let i = start; i < end; i++) {
+          sum += (frame[i] + (frame[i + 64] !== undefined ? frame[i + 64] : frame[i])) / 2;
+        }
         target[s] = Math.min(1, sum / (end - start) * gain);
         frameEnergy += target[s];
       }
+      lastAudioAt = performance.now();
       if (frameEnergy > 0.1) lastLoudAudio = Date.now();
-      if (!animating) { animating = true; requestAnimationFrame(draw); }
+      wake();
     });
   }
 
@@ -260,44 +518,76 @@
     }
   }, 10000);
 
-  function strand(i, amplitude, phase) {
-    const x0 = 8, x1 = width - 8, yc = height / 2, span = x1 - x0;
-    const direction = i % 2 ? 1 : -1;
-    const bulge = direction * amplitude * (height / 2 - 6);
-    const sway = Math.sin(phase + i * 1.7) * 0.25 + 1;
-    const c1x = x0 + span * (0.18 + (i % 5) * 0.055);
-    const c2x = x0 + span * (0.58 + (i % 4) * 0.07);
-    const s = i % 3 === 0 ? -0.7 : 0.8;
-    ctx.beginPath();
-    ctx.moveTo(x0, yc);
-    ctx.bezierCurveTo(c1x, yc + bulge * sway, c2x, yc + bulge * s, x1, yc);
-    ctx.stroke();
-  }
+  function draw(t, token) {
+    if (token !== chain) return;   // superseded by a fresh wake
+    lastDrawAt = performance.now();
+    const dt = lastFrameAt ? Math.min(0.1, (t - lastFrameAt) / 1000) : 1 / 60;
+    lastFrameAt = t;
+    const fresh = performance.now() - lastAudioAt < 1500;
+    const active = Math.max(...target) > 0.02;
 
-  let phase = 0;
-  function draw() {
-    phase += 0.012;
+    // rolling per-band level: 750ms rise / 5s fall, frozen during silence
+    if (fresh && active) {
+      for (let s = 0; s < STRANDS; s++) {
+        const trackingTime = target[s] > rolling[s] ? 0.75 : 5.0;
+        rolling[s] += (target[s] - rolling[s]) * (1 - Math.exp(-dt / trackingTime));
+      }
+    }
+    const sorted = [...rolling].sort((a, b) => a - b);
+    const median = (sorted[4] + sorted[5]) / 2;
+
     let energy = 0;
     for (let s = 0; s < STRANDS; s++) {
-      const k = target[s] > level[s] ? 0.75 : 0.28;   // ~12ms attack / 45ms release
-      level[s] += (target[s] - level[s]) * k;
-      energy += level[s];
+      const relative = median / Math.max(0.04, rolling[s]);
+      const normalization = Math.min(1.4, Math.max(0.85, Math.pow(relative, 0.55)));
+      const goal = Math.min(1, target[s] * normalization);
+      const timeConstant = goal > displayed[s] ? 0.012 : 0.045;
+      displayed[s] += (goal - displayed[s]) * (1 - Math.exp(-dt / timeConstant));
+      energy += displayed[s];
     }
+
     ctx.clearRect(0, 0, width, height);
-    const gradient = ctx.createLinearGradient(0, 0, width, 0);
-    gradient.addColorStop(0, css(viz[0]));
-    gradient.addColorStop(1, css(viz[1]));
-    ctx.strokeStyle = gradient;
-    ctx.globalAlpha = 0.72;
+    const scale = height / 80;                 // native reference: 260x80
+    const curveWidth = width / 1.3;
+    const curveHeight = height / 2;
+    const segmentWidth = curveWidth / STRANDS;
+    const spillInset = (width - curveWidth) / 2;
+    const yc = height / 2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
     for (let s = 0; s < STRANDS; s++) {
-      ctx.lineWidth = 2.25 + (s % 3) * 0.5;
-      strand(s, Math.max(level[s], 0.012), phase);
+      const pulse = Math.max(displayed[s], 0.012);
+      const direction = (s < 3 || s > 7) ? -1 : 1;
+      const lateral = s > 5 ? 1 : -1;
+      const c1x = spillInset + ((s - 1) + lateral * pulse * 1.5) * segmentWidth;
+      const c1y = yc + direction * curveHeight * pulse * 1.85;
+      const mix = s / STRANDS;
+      const color = viz[0].map((v, i) => v + (viz[1][i] - v) * mix);
+      // the darkened even strands are zephyr depth; pixel keeps flat accents
+      const stroke = look !== "pixel" && s % 2 === 0 ? color.map(v => v * 2 / 3) : color;
+      ctx.save();
+      // hard pixels don't glow — the soft shadow is zephyr-only
+      ctx.shadowBlur = look === "pixel" ? 0 : 15 * scale;
+      ctx.shadowColor = "rgba(0,0,0,0.20)";
+      ctx.strokeStyle = css(stroke);
+      ctx.globalAlpha = 0.72;
+      // pixel strands stay thin — one or two chunky raster pixels
+      ctx.lineWidth = (look === "pixel" ? 1.6 - pulse * 0.4 : 3.25 - pulse) * scale;
+      ctx.beginPath();
+      ctx.moveTo(spillInset, yc);
+      ctx.bezierCurveTo(c1x, c1y, spillInset + curveWidth, yc, spillInset + curveWidth, yc);
+      ctx.stroke();
+      ctx.restore();
     }
-    ctx.globalAlpha = 1;
+
+    ctx.globalAlpha = 0.72;
+    const radius = 7.5 * scale / 2;
     ctx.fillStyle = css(viz[0]);
-    ctx.beginPath(); ctx.arc(8, height / 2, 3.75, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(spillInset, yc, radius, 0, 7); ctx.fill();
     ctx.fillStyle = css(viz[1]);
-    ctx.beginPath(); ctx.arc(width - 8, height / 2, 3.75, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(spillInset + curveWidth, yc, radius, 0, 7); ctx.fill();
+    ctx.globalAlpha = 1;
 
     // settle-and-park: strings decay to a calm line, then the loop stops
     if (energy < 0.02 && Math.max(...target) < 0.01) {
@@ -306,27 +596,42 @@
     } else {
       quietFrames = 0;
     }
-    if (animating) requestAnimationFrame(draw);
+    if (animating) requestAnimationFrame((t2) => draw(t2, token));
   }
-  draw();   // one parked frame so the strings exist before audio arrives
+  // (initial parked frame comes from resize() → wake())
 
   // ---------- dev harness (standalone browser only: no WE bridge) ----------
   if (!window.wallpaperRegisterAudioListener) {
     document.getElementById("devhint").style.display = "block";
     const params = new URLSearchParams(location.search);
     if (params.get("variant")) setVariant(params.get("variant"));
+    setLook(params.get("look") || localStorage.getItem("repose-look") || "zephyr");
+    setPixels(params.get("pixels") || localStorage.getItem("repose-pixels") || "on");
+    if (params.get("grade")) document.body.dataset.grade =
+      params.get("grade") === "off" ? "off" : "on";
+    if (params.get("night")) document.body.dataset.night =
+      params.get("night") === "on" ? "on" : "off";
     let synth = true;
     const AGENT_STATES = [
       { working: 2, waiting: 1, done: 1 }, { working: 1, waiting: 0, done: 0 },
       { working: 0, waiting: 0, done: 2 }, { working: 0, waiting: 0, done: 0 },
     ];
-    let agentIndex = 0, mediaOn = true;
+    let agentIndex = 0, mediaIndex = 0;
     agents = AGENT_STATES[0];
     renderAgents();
     const media = document.getElementById("media");
+    const MEDIA_STATES = [
+      ["Synthesis", "TN-SHI"],
+      ["Everything In Its Right Place (Live From Osaka / 2016 Remaster)",
+       "The Cinematic Orchestra of the Autumn Palace feat. Somebody Longwinded"],
+      null,
+    ];
+    if (params.get("media") === "long") mediaIndex = 1;
+    if (params.get("media") === "off") mediaIndex = 2;
     const showMedia = () => {
-      media.style.display = mediaOn ? "block" : "none";
-      media.innerHTML = `♪ <span class="t">Synthesis</span> — TN-SHI`;
+      const state = MEDIA_STATES[mediaIndex];
+      media.style.display = state ? "block" : "none";
+      if (state) setMediaText(state[0], state[1]);
     };
     showMedia();
     setInterval(() => {
@@ -337,18 +642,80 @@
           Math.abs(Math.sin(Date.now() / 260 + s * 1.3)) * 0.55);
         energy += target[s];
       }
+      lastAudioAt = performance.now();
       if (energy > 0.1) lastLoudAudio = Date.now();
-      if (!animating) { animating = true; requestAnimationFrame(draw); }
+      wake();
     }, 33);
+    let typescale = Number(localStorage.getItem("repose-typescale")) || 1;
+    const WALLS = ["moonlit-ocean", "blue-alps", "forest-path", "warm-dunes",
+                   "cool-neon-city", "purple-brutalism"];
+    let wallIndex = Number(localStorage.getItem("repose-wall") ?? -1);
+    const hint = document.getElementById("devhint");
+    const refreshHint = () => {
+      hint.textContent = "dev · q quiet · l loud · k look (" + look + ") · " +
+        `x pixels (${pixels ? "on" : "off"}) · p synth audio · a agents · ` +
+        `m media · s grade · n night · w wall (${wallIndex < 0 ? "off" : WALLS[wallIndex]}) · ` +
+        `[ ] type ×${typescale.toFixed(2)}`;
+    };
+    const applyTypescale = () => {
+      document.documentElement.style.setProperty("--typescale", typescale.toFixed(2));
+      localStorage.setItem("repose-typescale", typescale);
+      refreshHint();
+    };
+    const applyWall = () => {
+      document.body.dataset.wall = wallIndex < 0 ? "off" : "on";
+      if (wallIndex >= 0) {
+        document.getElementById("wall").style.backgroundImage =
+          `url("../../theming/assets/${WALLS[wallIndex]}.jpg")`;
+      }
+      localStorage.setItem("repose-wall", wallIndex);
+      refreshHint();
+    };
+    if (params.get("wall")) {
+      const named = WALLS.indexOf(params.get("wall"));
+      wallIndex = named >= 0 ? named
+        : Math.min(WALLS.length - 1, Number(params.get("wall")) || 0);
+      if (params.get("wall") === "off") wallIndex = -1;
+    }
+    applyTypescale();
+    applyWall();
     document.addEventListener("keydown", (event) => {
       if (event.key === "q") setVariant("quiet");
       else if (event.key === "l") setVariant("loud");
+      else if (event.key === "k") {
+        setLook(look === "zephyr" ? "pixel" : "zephyr");
+        localStorage.setItem("repose-look", look);
+        refreshHint();
+      }
+      else if (event.key === "x") {
+        setPixels(pixels ? "off" : "on");
+        localStorage.setItem("repose-pixels", pixels ? "on" : "off");
+        refreshHint();
+      }
       else if (event.key === "p") { synth = !synth; if (!synth) target.fill(0); }
       else if (event.key === "a") {
         agentIndex = (agentIndex + 1) % AGENT_STATES.length;
         agents = AGENT_STATES[agentIndex];
         renderAgents();
-      } else if (event.key === "m") { mediaOn = !mediaOn; showMedia(); }
+      } else if (event.key === "m") {
+        mediaIndex = (mediaIndex + 1) % MEDIA_STATES.length;
+        showMedia();
+      }
+      else if (event.key === "w") {
+        wallIndex = ((wallIndex + 2) % (WALLS.length + 1)) - 1;
+        applyWall();
+      }
+      else if (event.key === "s") {
+        document.body.dataset.grade =
+          document.body.dataset.grade === "on" ? "off" : "on";
+      } else if (event.key === "n") {
+        document.body.dataset.night =
+          document.body.dataset.night === "on" ? "off" : "on";
+      } else if (event.key === "[") {
+        typescale = Math.max(0.5, typescale - 0.05); applyTypescale();
+      } else if (event.key === "]") {
+        typescale = Math.min(2, typescale + 0.05); applyTypescale();
+      }
     });
   }
 </script>
