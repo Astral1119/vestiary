@@ -561,7 +561,8 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
 
     func reloadFromConfig() {
         guard let wallpaper = loadConfiguredWallpaper() else {
-            print("reload requested but no valid wallpaper in \(configFile.path)")
+            teardownHosts()
+            print("cleared — daemon idle")
             return
         }
         apply(wallpaper)
