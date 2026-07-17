@@ -559,28 +559,33 @@ def theme(target):
     print(f"frame: {frame}  ({origin})")
     result = subprocess.run(
         ["livery", "import-wallpaper", frame, "--name", title,
-         "--subtitle", "Wallpaper Engine", "--credit", credit],
+         "--subtitle", "Wallpaper Engine", "--credit", credit,
+         "--live", base],
         capture_output=True, text=True)
     output = (result.stdout + result.stderr).strip()
     print(output)
     if result.returncode != 0:
         sys.exit("livery import failed")
     source = slug
-    colors_only = ""
+    has_live = False
     try:
         record = json.loads(result.stdout)
         source = record.get("id", slug)
-        if min(record.get("dimensions", [9999, 9999])) < 800:
-            colors_only = " --colors-only"
-            print("\nnote: low-res frame (workshop preview) — good palette source, "
-                  "poor static wallpaper; --colors-only recommended (the live "
-                  "layer covers the desktop anyway)")
+        has_live = bool(record.get("live"))
+        if not has_live and min(record.get("dimensions", [9999, 9999])) < 800:
+            print("\nnote: low-res frame — good palette source, poor static "
+                  "wallpaper; consider --colors-only")
     except (ValueError, TypeError):
         pass
-    print(f"""
+    if has_live:
+        print(f"""
+imported with live payload — Livery now treats it like any wallpaper:
+  livery apply "wallpaper:{source}:content"
+(the apply starts/points the live runtime; static frame is the fallback)""")
+    else:
+        print(f"""
 next:
-  livery apply "wallpaper:{source}:content"{colors_only}
-  wallpaperctl set {item_id or base}    # live layer + derived Look together""")
+  livery apply "wallpaper:{source}:content" """)
 
 
 def main():

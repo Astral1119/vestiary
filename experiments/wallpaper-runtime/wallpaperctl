@@ -2,6 +2,7 @@
 """Lifecycle control for the wallpaper runtime.
 
   wallpaperctl set <path-or-workshop-id>   # switch wallpaper (starts if needed)
+  wallpaperctl clear                       # tear down to idle (static desktop)
   wallpaperctl start | stop | restart
   wallpaperctl status
   wallpaperctl build                       # (re)compile the daemon binary
@@ -126,6 +127,18 @@ def set_wallpaper(target):
         print(f"set: {path}")
 
 
+def clear():
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(CONFIG, "w") as handle:
+        handle.write("")
+    pid = runtime_pid()
+    if pid:
+        os.kill(pid, signal.SIGUSR1)
+        print("cleared (daemon idle)")
+    else:
+        print("cleared")
+
+
 def status():
     pid = runtime_pid()
     print(f"running: {'yes (pid ' + str(pid) + ')' if pid else 'no'}")
@@ -178,6 +191,8 @@ def main():
     command = args[0]
     if command == "set" and len(args) > 1:
         set_wallpaper(args[1])
+    elif command == "clear":
+        clear()
     elif command == "start":
         start()
     elif command == "stop":

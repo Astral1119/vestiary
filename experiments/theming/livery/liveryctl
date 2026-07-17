@@ -26,6 +26,7 @@ LEGIBILITY_SOURCE="$ROOT/LegibilityAnalyzer.swift"
 LEGIBILITY_SHARED="$ROOT/BarLegibility.swift"
 IMAGE_BIN="$BUILD_ROOT/bin/livery-image"
 IMAGE_SOURCE="$ROOT/ImagePipeline.swift"
+WALLPAPERCTL="$ROOT/../../wallpaper-runtime/wallpaperctl"
 DERIVATIVE_CACHE="$BUILD_ROOT/cache/derivatives"
 ORIGINAL_STORE="$BUILD_ROOT/store/originals"
 
@@ -215,7 +216,8 @@ catalog_palette() (
           wallpaperId: $wallpaper.id,
           wallpaperName: $wallpaper.name,
           wallpaperFile: $wallpaper.fileName,
-          wallpaperAssetPath: ($wallpaper.assetPath // null)
+          wallpaperAssetPath: ($wallpaper.assetPath // null),
+          wallpaperLive: ($wallpaper.live // null)
         }'
 )
 
@@ -310,9 +312,15 @@ import_wallpaper() {
   name=
   subtitle="local / imported / unclassified"
   credit="local import"
+  live=
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --live)
+        [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+        live=$2
+        shift 2
+        ;;
       --name)
         [ "$#" -ge 2 ] || { usage >&2; exit 2; }
         name=$2
@@ -361,7 +369,19 @@ import_wallpaper() {
       | head -n 1
   )
   if [ -n "$existing" ]; then
-    printf '%s\n' "$existing" | jq '.'
+    existing_id=$(printf '%s\n' "$existing" | jq -r '.id')
+    if [ -n "$live" ] && [ -f "$LIBRARY_CATALOG" ] \
+      && jq -e --arg id "$existing_id" '.fixtures[] | select(.id == $id)' \
+        "$LIBRARY_CATALOG" >/dev/null; then
+      # Same image re-imported with a live payload: annotate the record.
+      jq --arg id "$existing_id" --arg live "$live" \
+        '.fixtures |= map(if .id == $id then .live = $live else . end)' \
+        "$LIBRARY_CATALOG" > "$content_next"
+      mv -f "$content_next" "$LIBRARY_CATALOG"
+      jq -e --arg id "$existing_id" '.fixtures[] | select(.id == $id)' "$LIBRARY_CATALOG"
+    else
+      printf '%s\n' "$existing" | jq '.'
+    fi
     rm -f "$descriptor" "$content" "$content_next" "$fixture" \
       "$content_palette" "$vibrant_palette" "$neutral_palette"
     return
@@ -420,6 +440,7 @@ import_wallpaper() {
     --arg credit "$credit" \
     --arg assetPath "$asset_path" \
     --arg assetDigest "$digest" \
+    --arg live "$live" \
     --slurpfile descriptor "$descriptor" \
     --slurpfile content "$content_palette" \
     --slurpfile vibrant "$vibrant_palette" \
@@ -433,6 +454,7 @@ import_wallpaper() {
         credit: $credit,
         assetPath: $assetPath,
         assetDigest: $assetDigest,
+        live: (if $live == "" then null else $live end),
         dimensions: $descriptor[0].dimensions,
         mediaType: $descriptor[0].mediaType,
         palettes: [$content[0], $vibrant[0], $neutral[0]]
@@ -809,6 +831,7 @@ write_wallpaper_authoritative_look() {
   fi
   wallpaper_id=$(jq -r '.wallpaperId' "$palette")
   wallpaper_file=$(jq -r '.wallpaperFile' "$palette")
+  wallpaper_live=$(jq -r '.wallpaperLive // empty' "$palette")
   wallpaper_source=$(jq -r '.wallpaperAssetPath // empty' "$palette")
   if [ -z "$wallpaper_source" ]; then
     wallpaper_source="$WALLPAPER_SOURCE_ROOT/$wallpaper_file"
@@ -898,6 +921,7 @@ write_wallpaper_authoritative_look() {
     --arg derivationDigest "$derivation_digest" \
     --arg themeDigest "$theme_digest" \
     --arg artifact "wallpaper/$artifact_name" \
+    --arg live "$wallpaper_live" \
     --slurpfile spec "$spec" \
     --slurpfile wallpaper "$wallpaper_meta" '
       .schemaVersion = 2
@@ -905,6 +929,7 @@ write_wallpaper_authoritative_look() {
       | .id = $id
       | .label = $spec[0].label
       | .specDigest = $specDigest
+      | .liveWallpaper = (if $live == "" then null else $live end)
       | .inputs = $spec[0].inputs
       | .coherence = $spec[0].coherence
       | .pipeline = $spec[0].pipeline
@@ -1891,6 +1916,21 @@ apply_wallpaper_for_target() {
   fi
 }
 
+sync_live_wallpaper() {
+  # Live-wallpaper adapter: point the runtime at the current Look's live
+  # payload, or clear it for static Looks. Decorative layer — non-fatal.
+  [ -x "$WALLPAPERCTL" ] || return 0
+  manifest="$RUNTIME_ROOT/current/manifest.json"
+  [ -f "$manifest" ] || return 0
+  live=$(json_value '.liveWallpaper // empty' "$manifest")
+  if [ -n "$live" ]; then
+    "$WALLPAPERCTL" set "$live" >/dev/null 2>&1 \
+      || echo "live wallpaper sync failed (non-fatal): $live" >&2
+  else
+    "$WALLPAPERCTL" clear >/dev/null 2>&1 || true
+  fi
+}
+
 write_state() {
   profile=$1
   current_target=$2
@@ -1949,6 +1989,7 @@ apply_profile() {
     if [ -n "$previous_target" ]; then
       atomic_link current "$previous_target"
       reload_live_targets || true
+      sync_live_wallpaper || true
     else
       unlink "$RUNTIME_ROOT/current"
     fi
@@ -1981,6 +2022,10 @@ apply_profile() {
   rm -f \
     "$wallpaper_before" "$wallpaper_after" \
     "$wallpaper_before_metadata" "$wallpaper_after_metadata"
+
+  if [ "$scope" = "look" ]; then
+    sync_live_wallpaper
+  fi
 
   echo "applied profile: $profile ($scope)"
   echo "current: $target"
@@ -2026,6 +2071,7 @@ rollback_profile() {
   profile=$(jq -r '.id' "$RUNTIME_ROOT/current/manifest.json")
   wallpaper_current_target=$(readlink "$WALLPAPER_RUNTIME/current")
   wallpaper_previous_target=$(readlink "$WALLPAPER_RUNTIME/previous")
+  sync_live_wallpaper
   write_state "$profile" "$previous_target" "$current_target" "look"
   echo "rolled back profile: $profile"
   echo "reloaded: Ghostty, SketchyBar, borders"
