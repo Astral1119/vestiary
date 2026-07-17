@@ -2,7 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-CONFIG_ROOT=${LIVERY_CONFIG_ROOT:-$(CDPATH='' cd -- "$ROOT/../../../.." && pwd)}
+CONFIG_ROOT=${LIVERY_CONFIG_ROOT:-$HOME/.config}
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/livery-test.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 
@@ -22,18 +22,18 @@ sh -n \
   "$ROOT/generate-themes" \
   "$ROOT/run" \
   "$ROOT/lvry"
-python3 -m py_compile "$ROOT/../../wallpaper-runtime/wallpaperctl"
-plutil -lint "$ROOT/../../wallpaper-runtime/HostInfo.plist" >/dev/null
+python3 -m py_compile "$ROOT/../fresco/wallpaperctl"
+plutil -lint "$ROOT/../fresco/HostInfo.plist" >/dev/null
 swiftc \
   -warnings-as-errors \
-  "$ROOT/../../wallpaper-runtime/WallpaperRuntimeHost.swift" \
+  "$ROOT/../fresco/WallpaperRuntimeHost.swift" \
   -o "$TMP/wallpaper-runtime-host"
 swiftc \
   -warnings-as-errors \
   -framework AppKit \
   -framework WebKit \
   -framework AVFoundation \
-  "$ROOT/../../wallpaper-runtime/WallpaperRuntime.swift" \
+  "$ROOT/../fresco/WallpaperRuntime.swift" \
   -o "$TMP/wallpaper-runtime"
 "$TMP/wallpaper-runtime" --self-test-agent-counts >/dev/null
 swiftc \
@@ -177,10 +177,13 @@ fi
 
 candidate="$ROOT/build/wallpaper-neon-city-vibrant/manifest.json"
 jq -e --slurpfile baseline "$ROOT/profiles/default.json" '
-  .schemaVersion == 2
+  def uw: if type == "object" and has("hex") then .hex else . end;
+  .schemaVersion == 3
     and .kind == "look-manifest"
     and .locks.signals == true
-    and .signals == $baseline[0].signals
+    and (.signals | walk(uw)) == $baseline[0].signals
+    and (.meta.scope == "global")
+    and (.ui.onPrimary | uw | test("^#[0-9a-f]{6}$"))
     and .coherence.authority == "wallpaper"
     and .coherence.operation == "derive-theme"
     and .coherence.wallpaperScope == "all-managed-spaces"
@@ -207,15 +210,17 @@ theme_stage="$ROOT/build/theme-default-warm-dunes-balanced"
 "$ROOT/liveryctl" validate "$theme_profile" >/dev/null
 theme_candidate="$theme_stage/manifest.json"
 jq -e --slurpfile baseline "$ROOT/profiles/default.json" '
-  .schemaVersion == 2
+  def uw: if type == "object" and has("hex") then .hex else . end;
+  .schemaVersion == 3
     and .kind == "look-manifest"
     and .coherence.authority == "theme"
     and .coherence.operation == "grade-wallpaper"
     and .coherence.constraints.preserveThemeDomains
       == ["ui", "signals", "terminal", "presentation", "effects"]
-    and .ui == $baseline[0].ui
-    and .signals == $baseline[0].signals
-    and .terminal == $baseline[0].terminal
+    and ((.ui | walk(uw) | del(.onPrimary, .outlineVariant, .overlay))
+      == $baseline[0].ui)
+    and (.signals | walk(uw)) == $baseline[0].signals
+    and (.terminal | walk(uw)) == $baseline[0].terminal
     and .outputs.theme.digest == .inputs.theme.digest
     and .outputs.wallpaper.digest != .inputs.wallpaper.digest
     and .outputs.wallpaper.derivationDigest != .specDigest
@@ -274,7 +279,8 @@ jq -e '
   .variant == "light"
     and .presentation.barLegibility.polarity == "dark"
     and .presentation.barLegibility.text == .ui.text
-    and .presentation.barLegibility.scrim == "#ffffff"
+    and (.presentation.barLegibility.scrim
+      | if type == "object" then .hex else . end) == "#ffffff"
 ' "$ROOT/build/theme-porcelain-day-blue-alps-balanced/manifest.json" >/dev/null
 
 # A derivation key ignores presentation aliases while the full spec identity
@@ -567,16 +573,16 @@ mkdir -p "$repose_home/.config/wallpaper-runtime/scenes" \
 : > "$repose_home/.config/wallpaper-runtime/scenes/alpha.mp4"
 : > "$repose_home/.config/wallpaper-runtime/scenes/beta.mp4"
 : > "$repose_home/.config/wallpaper-runtime/bin/wallpaper-runtime"
-HOME="$repose_home" "$ROOT/../../wallpaper-runtime/wallpaperctl" repose-state \
+HOME="$repose_home" "$ROOT/../fresco/wallpaperctl" repose-state \
   > "$TMP/repose-default.json"
 jq -e '
   .scenePool == ["desktop", "alpha.mp4", "beta.mp4"]
     and .viz == "strings"
 ' \
   "$TMP/repose-default.json" >/dev/null
-HOME="$repose_home" "$ROOT/../../wallpaper-runtime/wallpaperctl" \
+HOME="$repose_home" "$ROOT/../fresco/wallpaperctl" \
   repose-pool beta.mp4 alpha.mp4 beta.mp4 >/dev/null
-HOME="$repose_home" "$ROOT/../../wallpaper-runtime/wallpaperctl" \
+HOME="$repose_home" "$ROOT/../fresco/wallpaperctl" \
   repose-viz spectrum >/dev/null
 jq -e '
   .scenePool == ["beta.mp4", "alpha.mp4"]
