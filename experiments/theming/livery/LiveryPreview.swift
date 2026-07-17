@@ -1667,13 +1667,17 @@ private struct TerminalSpecimen: View {
                 .padding(11)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .background {
-                    ZStack {
-                        Image(nsImage: wallpaperImage)
-                            .resizable()
-                            .scaledToFill()
-                        Color(hex: palette.background, opacity: 0.50)
-                    }
-                    .clipped()
+                    // Color.clear pins the bounds to the snippet block, so the
+                    // fill image clips there instead of its own proposed size
+                    // (visible spill with small frames, e.g. workshop previews).
+                    Color.clear
+                        .overlay {
+                            Image(nsImage: wallpaperImage)
+                                .resizable()
+                                .scaledToFill()
+                        }
+                        .overlay(Color(hex: palette.background, opacity: 0.50))
+                        .clipped()
                 }
                 .overlay(Rectangle().stroke(Color(hex: palette.outline).opacity(0.26), lineWidth: 1))
 
