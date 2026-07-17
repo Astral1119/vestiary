@@ -22,18 +22,18 @@ sh -n \
   "$ROOT/generate-themes" \
   "$ROOT/run" \
   "$ROOT/lvry"
-python3 -m py_compile "$ROOT/../fresco/wallpaperctl"
+python3 -m py_compile "$ROOT/../fresco/fresco"
 plutil -lint "$ROOT/../fresco/HostInfo.plist" >/dev/null
 swiftc \
   -warnings-as-errors \
-  "$ROOT/../fresco/WallpaperRuntimeHost.swift" \
+  "$ROOT/../fresco/FrescoHost.swift" \
   -o "$TMP/wallpaper-runtime-host"
 swiftc \
   -warnings-as-errors \
   -framework AppKit \
   -framework WebKit \
   -framework AVFoundation \
-  "$ROOT/../fresco/WallpaperRuntime.swift" \
+  "$ROOT/../fresco/Fresco.swift" \
   -o "$TMP/wallpaper-runtime"
 "$TMP/wallpaper-runtime" --self-test-agent-counts >/dev/null
 swiftc \
@@ -573,16 +573,16 @@ mkdir -p "$repose_home/.config/wallpaper-runtime/scenes" \
 : > "$repose_home/.config/wallpaper-runtime/scenes/alpha.mp4"
 : > "$repose_home/.config/wallpaper-runtime/scenes/beta.mp4"
 : > "$repose_home/.config/wallpaper-runtime/bin/wallpaper-runtime"
-HOME="$repose_home" "$ROOT/../fresco/wallpaperctl" repose-state \
+HOME="$repose_home" "$ROOT/../fresco/fresco" repose-state \
   > "$TMP/repose-default.json"
 jq -e '
   .scenePool == ["desktop", "alpha.mp4", "beta.mp4"]
     and .viz == "strings"
 ' \
   "$TMP/repose-default.json" >/dev/null
-HOME="$repose_home" "$ROOT/../fresco/wallpaperctl" \
+HOME="$repose_home" "$ROOT/../fresco/fresco" \
   repose-pool beta.mp4 alpha.mp4 beta.mp4 >/dev/null
-HOME="$repose_home" "$ROOT/../fresco/wallpaperctl" \
+HOME="$repose_home" "$ROOT/../fresco/fresco" \
   repose-viz spectrum >/dev/null
 jq -e '
   .scenePool == ["beta.mp4", "alpha.mp4"]
