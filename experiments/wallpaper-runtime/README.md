@@ -111,12 +111,18 @@ prompts for password + Steam Guard, then caches), and put the username in
 `.steam-user` (or `$STEAM_USER`). Then:
 
 ```sh
-./workshop search "audio visualizer"     # web-type by default; --type video|scene|all
-./workshop browse "clock"                # Livery-themed local gallery: animated
-                                         # previews, subs counts, copyable run lines
+./workshop gallery                       # THE browse surface: live local app —
+                                         # search, animated previews, click-to-apply
+                                         # (hot-swaps via wallpaperctl), current
+                                         # wallpaper highlighted
+./workshop search "audio visualizer"     # CLI search; --type video|scene|all
+./workshop browse "clock"                # static HTML gallery (no server)
 ./workshop info 3208430444               # title, size, tags, page link
-./workshop run 3208430444                # download (cached login) + launch
+./workshop run 3208430444                # download (cached login) + launch foreground
 ```
+
+The gallery is the interim for — and interaction prototype of — the
+future Livery panel Workshop tab (FEASIBILITY.md stage 4).
 
 Search is keyless (public browse page for IDs + keyless details API for
 titles/tags/sizes); set `STEAM_API_KEY` for the richer QueryFiles
