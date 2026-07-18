@@ -17,5 +17,4 @@ written, watched by consumers. Spec: [`SPEC.md`](./SPEC.md) — frozen v1.0.
   task, single writer each, glob-and-merge to consume, evict entries whose
   pid/tmux-pane is dead.
 
-State-supported, not state-critical: every consumer must work with this
-directory absent.
+Every consumer works with this directory absent.
