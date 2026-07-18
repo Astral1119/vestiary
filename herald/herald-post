@@ -1,5 +1,5 @@
 #!/bin/sh
-# herald-post <channel> — the herald doorbell (DATA-PLANE-DESIGN.md §2).
+# herald-post <channel> — the herald doorbell (herald/SPEC.md §2).
 # Payload-free nudge via macOS notifyd; files remain authoritative and
 # consumers that miss the nudge converge via their directory watcher.
 # Always exits 0: a doorbell must never break a publisher.

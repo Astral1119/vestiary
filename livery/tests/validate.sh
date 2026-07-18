@@ -111,7 +111,7 @@ done
 library_runtime="$TMP/library-runtime"
 LIVERY_RUNTIME_ROOT="$library_runtime" \
   "$ROOT/liveryctl" import-wallpaper \
-  "$ROOT/../assets/moonlit-ocean.jpg" \
+  "$ROOT/assets/moonlit-ocean.jpg" \
   --name "Imported Moon" \
   --subtitle "dark / local / test" \
   --credit "validation fixture" > "$TMP/imported.json"
@@ -142,7 +142,7 @@ jq -e '
 # Reimporting the same bytes returns the existing record without duplicating it.
 LIVERY_RUNTIME_ROOT="$library_runtime" \
   "$ROOT/liveryctl" import-wallpaper \
-  "$ROOT/../assets/moonlit-ocean.jpg" \
+  "$ROOT/assets/moonlit-ocean.jpg" \
   --name "Duplicate Name" > "$TMP/duplicate.json"
 [ "$(jq -r '.id' "$TMP/duplicate.json")" = "imported-moon" ]
 [ "$(LIVERY_RUNTIME_ROOT="$library_runtime" \
@@ -483,7 +483,7 @@ LIVERY_SKIP_RELOAD=1 \
 [ "$(jq -r '.wallpaperPrevious' "$TMP/runtime/state.json")" = "$(readlink "$TMP/runtime/wallpaper/previous")" ]
 
 # A file pin survives Look apply and rollback as orthogonal global state.
-lock_image="$(CDPATH='' cd -- "$ROOT/../assets" && pwd)/moonlit-ocean.jpg"
+lock_image="$(CDPATH='' cd -- "$ROOT/assets" && pwd)/moonlit-ocean.jpg"
 LIVERY_CONFIG_ROOT="$TMP/config" \
 LIVERY_RUNTIME_ROOT="$TMP/runtime" \
 LIVERY_SKIP_RELOAD=1 \

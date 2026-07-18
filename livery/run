@@ -9,7 +9,7 @@ READY="/tmp/livery-$(id -u).ready"
 
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
-cp "$ROOT"/../assets/*.jpg "$APP/Contents/Resources/"
+cp "$ROOT"/assets/*.jpg "$APP/Contents/Resources/"
 cp "$ROOT/palettes.json" "$APP/Contents/Resources/"
 cp "$ROOT/themes.json" "$APP/Contents/Resources/"
 

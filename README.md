@@ -33,13 +33,11 @@ The pieces compose but don't require each other:
 |---|---|
 | `contract/` | The public API: manifest schema + normative docs (`SPEC.md`, frozen v1.0). Everything meets here. |
 | `adapters/` | One executable per themed app: `render` / `validate` / `reload` / `loader-check`. Language-agnostic, directory-discovered. |
-| `livery/` | Producer: the wallpaper↔theme engine (Matugen palettes, semantic themes, transactional Looks). `liveryctl` is the orchestrator. |
+| `livery/` | Producer: the wallpaper↔theme engine (Matugen palettes, semantic themes, transactional Looks). `liveryctl` is the orchestrator; fixtures in `assets/`, matugen fetch in `tools/`. |
 | `livery.nvim/` | The nvim consumer plugin (overlay + fs_event watcher), paired with `adapters/nvim`. |
-| `orchestrator/` | Reserved: apply/transaction machinery extraction (spec §3.2); today that machinery lives in `livery/liveryctl`. |
 | `fresco/` | The wallpaper runtime: Wallpaper Engine video/web wallpapers at the macOS desktop layer, WE JS API shim, livery bridge. |
-| `herald/` | The state bus: per-channel JSON snapshots under `~/.config/herald/`, notifyd doorbell. Spec: `docs/DATA-PLANE-DESIGN.md`. |
-| `repose/` | Quiet-screen: scene-pool cover with audio visualizer, composed over fresco. Roadmap: `repose/HANDOFF.md`. |
-| `tools/`, `assets/` | matugen fetch step, shared wallpaper fixtures (livery siblings by path). |
+| `herald/` | The state bus: per-channel JSON snapshots under `~/.config/herald/`, notifyd doorbell. Spec: `herald/SPEC.md`, frozen v1.0. |
+| `repose/` | Quiet-screen design lab (spikes, mockups, roadmap: `repose/HANDOFF.md`); the shipped composition fresco loads lives at `fresco/repose/`. |
 | `docs/` | Design records: SYSTEM-REVIEW.md (roadmap), THEME-LOOP-DESIGN.md (spec history; frozen contract is contract/SPEC.md), theming research. |
 
 ## Quickstart

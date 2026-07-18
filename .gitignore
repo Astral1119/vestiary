@@ -4,7 +4,7 @@
 **/samples/third-party/
 **/samples/gradient-loop.mp4
 **/__pycache__/
-tools/bin/
+livery/tools/bin/
 **/.theme-frames/
-tools/.crates.toml
-tools/.crates2.json
+livery/tools/.crates.toml
+livery/tools/.crates2.json

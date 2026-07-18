@@ -1,7 +1,7 @@
 # herald
 
 The state bus: `~/.config/herald/` — per-channel JSON snapshots, atomically
-written, watched by consumers. Spec: `../docs/DATA-PLANE-DESIGN.md`.
+written, watched by consumers. Spec: [`SPEC.md`](./SPEC.md) — frozen v1.0.
 
 **Watch the directory; reconcile by reading.**
 
