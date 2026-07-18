@@ -789,8 +789,11 @@ private func liveryControlURL() -> URL {
     if let override = ProcessInfo.processInfo.environment["LIVERY_CTL"], !override.isEmpty {
         return URL(fileURLWithPath: override)
     }
-    return FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/sketchybar-concepts/experiments/theming/livery/liveryctl")
+    // The panel is always rebuilt from the live tree (lvry recompiles on
+    // staleness), so the compile-time source path tracks the repo location.
+    return URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .appendingPathComponent("liveryctl")
 }
 
 private func runLiveryControl(_ arguments: [String]) -> ControlResult {
