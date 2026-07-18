@@ -82,9 +82,26 @@ render() {
   bar_lavender=$(cv '.presentation.barLegibility.roles.lavender' "$manifest")
   bar_teal=$(cv '.presentation.barLegibility.roles.teal' "$manifest")
   bar_peach=$(cv '.presentation.barLegibility.roles.peach' "$manifest")
+  font_mono=$(jv '.targets.sketchybar.fonts.mono // .fonts.mono.family // empty' "$manifest")
+  font_ui=$(jv '.targets.sketchybar.fonts.ui // .fonts.ui.family // empty' "$manifest")
+  font_display=$(jv '.targets.sketchybar.fonts.display // .fonts.display.family // empty' "$manifest")
+
+  # fonts domain (contract §2.4): families only — sizes and styles stay the
+  # consumer's. Empty table when the manifest predates the domain, so
+  # `colors.fonts.x or <literal>` is always safe dots-side.
+  fonts_lua="  fonts = {"
+  [ -n "$font_mono" ] && fonts_lua="$fonts_lua
+    mono = \"$font_mono\","
+  [ -n "$font_ui" ] && fonts_lua="$fonts_lua
+    ui = \"$font_ui\","
+  [ -n "$font_display" ] && fonts_lua="$fonts_lua
+    display = \"$font_display\","
+  fonts_lua="$fonts_lua
+  },"
 
   cat > "$output" <<EOF
 return {
+$fonts_lua
   black = $(opaque "$black"),
   white = $(opaque "$white"),
   red = $(opaque "$red"),
