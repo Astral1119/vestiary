@@ -2260,7 +2260,7 @@ apply_profile() {
 
   echo "applied profile: $profile ($scope)"
   echo "current: $target"
-  echo "reloaded: Ghostty, SketchyBar, borders"
+  echo "reloaded: $(for a in "$ADAPTERS_ROOT"/*; do [ -x "$a" ] && printf "%s " "$(basename "$a")"; done)"
   if [ "$scope" = "look" ]; then
     echo "wallpaper: synchronized"
   else
@@ -2307,7 +2307,7 @@ rollback_profile() {
   sync_live_wallpaper
   write_state "$profile" "$previous_target" "$current_target" "look"
   echo "rolled back profile: $profile"
-  echo "reloaded: Ghostty, SketchyBar, borders"
+  echo "reloaded: $(for a in "$ADAPTERS_ROOT"/*; do [ -x "$a" ] && printf "%s " "$(basename "$a")"; done)"
   echo "wallpaper: synchronized"
 }
 
