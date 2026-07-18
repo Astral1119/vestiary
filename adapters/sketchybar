@@ -1,0 +1,187 @@
+#!/bin/sh
+# vestiary adapter: sketchybar
+# Contract: ../contract/SPEC.md §3 — render <manifest> <outdir> |
+# validate <outdir> | reload <profiledir> | loader-check.
+# Exit codes: 0 success · 1 operation failed · 2 usage/unknown verb.
+# Emits: <outdir>/colors.lua — consumed by the dofile shim in the user's
+# sketchybar config. The nested `bar` table uses presentation.barLegibility
+# (wallpaper-crop-adjusted; this adapter is its only legitimate consumer —
+# SPEC §2.2); top-level roles use the raw semantic palette.
+set -eu
+
+FRAGMENT_NAME="colors.lua"
+SKETCHYBAR_SHIM="${LIVERY_SKETCHYBAR_SHIM:-$HOME/.config/sketchybar/colors.lua}"
+LOADER_LINE='/current/sketchybar/colors.lua'
+
+JQ_UNWRAP='def uw: if type == "object" and has("hex") then .hex else . end;'
+
+cv() {
+  jq -r "$JQ_UNWRAP($1) | uw" "$2"
+}
+
+jv() {
+  jq -r "$1" "$2"
+}
+
+opaque() {
+  color=${1#\#}
+  printf '0xff%s' "$color"
+}
+
+with_alpha() {
+  alpha=$1
+  color=${2#\#}
+  printf '0x%02x%s' "$alpha" "$color"
+}
+
+render() {
+  manifest=$1
+  outdir=$2
+  [ -r "$manifest" ] || { echo "render: manifest unreadable: $manifest" >&2; exit 1; }
+  mkdir -p "$outdir"
+  output="$outdir/$FRAGMENT_NAME"
+
+  black=$(cv '.targets.sketchybar.colors.black // .ui.background' "$manifest")
+  white=$(cv '.targets.sketchybar.colors.white // .ui.text' "$manifest")
+  red=$(cv '.targets.sketchybar.colors.red // .signals.error' "$manifest")
+  green=$(cv '.targets.sketchybar.colors.green // .signals.success' "$manifest")
+  blue=$(cv '.targets.sketchybar.colors.blue // .ui.primary' "$manifest")
+  yellow=$(cv '.targets.sketchybar.colors.yellow // .signals.warning' "$manifest")
+  orange=$(cv '.targets.sketchybar.colors.orange // .signals.attention' "$manifest")
+  magenta=$(cv '.targets.sketchybar.colors.magenta // .ui.secondary' "$manifest")
+  grey=$(cv '.targets.sketchybar.colors.grey // .ui.textMuted' "$manifest")
+  maroon=$(cv '.targets.sketchybar.colors.maroon // .signals.error' "$manifest")
+  mauve=$(cv '.targets.sketchybar.colors.mauve // .ui.secondary' "$manifest")
+  lavender=$(cv '.targets.sketchybar.colors.lavender // .ui.secondary' "$manifest")
+  teal=$(cv '.targets.sketchybar.colors.teal // .ui.tertiary' "$manifest")
+  peach=$(cv '.targets.sketchybar.colors.peach // .signals.attention' "$manifest")
+  background=$(cv '.ui.background' "$manifest")
+  surface=$(cv '.targets.sketchybar.surface // .ui.surface' "$manifest")
+  outline=$(cv '.targets.sketchybar.barBorder // .ui.outline' "$manifest")
+  selection=$(cv '.ui.selection' "$manifest")
+  hairline=$(cv '.effects.hairline' "$manifest")
+  popup_alpha=$(jv '.effects.popupBackgroundAlpha' "$manifest")
+  popup_border_alpha=$(jv '.effects.popupBorderAlpha' "$manifest")
+  surface_alpha=$(jv '.effects.surfaceAlpha' "$manifest")
+  wash_alpha=$(jv '.effects.secondaryWashAlpha' "$manifest")
+  chip_alpha=$(jv '.effects.chipAlpha' "$manifest")
+  bar_text=$(cv '.presentation.barLegibility.text' "$manifest")
+  bar_text_muted=$(cv '.presentation.barLegibility.textMuted' "$manifest")
+  bar_accent=$(cv '.presentation.barLegibility.accent' "$manifest")
+  bar_scrim=$(cv '.presentation.barLegibility.scrim' "$manifest")
+  bar_scrim_alpha=$(jv '.presentation.barLegibility.scrimAlpha' "$manifest")
+  bar_red=$(cv '.presentation.barLegibility.roles.red' "$manifest")
+  bar_green=$(cv '.presentation.barLegibility.roles.green' "$manifest")
+  bar_blue=$(cv '.presentation.barLegibility.roles.blue' "$manifest")
+  bar_yellow=$(cv '.presentation.barLegibility.roles.yellow' "$manifest")
+  bar_orange=$(cv '.presentation.barLegibility.roles.orange' "$manifest")
+  bar_magenta=$(cv '.presentation.barLegibility.roles.magenta' "$manifest")
+  bar_grey=$(cv '.presentation.barLegibility.roles.grey' "$manifest")
+  bar_maroon=$(cv '.presentation.barLegibility.roles.maroon' "$manifest")
+  bar_mauve=$(cv '.presentation.barLegibility.roles.mauve' "$manifest")
+  bar_lavender=$(cv '.presentation.barLegibility.roles.lavender' "$manifest")
+  bar_teal=$(cv '.presentation.barLegibility.roles.teal' "$manifest")
+  bar_peach=$(cv '.presentation.barLegibility.roles.peach' "$manifest")
+
+  cat > "$output" <<EOF
+return {
+  black = $(opaque "$black"),
+  white = $(opaque "$white"),
+  red = $(opaque "$red"),
+  green = $(opaque "$green"),
+  blue = $(opaque "$blue"),
+  yellow = $(opaque "$yellow"),
+  orange = $(opaque "$orange"),
+  magenta = $(opaque "$magenta"),
+  grey = $(opaque "$grey"),
+  transparent = 0x00000000,
+  maroon = $(opaque "$maroon"),
+  mauve = $(opaque "$mauve"),
+  lavender = $(opaque "$lavender"),
+  teal = $(opaque "$teal"),
+  peach = $(opaque "$peach"),
+
+
+  bar = {
+    bg = $(with_alpha "$bar_scrim_alpha" "$bar_scrim"),
+    border = $(opaque "$outline"),
+    text = $(opaque "$bar_text"),
+    text_muted = $(opaque "$bar_text_muted"),
+    accent = $(opaque "$bar_accent"),
+    red = $(opaque "$bar_red"),
+    green = $(opaque "$bar_green"),
+    blue = $(opaque "$bar_blue"),
+    yellow = $(opaque "$bar_yellow"),
+    orange = $(opaque "$bar_orange"),
+    magenta = $(opaque "$bar_magenta"),
+    grey = $(opaque "$bar_grey"),
+    maroon = $(opaque "$bar_maroon"),
+    mauve = $(opaque "$bar_mauve"),
+    lavender = $(opaque "$bar_lavender"),
+    teal = $(opaque "$bar_teal"),
+    peach = $(opaque "$bar_peach"),
+  },
+  popup = {
+    -- Ghostty parity: catppuccin-mocha base at 0.5 opacity. The old
+    -- 0x2c2e34 base is what read "gray"; this matches the terminal glass.
+    bg = $(with_alpha "$popup_alpha" "$background"),
+    -- Liquid-glass edge: a faint light hairline, not a saturated outline.
+    border = $(with_alpha "$popup_border_alpha" "$hairline"),
+    text = $(opaque "$white"),
+    text_muted = $(opaque "$grey"),
+  },
+  bg1 = $(with_alpha "$surface_alpha" "$surface"),
+  bg2 = $(with_alpha "$wash_alpha" "$mauve"),
+  -- Neutral glass chip for the single active-space highlight in the rail.
+  chip = $(with_alpha "$chip_alpha" "$selection"),
+
+  with_alpha = function(color, alpha)
+    if alpha > 1.0 or alpha < 0.0 then return color end
+    return (color & 0x00ffffff) | (math.floor(alpha * 255.0) << 24)
+  end,
+}
+EOF
+  echo "rendered sketchybar fragment: $output"
+}
+
+validate() {
+  outdir=$1
+  fragment="$outdir/$FRAGMENT_NAME"
+  [ -r "$fragment" ] || { echo "validate: fragment missing: $fragment" >&2; exit 1; }
+  if command -v luac >/dev/null 2>&1; then
+    luac -p "$fragment" || { echo "validate: luac rejected fragment" >&2; exit 1; }
+    echo "sketchybar fragment parses"
+  else
+    echo "validate: luac not available — skipping"
+  fi
+}
+
+reload() {
+  if ! command -v sketchybar >/dev/null 2>&1 || ! pgrep -x sketchybar >/dev/null 2>&1; then
+    echo "sketchybar not running — nothing to reload"
+    exit 0
+  fi
+  sketchybar --reload
+  echo "sketchybar reloaded"
+}
+
+loader_check() {
+  if [ -r "$SKETCHYBAR_SHIM" ] && grep -Fq "$LOADER_LINE" "$SKETCHYBAR_SHIM"; then
+    echo "loader installed: $SKETCHYBAR_SHIM"
+    exit 0
+  fi
+  echo "loader missing: dofile shim for $LOADER_LINE expected at $SKETCHYBAR_SHIM"
+  exit 1
+}
+
+case "${1:-}" in
+  render)       [ $# -eq 3 ] || { echo "usage: sketchybar render <manifest> <outdir>" >&2; exit 2; }
+                render "$2" "$3" ;;
+  validate)     [ $# -eq 2 ] || { echo "usage: sketchybar validate <outdir>" >&2; exit 2; }
+                validate "$2" ;;
+  reload)       [ $# -eq 2 ] || { echo "usage: sketchybar reload <profiledir>" >&2; exit 2; }
+                reload "$2" ;;
+  loader-check) loader_check ;;
+  *)            echo "unknown verb: ${1:-<none>} (render|validate|reload|loader-check)" >&2
+                exit 2 ;;
+esac
