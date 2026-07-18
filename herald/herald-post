@@ -1,0 +1,9 @@
+#!/bin/sh
+# herald-post <channel> — the herald doorbell (DATA-PLANE-DESIGN.md §2).
+# Payload-free nudge via macOS notifyd; files remain authoritative and
+# consumers that miss the nudge converge via their directory watcher.
+# Always exits 0: a doorbell must never break a publisher.
+[ -n "${1:-}" ] || exit 0
+command -v notifyutil >/dev/null 2>&1 || exit 0
+notifyutil -p "vestiary.herald.$1" 2>/dev/null || true
+exit 0
