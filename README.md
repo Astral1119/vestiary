@@ -10,6 +10,18 @@ Design principle: **theme-supported, not theme-critical** — every consumer
 works with the contract absent. And **agent-supported, not agent-critical** —
 usable as a pure theming system by someone with no agents at all.
 
+![live Wallpaper Engine wallpaper with the bar themed from it](captures/hero-live.jpg)
+
+Same desktop, different Look — every surface re-themes from the wallpaper in
+one transactional apply:
+
+![the same desktop under a light wallpaper-derived Look](captures/hero-dunes.jpg)
+
+The `lvry` panel drives the loop — pick a wallpaper, get pinned Matugen
+palettes, preview the derived theme, apply:
+
+![the livery panel: wallpaper to theme](captures/panel.png)
+
 ## What stands alone
 
 The pieces compose but don't require each other:
