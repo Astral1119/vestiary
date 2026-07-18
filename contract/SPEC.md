@@ -1,6 +1,6 @@
 # Theme loop design — contract + adapter specification
 
-**FROZEN v1.0 — 2026-07-17** (astral sign-off after comparative review §8 and
+**FROZEN v1.0 — 2026-07-17** (maintainer sign-off after comparative review §8 and
 prior-art freeze-risk review: scopes reserved, vocabulary policy locked, verb
 stability rules locked). Canonical copy: `~/personal/vestiary/contract/SPEC.md`.
 Frozen surfaces: §2 (contract incl. evolution policy) and §3 (adapter verbs
@@ -50,7 +50,7 @@ work with the contract absent — ghostty's `?` include, sketchybar's
 pcall-fallback, and yabai's inline fallback already model this; tmux (`-q`
 source) and nvim (pcall + no-op) must follow.
 
-## 1b. Ship boundary (astral, 2026-07-17)
+## 1b. Ship boundary (maintainer, 2026-07-17)
 
 **Mechanism ships with vestiary; policy stays in dotfiles.** Vestiary ships the
 contract, orchestrator, adapters (tmux adapter = generic palette-as-user-options
@@ -62,7 +62,7 @@ the moonfly-specific overlay choices (default config of a generic plugin), or
 any agent affordance (hooks, cockpit, data plane) — `signals` carries no agent
 concepts; agent integration remains a personal (or later optional) layer,
 per agent-supported-not-critical. Decision #8's tmux refactor is thus two
-workstreams: adapter (product) + astral's tmux.conf (personal), shipped
+workstreams: adapter (product) + the user's tmux.conf (personal), shipped
 together but versioned apart.
 
 ## 2. Contract specification
@@ -290,7 +290,7 @@ spec): on startup and on change —
 
 ## 6. Rollout (unchanged order, now with an added step 0)
 
-0. **Freeze** — comparative review done (§9), fixes folded in; astral sign-off
+0. **Freeze** — comparative review done (§9), fixes folded in; maintainer sign-off
    on §2/§3 as the frozen v1 contract; then implementation begins. Livery's
    resolve path gains the new ui roles / structured values / meta block first
    (producer change), since adapters are written against the frozen shape.
@@ -307,7 +307,7 @@ spec): on startup and on change —
    design doc (separate — event channels for agent/system state into
    wallpaper/widgets, per SYSTEM-REVIEW §3A.3).
 
-## 7. Resolved questions (astral, 2026-07-17)
+## 7. Resolved questions (maintainer, 2026-07-17)
 
 1. **Failure semantics**: reload-failure→warn CONFIRMED (render/validate
    failures still abort pre-install).

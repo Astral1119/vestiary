@@ -34,7 +34,7 @@ State lives in `~/.config/fresco/` (`current`, `pid`, `log`,
 and the compiled `bin/fresco`); `fresco` recompiles
 automatically when the source is newer than the binary. Daily-driver starts run
 that mutable worker beneath `~/Applications/Fresco.app`, a tiny
-frozen host with bundle ID `local.astral.fresco`. Grant that app
+frozen host with bundle ID `local.vestiary.fresco`. Grant that app
 Screen & System Audio Recording once. Normal worker rebuilds never rewrite or
 re-sign the host, so its TCC identity and permission remain stable. The host is
 only replaced if it is missing or its signature is invalid.
@@ -42,7 +42,7 @@ only replaced if it is missing or its signature is invalid.
 ### TCC identity
 
 Host app `~/Applications/Fresco.app` (note: user-level `~/Applications`),
-bundle id `local.astral.fresco`, launchd label `local.fresco`, host binary
+bundle id `local.vestiary.fresco`, launchd label `local.fresco`, host binary
 `fresco-host`, worker `bin/fresco`. The System Audio Recording grant is
 anchored to the bundle id + signature; `build_host` preserves the exact bits,
 so only a deliberate identity change needs a re-grant — procedure: stop
