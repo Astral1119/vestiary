@@ -62,7 +62,7 @@ LOG = os.path.join(STATE_DIR, "log")
 LABEL = "local.fresco"
 PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
 LIVERY_ROOT = os.path.expanduser("~/.config/livery")
-LIVERY_ENGINE = os.path.join(os.path.dirname(SCRIPT_DIR), "theming", "livery",
+LIVERY_ENGINE = os.path.join(os.path.dirname(SCRIPT_DIR), "livery",
                              "build", "bin", "livery-wallpaper-engine")
 APP_ID = 431960
 WORKSHOP_DIR = os.path.expanduser(
