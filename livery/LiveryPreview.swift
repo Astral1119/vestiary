@@ -268,8 +268,24 @@ private struct WallpaperFixture: Identifiable, Decodable {
     }
 
     var imageURL: URL? {
-        if let assetPath, FileManager.default.fileExists(atPath: assetPath) {
-            return URL(fileURLWithPath: assetPath)
+        if let assetPath {
+            if FileManager.default.fileExists(atPath: assetPath) {
+                return URL(fileURLWithPath: assetPath)
+            }
+            // A catalog written on another machine carries that machine's
+            // absolute path; the store is content-addressed, so recover by
+            // basename from the local library store (mirrors liveryctl).
+            let environment = ProcessInfo.processInfo.environment
+            let runtimeRoot = environment["LIVERY_RUNTIME_ROOT"].map { URL(fileURLWithPath: $0) }
+                ?? URL(fileURLWithPath: environment["LIVERY_CONFIG_ROOT"]
+                    ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config").path)
+                    .appendingPathComponent("livery")
+            let recovered = runtimeRoot
+                .appendingPathComponent("library/assets")
+                .appendingPathComponent((assetPath as NSString).lastPathComponent)
+            if FileManager.default.fileExists(atPath: recovered.path) {
+                return recovered
+            }
         }
         if let assets = ProcessInfo.processInfo.environment["LIVERY_ASSETS"] {
             let url = URL(fileURLWithPath: assets).appendingPathComponent(fileName)
