@@ -1,6 +1,8 @@
 import AppKit
 import WebKit
 import AVFoundation
+import Darwin
+import notify
 
 // Phase-1 live-wallpaper runtime: desktop-level
 // per-display windows playing Wallpaper Engine video and web wallpapers,
@@ -611,7 +613,7 @@ final class MediaFeed {
     }
 }
 
-// MARK: - Agent-state feed (hook-truth from tmux @agent_state)
+// MARK: - Agent-state feed (Herald tasks channel)
 
 struct AgentCounts: Equatable {
     var working: Int
@@ -619,39 +621,100 @@ struct AgentCounts: Equatable {
     var done: Int
 }
 
+struct HeraldTask {
+    let state: String
+    let paneID: String?
+    let pid: pid_t?
+}
+
 final class AgentFeed {
+    private static let heraldRoot = URL(fileURLWithPath: NSHomeDirectory())
+        .appendingPathComponent(".config/herald")
+    private static let channelDirectory = heraldRoot.appendingPathComponent("tasks.d")
     private let queue = DispatchQueue(label: "wallpaper.runtime.agents", qos: .utility)
     private var timer: DispatchSourceTimer?
+    private var notifyToken: Int32?
+    private var debounceWorkItem: DispatchWorkItem?
     private var lastCounts = AgentCounts(working: -1, waiting: -1, done: -1)
     // last pushed counts (main-thread) — seeded into webviews created later
     private(set) var lastProperties: [String: Any] = [:]
     var onChange: (([String: Any]) -> Void)?
 
-    static var available: Bool { shell(["which", "tmux"]).status == 0 }
-
-    func start() {
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 2, repeating: 4)
-        timer.setEventHandler { [weak self] in self?.poll() }
-        timer.resume()
-        self.timer = timer
+    static var available: Bool {
+        FileManager.default.fileExists(atPath: heraldRoot.path)
+            || shell(["which", "tmux"]).status == 0
     }
 
-    func stop() { timer?.cancel() }
+    func start() {
+        var token: Int32 = 0
+        let status = notify_register_dispatch(
+            "vestiary.herald.tasks", &token, queue
+        ) { [weak self] _ in
+            self?.scheduleDoorbellReconcile()
+        }
+        if status == 0 { notifyToken = token }
 
-    // Grouped tmux sessions expose the same linked windows once per client
-    // session. `list-panes -a` therefore repeats physical panes; pane_id is
-    // the server-wide identity and must be folded before counting states.
-    static func counts(from listing: String) -> AgentCounts {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 30, repeating: 30)
+        timer.setEventHandler { [weak self] in self?.reconcile() }
+        timer.resume()
+        self.timer = timer
+
+        // No notification replay exists, so always seed from the channel.
+        queue.async { [weak self] in self?.reconcile() }
+    }
+
+    func stop() {
+        debounceWorkItem?.cancel()
+        debounceWorkItem = nil
+        timer?.cancel()
+        timer = nil
+        if let notifyToken {
+            notify_cancel(notifyToken)
+            self.notifyToken = nil
+        }
+    }
+
+    // Parse the channel independently of I/O so fixtures can exercise the
+    // merge contract with synthetic task envelopes.
+    static func tasks(from documents: [Data]) -> [HeraldTask] {
+        documents.compactMap { document in
+            guard let envelope = try? JSONSerialization.jsonObject(with: document)
+                    as? [String: Any],
+                  let data = envelope["data"] as? [String: Any],
+                  let state = data["state"] as? String,
+                  let kind = data["kind"] as? String,
+                  !kind.isEmpty
+            else { return nil }
+
+            let rawPane = ((data["focus"] as? [String: Any])?["tmux"]
+                as? [String: Any])?["pane"] as? String
+            let paneID = rawPane.flatMap {
+                $0.isEmpty ? nil : $0
+            }
+
+            var pid: pid_t?
+            if let number = (data[kind] as? [String: Any])?["pid"] as? NSNumber {
+                let value = number.int64Value
+                if value > 0, value <= Int64(Int32.max) { pid = pid_t(value) }
+            }
+            return HeraldTask(state: state, paneID: paneID, pid: pid)
+        }
+    }
+
+    // A pane anchor is authoritative when tmux answered. Without one, pid
+    // liveness is mandatory. Supplying both snapshots keeps merge/count logic
+    // pure and directly testable.
+    static func counts(from tasks: [HeraldTask], livePaneIDs: Set<String>?,
+                       livePIDs: Set<pid_t>) -> AgentCounts {
         var counts = AgentCounts(working: 0, waiting: 0, done: 0)
-        var seenPaneIDs = Set<Substring>()
-        for line in listing.split(separator: "\n") {
-            guard let separator = line.firstIndex(of: "|") else { continue }
-            let paneID = line[..<separator]
-            guard !paneID.isEmpty, seenPaneIDs.insert(paneID).inserted else { continue }
-            let state = line[line.index(after: separator)...]
-                .trimmingCharacters(in: .whitespaces)
-            switch state {
+        for task in tasks {
+            if let paneID = task.paneID {
+                if let livePaneIDs, !livePaneIDs.contains(paneID) { continue }
+            } else {
+                guard let pid = task.pid, livePIDs.contains(pid) else { continue }
+            }
+            switch task.state {
             case "working": counts.working += 1
             case "waiting": counts.waiting += 1
             case "done": counts.done += 1
@@ -661,11 +724,41 @@ final class AgentFeed {
         return counts
     }
 
-    private func poll() {
-        let result = shell(["tmux", "list-panes", "-a", "-F",
-                            "#{pane_id}|#{@agent_state}"])
-        guard result.status == 0 else { return }
-        let counts = Self.counts(from: result.stdout)
+    private static func readTasks() -> [HeraldTask] {
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: channelDirectory, includingPropertiesForKeys: nil
+        )) ?? []
+        let documents = urls.compactMap { url -> Data? in
+            guard !url.lastPathComponent.hasPrefix("."), url.pathExtension == "json"
+            else { return nil }
+            return try? Data(contentsOf: url)
+        }
+        return tasks(from: documents)
+    }
+
+    private func scheduleDoorbellReconcile() {
+        debounceWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in self?.reconcile() }
+        debounceWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + .milliseconds(100), execute: workItem)
+    }
+
+    private func reconcile() {
+        // One pane snapshot per merge. A failed call means tmux is unavailable,
+        // so pane-anchored tasks survive without falling back to transient pids.
+        let paneResult = shell(["tmux", "list-panes", "-a", "-F", "#{pane_id}"])
+        let livePaneIDs: Set<String>? = paneResult.status == 0
+            ? Set(paneResult.stdout.split(whereSeparator: { $0.isWhitespace }).map(String.init))
+            : nil
+        let tasks = Self.readTasks()
+        let livePIDs = Set(tasks.compactMap { task -> pid_t? in
+            guard task.paneID == nil, let pid = task.pid, Darwin.kill(pid, 0) == 0
+            else { return nil }
+            return pid
+        })
+        let counts = Self.counts(
+            from: tasks, livePaneIDs: livePaneIDs, livePIDs: livePIDs
+        )
         guard counts != lastCounts else { return }
         lastCounts = counts
         let properties: [String: Any] = [
@@ -1325,7 +1418,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
                 self?.allWebHosts.forEach { $0.push(properties: properties) }
             }
             agentFeed.start()
-            print("agents: tmux @agent_state feed live")
+            print("agents: herald tasks channel feed live")
         }
 
         if MediaFeed.available {
@@ -1434,22 +1527,23 @@ let positional = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("--") 
 let daemonMode = flags.contains("--daemon")
 
 if flags.contains("--self-test-agent-counts") {
-    let groupedFixture = """
-    %1|working
-    %2|done
-    %3|waiting
-    %4|
-    %1|working
-    %2|done
-    %3|waiting
-    %4|
-    %1|working
-    %2|done
-    %3|waiting
-    %4|
-    """
+    let fixtures = [
+        ("working", "%1", 9001), // pane wins even when its pid is dead
+        ("waiting", nil, 9002),
+        ("done", "%3", 9003),
+        ("done", nil, 9004),      // dead pane-less task is evicted
+        ("working", "%gone", 9002), // missing pane wins over a live pid
+    ].map { state, pane, pid -> Data in
+        var task: [String: Any] = [
+            "kind": "codex", "state": state, "codex": ["pid": pid]
+        ]
+        if let pane { task["focus"] = ["tmux": ["pane": pane]] }
+        return try! JSONSerialization.data(withJSONObject: ["data": task])
+    }
+    let tasks = AgentFeed.tasks(from: fixtures)
     let expected = AgentCounts(working: 1, waiting: 1, done: 1)
-    guard AgentFeed.counts(from: groupedFixture) == expected else {
+    guard AgentFeed.counts(from: tasks, livePaneIDs: ["%1", "%3"],
+                           livePIDs: [9002]) == expected else {
         fputs("agent-count self-test failed\n", stderr)
         exit(1)
     }
