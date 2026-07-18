@@ -7,7 +7,7 @@ and independently authored semantic themes are separate checked-in catalogs,
 so either side can be held fixed without pretending the operations are
 inverses.
 
-The interface is a graphical workbench with terminal sensibilities rather than a miniature desktop or a macOS settings panel. Grid mode is the source browser; detail mode uses the real image, semantic roles, a syntax-highlighted Lua specimen, and a draft terminal mapping as its inspection surfaces. JetBrains Mono, compact spacing, flat controls, hairline boundaries, explicit shortcut labels, restrained backdrop blur, and theme-colored scroll chrome follow the surrounding Ghostty/SketchyBar environment; decorative desktop mockups are intentionally absent.
+The interface is a graphical workbench, not a miniature desktop or a macOS settings panel. Grid mode is the source browser; detail mode uses the real image, semantic roles, a syntax-highlighted Lua specimen, and a draft terminal mapping as its inspection surfaces. JetBrains Mono, compact spacing, flat controls, hairline boundaries, explicit shortcut labels, restrained backdrop blur, and theme-colored scroll chrome follow the surrounding Ghostty/SketchyBar environment; decorative desktop mockups are intentionally absent.
 
 ## Run
 

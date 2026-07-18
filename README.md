@@ -7,8 +7,8 @@ and web wallpapers at the desktop layer and rethemes them live from the same
 contract; a small file bus carries task state for bars and quiet-screens.
 
 Design principle: **theme-supported, not theme-critical** — every consumer
-works with the contract absent. And **agent-supported, not agent-critical** —
-usable as a pure theming system by someone with no agents at all.
+works with the contract absent; **agent-supported, not agent-critical** —
+usable as a pure theming system with no agents installed.
 
 ![live Wallpaper Engine wallpaper with the bar themed from it](captures/hero-live.jpg)
 
@@ -27,9 +27,9 @@ palettes, preview the derived theme, apply:
 The pieces compose but don't require each other:
 
 - **livery** (with `contract/`, `adapters/`, `livery.nvim/`) — the theming
-  engine — is fully standalone: ingest a wallpaper image, get pinned Matugen
+  engine — is standalone: ingest a wallpaper image, get pinned Matugen
   palettes and transactional themed surfaces. It calls fresco to set the
-  live wallpaper only if fresco is built, and shrugs if it isn't.
+  live wallpaper only if fresco is built, and skips that step if it isn't.
 - **fresco** — the wallpaper runtime — is standalone: it plays Wallpaper
   Engine video/web projects with no theming installed; the livery bridge
   activates only when a manifest exists. Owning Wallpaper Engine on Steam is
@@ -43,7 +43,7 @@ The pieces compose but don't require each other:
 
 | Dir | What |
 |---|---|
-| `contract/` | The public API: manifest schema + normative docs (`SPEC.md`, frozen v1.0). Everything meets here. |
+| `contract/` | The public API: manifest schema + normative docs (`SPEC.md`, frozen v1.0). Every other piece implements or consumes it. |
 | `adapters/` | One executable per themed app: `render` / `validate` / `reload` / `loader-check`. Language-agnostic, directory-discovered. |
 | `livery/` | Producer: the wallpaper↔theme engine (Matugen palettes, semantic themes, transactional Looks). `liveryctl` is the orchestrator; fixtures in `assets/`, matugen fetch in `tools/`. |
 | `livery.nvim/` | The nvim consumer plugin (overlay + fs_event watcher), paired with `adapters/nvim`. |
@@ -70,7 +70,7 @@ livery apply <profile>
 
 Audio-reactive wallpapers need a one-time Screen & System Audio Recording
 grant (`fresco audio-permission` prints the steps); everything else works
-without it — ungranted wallpapers just play silent. Workshop wallpapers need
+without it — ungranted wallpapers play silent. Workshop wallpapers need
 Wallpaper Engine on Steam plus `steamcmd`; the bundled and fetchable samples
 don't.
 
