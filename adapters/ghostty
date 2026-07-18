@@ -69,6 +69,10 @@ reload() {
 }
 
 loader_check() {
+  if [ ! -x "$GHOSTTY_BIN" ] && ! command -v ghostty >/dev/null 2>&1; then
+    echo "loader n/a: ghostty not installed"
+    exit 0
+  fi
   if [ -r "$GHOSTTY_CONF" ] && grep -Fq "$LOADER_LINE" "$GHOSTTY_CONF"; then
     echo "loader installed: $GHOSTTY_CONF"
     exit 0

@@ -20,6 +20,22 @@ usable as a pure theming/hotkey system by someone with no agents at all.
 | `tools/`, `assets/` | Pinned matugen, shared wallpaper fixtures (livery siblings by path). |
 | `docs/` | Design records: SYSTEM-REVIEW.md (roadmap), THEME-LOOP-DESIGN.md (spec history; frozen contract is contract/SPEC.md), theming research. |
 
+## Quickstart
+
+```sh
+git clone https://github.com/Astral1119/vestiary.git
+cd vestiary
+./install
+```
+
+`./install` checks dependencies, fetches matugen, puts `livery`, `lvry`, and `fresco` on PATH, and reports loader wiring.
+
+```sh
+livery apply default
+# add the loader lines ./install printed for the surfaces you use
+livery apply <profile>
+```
+
 Runtime/contract state lives at `~/.config/livery/` (contract dir; the name
 predates vestiary and is kept for path stability — compat rename deferred) and
 `~/.config/fresco/` (fresco state; `~/.config/wallpaper-runtime` remains as a

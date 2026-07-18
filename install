@@ -1,0 +1,139 @@
+#!/bin/sh
+set -eu
+
+REPO_ROOT=$(cd "$(dirname "$0")" && pwd)
+
+required_missing=0
+
+report_dependency() {
+  dependency=$1
+  kind=$2
+  consequence=$3
+
+  # ghostty ships its CLI inside the app bundle, usually off PATH
+  if [ "$dependency" = ghostty ] && [ -x "${LIVERY_GHOSTTY_BIN:-/Applications/Ghostty.app/Contents/MacOS/ghostty}" ]; then
+    status=found
+    consequence=''
+    printf '  %-14s %-10s %-8s %s\n' "$dependency" "$kind" "$status" "$consequence"
+    return
+  fi
+  if command -v "$dependency" >/dev/null 2>&1; then
+    status=found
+    consequence=''
+  else
+    status=missing
+    if [ "$kind" = required ]; then
+      required_missing=1
+    fi
+  fi
+
+  printf '  %-14s %-10s %-8s %s\n' "$dependency" "$kind" "$status" "$consequence"
+}
+
+echo "dependencies"
+printf '  %-14s %-10s %-8s %s\n' "command" "need" "status" "when missing"
+report_dependency jq required "required for bootstrap"
+report_dependency swiftc required "livery, lvry, and fresco compile Swift helpers"
+report_dependency cargo optional "needed once, to fetch matugen"
+report_dependency ffmpeg optional "scene lock images + video frame extraction"
+report_dependency tmux optional "the tmux surface won't be themed"
+report_dependency nvim optional "the nvim surface won't be themed"
+report_dependency ghostty optional "the ghostty surface won't be themed"
+report_dependency sketchybar optional "the sketchybar surface won't be themed"
+report_dependency borders optional "the borders surface won't be themed"
+report_dependency yabai optional "borders loader rides yabairc"
+report_dependency cava optional "fresco audio/now-playing"
+report_dependency media-control optional "fresco audio/now-playing"
+report_dependency steamcmd optional "workshop client"
+
+if [ "$required_missing" -ne 0 ]; then
+  echo "install: required dependencies are missing" >&2
+  exit 1
+fi
+
+MATUGEN="$REPO_ROOT/tools/bin/matugen"
+if [ -x "$MATUGEN" ]; then
+  printf '\nmatugen: '
+  "$MATUGEN" --version
+elif command -v cargo >/dev/null 2>&1; then
+  echo ""
+  echo "matugen: fetching pinned release"
+  "$REPO_ROOT/tools/fetch-matugen"
+else
+  echo ""
+  echo "matugen: install cargo, then run tools/fetch-matugen"
+fi
+
+for shim in \
+  "livery:livery/liveryctl" \
+  "lvry:livery/lvry" \
+  "fresco:fresco/fresco"; do
+  target=${shim#*:}
+  if [ ! -x "$REPO_ROOT/$target" ]; then
+    echo "install: corrupt clone: missing executable $REPO_ROOT/$target" >&2
+    exit 1
+  fi
+done
+
+SHIM_DIR="$HOME/.local/bin"
+mkdir -p "$SHIM_DIR"
+expected_shim=$(mktemp "${TMPDIR:-/tmp}/vestiary-install.XXXXXX")
+trap 'rm -f "$expected_shim"' 0
+trap 'exit 1' HUP INT TERM
+
+echo ""
+echo "command shims"
+for shim in \
+  "livery:livery/liveryctl" \
+  "lvry:livery/lvry" \
+  "fresco:fresco/fresco"; do
+  name=${shim%%:*}
+  target=${shim#*:}
+  shim_path="$SHIM_DIR/$name"
+  printf '#!/bin/sh\nexec "%s/%s" "$@"\n' "$REPO_ROOT" "$target" > "$expected_shim"
+
+  if [ -e "$shim_path" ] || [ -L "$shim_path" ]; then
+    if cmp -s "$expected_shim" "$shim_path"; then
+      chmod +x "$shim_path"
+      echo "  $name: ok"
+      continue
+    fi
+
+    existing_target=$(sed -n 's/^exec "\([^"]*\)" "\$@"$/\1/p' "$shim_path" 2>/dev/null || true)
+    if [ -z "$existing_target" ]; then
+      existing_target="unrecognized content at $shim_path"
+    fi
+    echo "  $name: kept existing target: $existing_target"
+    echo "    remove $shim_path if you want it regenerated"
+    continue
+  fi
+
+  cp "$expected_shim" "$shim_path"
+  chmod +x "$shim_path"
+  echo "  $name: installed -> $REPO_ROOT/$target"
+done
+
+case ":${PATH:-}:" in
+  *":$SHIM_DIR:"*) ;;
+  *) echo "warning: $SHIM_DIR is not in PATH" >&2 ;;
+esac
+
+echo ""
+echo "loader wiring"
+for adapter in "$REPO_ROOT"/adapters/*; do
+  [ -x "$adapter" ] || continue
+  printf '\n%s:\n' "$(basename "$adapter")"
+  # loader failures are guidance, not installer failures.
+  "$adapter" loader-check || true
+done
+
+cat <<'EOF'
+
+next steps
+  livery apply default
+  wire any missing loader lines from the report above
+  livery apply <profile>
+
+  livery list shows profiles
+  fresco set <path-or-workshop-id> starts a live wallpaper
+EOF

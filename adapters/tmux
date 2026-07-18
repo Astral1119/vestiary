@@ -118,6 +118,10 @@ reload() {
 }
 
 loader_check() {
+  if ! command -v tmux >/dev/null 2>&1; then
+    echo "loader n/a: tmux not installed"
+    exit 0
+  fi
   if [ -r "$TMUX_CONF" ] && grep -Fq "$LOADER_LINE" "$TMUX_CONF"; then
     echo "loader installed: $TMUX_CONF"
     exit 0

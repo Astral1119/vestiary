@@ -166,6 +166,10 @@ reload() {
 }
 
 loader_check() {
+  if ! command -v sketchybar >/dev/null 2>&1; then
+    echo "loader n/a: sketchybar not installed"
+    exit 0
+  fi
   if [ -r "$SKETCHYBAR_SHIM" ] && grep -Fq "$LOADER_LINE" "$SKETCHYBAR_SHIM"; then
     echo "loader installed: $SKETCHYBAR_SHIM"
     exit 0

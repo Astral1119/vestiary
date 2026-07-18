@@ -71,6 +71,10 @@ reload() {
 }
 
 loader_check() {
+  if ! command -v borders >/dev/null 2>&1; then
+    echo "loader n/a: borders not installed"
+    exit 0
+  fi
   if [ -r "$YABAIRC" ] && grep -Fq "$LOADER_LINE" "$YABAIRC"; then
     echo "loader installed: $YABAIRC"
     exit 0
