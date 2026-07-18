@@ -496,6 +496,15 @@ import_wallpaper() {
     exit 1
   }
 
+  # Mirror the live payload into the library so it travels with the
+  # catalog; sync_live_wallpaper recovers it by workshop id elsewhere.
+  if [ -n "$live" ] && [ -d "$live" ] \
+    && [ ! -d "$LIBRARY_ROOT/live/${live##*/}" ]; then
+    mkdir -p "$LIBRARY_ROOT/live"
+    cp -R "$live" "$LIBRARY_ROOT/live/${live##*/}" || \
+      echo "live payload mirror failed (non-fatal): $live" >&2
+  fi
+
   generate_import_palette "$asset_path" "$id" content c \
     content-aware scheme-content "$content_palette"
   generate_import_palette "$asset_path" "$id" vibrant v \
@@ -2178,6 +2187,21 @@ sync_live_wallpaper() {
   manifest="$RUNTIME_ROOT/current/manifest.json"
   [ -f "$manifest" ] || return 0
   live=$(json_value '.liveWallpaper // empty' "$manifest")
+  if [ -n "$live" ] && [ ! -e "$live" ]; then
+    # A manifest written on another machine records that machine's payload
+    # path. Recover: library mirror (keyed by workshop id), then the same
+    # Steam path under this home; else keep the Look's still image.
+    for live_candidate in "$LIBRARY_ROOT/live/${live##*/}" "$HOME/${live#/Users/*/}"; do
+      if [ -e "$live_candidate" ]; then
+        live=$live_candidate
+        break
+      fi
+    done
+    if [ ! -e "$live" ]; then
+      echo "live payload not on this machine — using the still image: $live" >&2
+      live=
+    fi
+  fi
   if [ -n "$live" ]; then
     "$WALLPAPERCTL" set "$live" >/dev/null 2>&1 \
       || echo "live wallpaper sync failed (non-fatal): $live" >&2
