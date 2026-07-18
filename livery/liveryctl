@@ -1804,8 +1804,15 @@ capture_wallpaper_topology() {
   spaces=$(mktemp "${TMPDIR:-/tmp}/livery-spaces.XXXXXX")
   displays=$(mktemp "${TMPDIR:-/tmp}/livery-displays.XXXXXX")
   status=$(mktemp "${TMPDIR:-/tmp}/livery-wallpaper-status.XXXXXX")
-  yabai -m query --spaces > "$spaces"
-  yabai -m query --displays > "$displays"
+  # topology is yabai's view; without yabai the fields are null and the
+  # snapshot digest still stabilizes on the wallpaper status alone.
+  if command -v yabai >/dev/null 2>&1; then
+    yabai -m query --spaces > "$spaces"
+    yabai -m query --displays > "$displays"
+  else
+    printf 'null' > "$spaces"
+    printf 'null' > "$displays"
+  fi
   "$WALLPAPER_BIN" status > "$status"
   jq -n \
     --slurpfile spaces "$spaces" \
@@ -1918,16 +1925,22 @@ apply_theme_wallpaper_for_target() {
   if [ "$output_kind" = "artifact" ]; then
     image=$(wallpaper_artifact_for_target "$target")
     apply_global_wallpaper "$image"
-  elif [ "$output_kind" = "provider-state" ] \
-    && { [ -f "$WALLPAPER_BASELINE" ] || [ "${LIVERY_SKIP_RELOAD:-0}" = "1" ]; }
-  then
+  elif [ "$output_kind" = "provider-state" ]; then
     if [ "${LIVERY_SKIP_RELOAD:-0}" != "1" ]; then
       ensure_wallpaper_helper
-      "$WALLPAPER_BIN" restore "$WALLPAPER_BASELINE"
+      if [ -f "$WALLPAPER_BASELINE" ]; then
+        "$WALLPAPER_BIN" restore "$WALLPAPER_BASELINE"
+      else
+        # first apply on this machine: nothing was ever captured, so the
+        # current desktop IS the baseline — capture it instead of failing,
+        # and skip the restore (it would re-set the identical state).
+        mkdir -p "$(dirname "$WALLPAPER_BASELINE")"
+        "$WALLPAPER_BIN" snapshot "$WALLPAPER_BASELINE"
+      fi
     fi
     image=""
   else
-    echo "wallpaper provider-state restore unavailable: no topology-aware baseline" >&2
+    echo "unknown wallpaper output kind: $output_kind" >&2
     return 1
   fi
 }
