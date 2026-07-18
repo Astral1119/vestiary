@@ -1,4 +1,4 @@
-# wallpaper-runtime — phase-1 live wallpaper for macOS
+# fresco — phase-1 live wallpaper for macOS
 
 A lean, single-file implementation of phase 1 from
 [`FEASIBILITY.md`](./FEASIBILITY.md): Wallpaper Engine **video** and
@@ -23,18 +23,18 @@ Spaces, ignores the mouse, and is invisible to yabai.
 Daemon (daily driver):
 
 ```sh
-./wallpaperctl set 3208430444          # workshop id (fetches if needed) or path;
+./fresco set 3208430444                # workshop id (fetches if needed) or path;
                                        # starts the daemon, or hot-swaps via SIGUSR1
-./wallpaperctl status | stop | restart
-./wallpaperctl audio-permission        # show the stable app to grant once
-./wallpaperctl install-agent           # launchd: start at login, KeepAlive
+./fresco status | stop | restart
+./fresco audio-permission              # show the stable app to grant once
+./fresco install-agent                 # launchd: start at login, KeepAlive
 ```
 
-State lives in `~/.config/wallpaper-runtime/` (`current`, `pid`, `log`,
-and the compiled `bin/wallpaper-runtime`); `wallpaperctl` recompiles
+State lives in `~/.config/fresco/` (`current`, `pid`, `log`,
+and the compiled `bin/fresco`); `fresco` recompiles
 automatically when the source is newer than the binary. Daily-driver starts run
-that mutable worker beneath `~/Applications/Wallpaper Runtime.app`, a tiny
-frozen host with bundle ID `local.astral.wallpaper-runtime`. Grant that app
+that mutable worker beneath `~/Applications/Fresco.app`, a tiny
+frozen host with bundle ID `local.astral.fresco`. Grant that app
 Screen & System Audio Recording once. Normal worker rebuilds never rewrite or
 re-sign the host, so its TCC identity and permission remain stable. The host is
 only replaced if it is missing or its signature is invalid.
@@ -121,7 +121,7 @@ prompts for password + Steam Guard, then caches), and put the username in
 ```sh
 ./workshop gallery                       # THE browse surface: live local app —
                                          # search, animated previews, click-to-apply
-                                         # (hot-swaps via wallpaperctl), current
+                                         # (hot-swaps via fresco), current
                                          # wallpaper highlighted
 ./workshop search "audio visualizer"     # CLI search; --type video|scene|all
 ./workshop browse "clock"                # static HTML gallery (no server)
@@ -137,7 +137,7 @@ future Livery panel Workshop tab (FEASIBILITY.md stage 4).
 ```sh
 ./workshop theme 3419679793
 livery apply "wallpaper:codetime:content" --colors-only
-wallpaperctl set 3419679793
+./fresco set 3419679793
 ```
 
 `theme` extracts a representative frame — for video, ffmpeg's
@@ -171,7 +171,7 @@ either way.
 ## Repose interplay
 
 The repose cover host's transparent-backdrop mode (see
-[`../desktop-scenes/HANDOFF.md`](../desktop-scenes/HANDOFF.md)) shows
+[`../repose/HANDOFF.md`](../repose/HANDOFF.md)) shows
 this layer through the cover: the live wallpaper becomes the star,
 repose the stage lighting. During repose, cursor forwarding keeps the
 wallpaper reactive while the cover swallows clicks.
@@ -186,4 +186,4 @@ the frozen 10-band Zephyr geometry; `spectrum` uses 24 frequency groups mirrored
 around the center (bass inward, treble outward). Both share the same rolling
 normalization and attack/release model, settle and park in silence, and react to
 quiet/loud placement independently of the selected Look. In-cover `b` cycles
-the renderer; `wallpaperctl repose-viz strings|spectrum` is the external editor.
+the renderer; `fresco repose-viz strings|spectrum` is the external editor.
