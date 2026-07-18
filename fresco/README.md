@@ -1,6 +1,6 @@
 # fresco — phase-1 live wallpaper for macOS
 
-A lean, single-file phase-1 implementation: Wallpaper Engine **video** and
+A single-file phase-1 implementation: Wallpaper Engine **video** and
 **web** wallpapers rendered at the desktop layer, per display, with the
 WE JavaScript API shimmed natively. Scene (.pkg) wallpapers are phase 2
 and not supported here.
@@ -94,8 +94,7 @@ create via the per-app mode dropdown), then `fresco restart`.
   mapped), so parallax wallpapers react even though the window itself
   never receives events.
 - **Occlusion-pause**: `NSWindow.occlusionState` pauses video playback
-  and mutes the audio push when the wallpaper is fully covered — no
-  battery tax while working.
+  and mutes the audio push when the wallpaper is fully covered.
 
 ## Testing without Steam
 
@@ -103,7 +102,7 @@ create via the per-app mode dropdown), then `fresco restart`.
 wallpaper written for this runtime: three audio-swelled, cursor-
 parallaxed aurora ribbons colored by `schemecolor`/`livery*` properties.
 Its status line (bottom-left) reports which bridge features are live —
-`props:livery · audio:live` is full marks. It also runs in a plain
+`props:livery · audio:live` means every bridge feature is up. It also runs in a plain
 browser (bridge-guarded) for quick visual checks.
 
 ## Real WE wallpapers without Steam
@@ -120,7 +119,7 @@ no workshop mirrors):
 Plus `samples/gradient-loop.mp4`, generated locally with ffmpeg, for the
 video path. [hexxone/audiorbits](https://github.com/hexxone/audiorbits)
 (GPLv3, the best-known open WE wallpaper) needs a TypeScript build —
-worth trying once the simple three behave.
+worth trying once the three above work.
 
 ## Workshop content — the `workshop` client
 
@@ -140,8 +139,8 @@ prompts for password + Steam Guard, then caches), and put the username in
 ./workshop run 3208430444                # download (cached login) + launch foreground
 ```
 
-The gallery is the interim for — and interaction prototype of — the
-future Livery panel Workshop tab.
+The gallery is the interim browse surface and interaction prototype for
+the future Livery panel Workshop tab.
 
 ## Wallpaper → theme
 
@@ -158,9 +157,9 @@ provenance as the credit. Livery's existing machinery does the rest:
 three pinned matugen palettes, `wallpaper:<id>:<scheme>` profiles, full
 transactional apply. Low-res preview-derived frames get a
 `--colors-only` recommendation (palette yes, stretched static wallpaper
-no — the live layer covers the desktop anyway). Loop closure: the
+no — the live layer covers the desktop anyway). The
 runtime then pushes the derived theme's roles back into the wallpaper as
-`schemecolor` — the wallpaper is recolored by the theme it generated.
+`schemecolor`, so the wallpaper is recolored by the theme it generated.
 
 Search is keyless (public browse page for IDs + keyless details API for
 titles/tags/sizes); set `STEAM_API_KEY` for the richer QueryFiles
@@ -181,10 +180,9 @@ either way.
 
 ## Repose interplay
 
-The repose cover host's transparent-backdrop mode (see
-a design-record feature) shows
-this layer through the cover: the live wallpaper becomes the star,
-repose the stage lighting. During repose, cursor forwarding keeps the
+The repose cover host's transparent-backdrop mode shows this layer
+through the cover: the live wallpaper is visible, repose composites
+over it. During repose, cursor forwarding keeps the
 wallpaper reactive while the cover swallows clicks.
 
 The scene directory is the catalog, while `repose.json.scenePool` is the
