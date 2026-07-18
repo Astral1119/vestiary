@@ -3,6 +3,12 @@
 **FROZEN v1.0 — 2026-07-17** (maintainer sign-off after comparative review §8 and
 prior-art freeze-risk review: scopes reserved, vocabulary policy locked, verb
 stability rules locked). Canonical copy: `~/personal/vestiary/contract/SPEC.md`.
+**AMENDED v1.1 — 2026-07-18** (maintainer-ruled design session): additive
+`fonts` domain under the §2.2 vocabulary evolution policy — new §2.2 table row
+and §2.4, resolving §8's deferred fonts item. No schemaVersion bump (additive
+keys are non-breaking per §2.2; shipped manifests stamp v3 since the schema-v3
+color plumbing — the §2.2 heading's "schemaVersion 2" predates that and is a
+known doc drift, left for its own pass).
 Frozen surfaces: §2 (contract incl. evolution policy) and §3 (adapter verbs
 incl. stability rules). Everything else is tunable. Companion to
 SYSTEM-REVIEW.md §3A. Decided parameters: contract-first direction
@@ -105,6 +111,7 @@ Stable, adapters may depend on:
 | `variants` | optional: `variants.dark` / `variants.light` — both resolved palettes | additive; enables appearance-follow as a pure flip with no re-derivation (§6 step 4) |
 | `meta` | name, source.{image, scheme, contrast}, producer.{name, version}, resolvedAt | public provenance-lite ("what theme am I on") — distinct from the internal `provenance` block, feeds future data-plane/UX |
 | `targets` | `.targets.<adapter>.…` free-form per-app overrides | read via `// fallback` idiom: `.targets.tmux.accent // .ui.primary`; the fallback graph lives in the adapter, by design |
+| `fonts` | mono, ui, display | v1.1 additive (§2.4). Static configuration folded in at resolve, not wallpaper derivation. Value form `{family}`. A role absent from the manifest means the adapter emits no font directive for it |
 
 **Color value form:** every public color is `{hex: "#rrggbb", rgb: [r, g, b]}` —
 adapters in any language get both without reimplementing hex parsing (the
@@ -149,6 +156,74 @@ inside ghostty, so the floor is inherited — terminal-domain adapters take no
 action. Any future adapter for a surface NOT rendered through a
 minimum-contrast-capable host must state how it satisfies the floor (bake or
 document N/A).
+
+### 2.4 Fonts domain (v1.1, additive)
+
+#### 2.4.1 Vocabulary and value form
+
+Three roles: `mono` (terminal content, code, bar numbers), `ui` (bar text,
+widgets, OSD body when it lands), `display` (the decorative face — the family
+repose bundles today; OSD headings and native surfaces later).
+Value form is `{family: "<display family name>"}` — the one form sketchybar's
+`font.family`, ghostty's `font-family`, and CSS `font-family` all accept
+without translation. PostScript names are never used. Per-surface sizes are
+not vocabulary; they ride `targets` via the existing idiom
+(`.targets.<adapter>.fontSize // <adapter default>`). Future value keys
+(weight, features) are additive under the standard policy.
+
+Fallback chain (vocabulary policy rule 3): a role or the whole domain absent
+from the manifest means the adapter emits no font directive and the app keeps
+its own default — theme-supported-not-critical, and pre-v1.1 adapters ignore
+the domain by construction (policy rule 2).
+
+#### 2.4.2 Source: configuration, not derivation
+
+Fonts do not vary per look. Livery folds `~/.config/livery/fonts.json`
+(same shape as the manifest domain: role → `{family}`) into every manifest at
+resolve time; when the file is absent it uses the shipped defaults. The file
+lives at the contract root rather than in livery's producer config so a future
+trivial picker inherits the same fold-in. Look-level or per-app deviation uses
+the existing `targets` block; the shared vocabulary stays static.
+
+Shipped defaults: `mono` = `ui` = "JetBrainsMono Nerd Font",
+`display` = "Instrument Serif". mono/ui match every current literal, so
+landing the domain changes nothing visually (the §7.4 rule). display names
+the face repose already bundles in-repo via @font-face (SIL OFL, the 13-font
+trial verdict) — the cask in the fonts map makes the same family available
+system-wide for native surfaces (OSD and later), not to fix repose, which
+travels self-contained.
+
+#### 2.4.3 Install half
+
+Vestiary ships a fonts map (family → homebrew cask) covering the vocabulary
+defaults plus the functional glyph fonts the surfaces need but themes never
+choose: sketchybar-app-font, sf-symbols, CaskaydiaCove Nerd Font Mono,
+font-instrument-serif. `./install`'s dependency report gains a fonts section:
+presence-check each mapped family (CoreText query; swiftc is already a
+required dependency), report missing families with their cask names, offer
+the install when brew is present. Families referenced but outside the map
+report as unknown-source. Font casks install per-user (fresh-account finding
+2026-07-18), so the check is per-account, not per-machine; the dots Brewfile
+remains the personal-side mirror of the same casks.
+
+Glyph coverage is reported, not policed: `fonts.mono`'s default is a Nerd
+Font, and pointing it at a non-Nerd family degrades the tmux/bar marker
+glyphs. The map names what the surfaces need; the choice stays the user's.
+
+#### 2.4.4 Consumers and rollout order
+
+Producer fold-in first (every manifest-construction site in liveryctl gains
+the fonts block), then: ghostty adapter emits `font-family` from `fonts.mono`;
+the sketchybar adapter's rendered fragment carries `fonts.*` and the bar
+configs read it with the current literals as fallbacks — which deletes the
+hardcoded CaskaydiaCove literal in default.lua; fresco pushes `fonts.*` as
+`liveryfont<role>` text props alongside the existing palette push, so any
+composition MAY map them to CSS — repose deliberately does not consume them:
+its typefaces are the composition's identity (13-font trial verdict), and a
+theme flip must not restyle a designed face; OSD consumes from birth when its
+arc lands. Per the §1b ship boundary the
+sketchybar step is two workstreams: adapter fragment (product) and the
+dots-side bar configs (personal), shipped together, versioned apart.
 
 ## 3. Adapter interface specification
 
@@ -343,7 +418,8 @@ lint, base16↔ANSI documentation requirements + ui→M3→base16 mapping table,
 nvim maps syntax accents from base16 not ansi.
 
 **Deferred (additive, safe post-freeze)**: `fonts` domain (stylix model —
-monospace + per-context sizes; Ghostty/SketchyBar/OSD would consume),
+monospace + per-context sizes; Ghostty/SketchyBar/OSD would consume) —
+LANDED v1.1, §2.4,
 per-surface-class `effects` split, inverseSurface/inverseText/scrim (OSD
 phase), base16-scheme→manifest importer (open-source time), palette-per-
 wallpaper cache in livery.
