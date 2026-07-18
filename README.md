@@ -22,11 +22,17 @@ usable as a pure theming/hotkey system by someone with no agents at all.
 
 Runtime/contract state lives at `~/.config/livery/` (contract dir; the name
 predates vestiary and is kept for path stability — compat rename deferred) and
-`~/.config/wallpaper-runtime/` (fresco state; same policy). Fresco's TCC
-identity — host app `~/Applications/Wallpaper Runtime.app`, bundle id
-`local.astral.wallpaper-runtime`, launchd label, worker/host binary names —
-is DELIBERATELY not renamed: it anchors the System Audio Recording grant.
-Rename only at a packaging milestone, with the grant-while-stopped procedure.
+`~/.config/fresco/` (fresco state; `~/.config/wallpaper-runtime` remains as a
+compat symlink). Fresco's TCC identity was migrated 2026-07-17: host app
+`~/Applications/Fresco.app`, bundle id `local.astral.fresco`, launchd label
+`local.fresco`, host binary `fresco-host`, worker `bin/fresco`. The System
+Audio Recording grant is anchored to the bundle id + signature; `build_host`
+preserves the exact bits, so only a deliberate identity change needs a
+re-grant — procedure: stop everything, change identity, rebuild, then add
+`~/Applications/Fresco.app` (note: user-level ~/Applications) in System
+Settings → Privacy & Security → Screen & System Audio Recording (Audio Only
+suffices; the entry is kTCCServiceAudioCapture, which manual + adds create
+via the per-app mode dropdown), then `fresco restart`.
 
 History note: graduated 2026-07-17 from `sketchybar-concepts/experiments/`
 (the design lab), full git history preserved; `wallpaper-runtime` was renamed
