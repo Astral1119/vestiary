@@ -1717,7 +1717,9 @@ install_runtime_profile() {
   profile=$1
   staged=$2
   slug=$(profile_slug "$profile")
-  digest=$(shasum -a 256 "$staged/manifest.json" | awk '{print substr($1, 1, 12)}')
+  # resolvedAt is provenance, not content — digesting it would mint a new
+  # profile dir on every apply of an unchanged profile.
+  digest=$(jq -cS 'del(.meta.resolvedAt)' "$staged/manifest.json" | shasum -a 256 | awk '{print substr($1, 1, 12)}')
   name="$slug-$digest"
   destination="$RUNTIME_ROOT/profiles/$name"
 
