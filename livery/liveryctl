@@ -297,6 +297,11 @@ wallpaper_asset_path() {
   fixture_file=$1
   asset_path=$(jq -r '.assetPath // empty' "$fixture_file")
   if [ -n "$asset_path" ]; then
+    # A catalog written on another machine carries that machine's absolute
+    # path; the store is content-addressed, so recover by basename locally.
+    if [ ! -f "$asset_path" ] && [ -f "$LIBRARY_ROOT/assets/${asset_path##*/}" ]; then
+      asset_path="$LIBRARY_ROOT/assets/${asset_path##*/}"
+    fi
     printf '%s\n' "$asset_path"
   else
     wallpaper_file=$(jq -r '.fileName' "$fixture_file")
@@ -919,6 +924,10 @@ write_wallpaper_authoritative_look() {
   wallpaper_source=$(jq -r '.wallpaperAssetPath // empty' "$palette")
   if [ -z "$wallpaper_source" ]; then
     wallpaper_source="$WALLPAPER_SOURCE_ROOT/$wallpaper_file"
+  elif [ ! -f "$wallpaper_source" ] \
+    && [ -f "$LIBRARY_ROOT/assets/${wallpaper_source##*/}" ]; then
+    # foreign catalog: recover the content-addressed asset locally
+    wallpaper_source="$LIBRARY_ROOT/assets/${wallpaper_source##*/}"
   fi
   [ -f "$wallpaper_source" ] || {
     rm -f "$theme" "$wallpaper_meta" "$palette"
