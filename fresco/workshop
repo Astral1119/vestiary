@@ -25,6 +25,7 @@ Steam username in $STEAM_USER or the .steam-user file next to this script
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.parse
@@ -44,6 +45,10 @@ def http(url, data=None):
 
 
 def steam_user():
+    if shutil.which("steamcmd") is None:
+        sys.exit("steamcmd not installed — brew install steamcmd, then run\n"
+                 "  steamcmd +login <your steam user> +quit\n"
+                 "once; the cached login is what workshop downloads use")
     user = os.environ.get("STEAM_USER")
     if not user:
         path = os.path.join(SCRIPT_DIR, ".steam-user")
