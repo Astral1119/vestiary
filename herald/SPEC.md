@@ -169,7 +169,7 @@ agent-state.sh — the example publisher, not shipped infrastructure):
   PermissionRequest→waiting(attention: permission), Stop→done,
   Subagent*→ignored (never flips task state). Pre/PostCompact are not
   wired — the last state persists across compaction (amended 2026-07-18
-  per AGENT-LIFECYCLE §5.3: mapping follows reality).
+  per the 2026-07-18 lifecycle audit: mapping follows reality).
   Blind spot: a Codex plain question has no hook — heuristics only.
 
 **Transitions (bells/notifications):** NOT encoded as snapshot field flips —

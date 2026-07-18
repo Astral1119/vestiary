@@ -8,3 +8,9 @@ livery/tools/bin/
 **/.theme-frames/
 livery/tools/.crates.toml
 livery/tools/.crates2.json
+docs/
+repose/HANDOFF.md
+repose/RESEARCH.md
+repose/SPIKE.md
+repose/mockups/README.md
+fresco/FEASIBILITY.md
