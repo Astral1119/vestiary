@@ -602,7 +602,7 @@ def audio_permission():
     build_host()
     print("Screen & System Audio Recording permission owner:")
     print(f"  {HOST_APP}")
-    print("Grant or enable Wallpaper Runtime once in System Settings > "
+    print("Grant or enable Fresco once in System Settings > "
           "Privacy & Security > Screen & System Audio Recording, then run:")
     print("  fresco restart")
 

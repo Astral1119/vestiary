@@ -127,6 +127,23 @@ for adapter in "$REPO_ROOT"/adapters/*; do
   "$adapter" loader-check || true
 done
 
+# permissions command -v can't see: TCC grants and yabai's own setup.
+cat <<'EOF'
+
+system permissions
+  audio-reactive wallpapers need a one-time Screen & System Audio
+  Recording grant to ~/Applications/Fresco.app — run `fresco
+  audio-permission` for the exact steps. ungranted, wallpapers play
+  silent; fresco never raises the prompt in the background.
+EOF
+if command -v yabai >/dev/null 2>&1; then
+  cat <<'EOF'
+  yabai's scripting addition (SIP + sudoers, see the yabai wiki) belongs
+  to your yabai setup — vestiary adapters only query yabai and don't
+  need it; the borders loader just rides yabairc.
+EOF
+fi
+
 cat <<'EOF'
 
 next steps

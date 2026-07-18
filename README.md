@@ -36,6 +36,10 @@ livery apply default
 livery apply <profile>
 ```
 
+Audio-reactive wallpapers need a one-time Screen & System Audio Recording
+grant (`fresco audio-permission` prints the steps); everything else works
+without it — ungranted wallpapers just play silent.
+
 Runtime/contract state lives at `~/.config/livery/` (contract dir; the name
 predates vestiary and is kept for path stability — compat rename deferred) and
 `~/.config/fresco/` (fresco state; `~/.config/wallpaper-runtime` remains as a
