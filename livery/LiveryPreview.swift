@@ -136,36 +136,51 @@ private struct ThemePalette: Identifiable, Decodable {
     var resolvedGhosttyBackgroundOpacity: Double { ghosttyBackgroundOpacity ?? 0.5 }
 }
 
+// Manifest v3 writes colors as {hex, rgb} objects; v2 wrote bare strings.
+// Decode either, so the panel reads both generations of theme payloads.
+private struct HexString: Decodable {
+    let hex: String
+    init(from decoder: Decoder) throws {
+        let single = try decoder.singleValueContainer()
+        if let raw = try? single.decode(String.self) {
+            hex = raw
+        } else {
+            struct Boxed: Decodable { let hex: String }
+            hex = try single.decode(Boxed.self).hex
+        }
+    }
+}
+
 private struct SemanticThemeUI: Decodable {
-    let background: String
-    let surface: String
-    let surfaceElevated: String
-    let text: String
-    let textMuted: String
-    let primary: String
-    let secondary: String
-    let tertiary: String
-    let outline: String
-    let selection: String
+    let background: HexString
+    let surface: HexString
+    let surfaceElevated: HexString
+    let text: HexString
+    let textMuted: HexString
+    let primary: HexString
+    let secondary: HexString
+    let tertiary: HexString
+    let outline: HexString
+    let selection: HexString
 }
 
 private struct SemanticThemeSignals: Decodable {
-    let success: String
-    let warning: String
-    let error: String
-    let info: String
-    let attention: String
+    let success: HexString
+    let warning: HexString
+    let error: HexString
+    let info: HexString
+    let attention: HexString
 }
 
 private struct SemanticThemeTerminal: Decodable {
-    let background: String
-    let foreground: String
-    let cursor: String
-    let cursorText: String
-    let selectionBackground: String
-    let selectionForeground: String
+    let background: HexString
+    let foreground: HexString
+    let cursor: HexString
+    let cursorText: HexString
+    let selectionBackground: HexString
+    let selectionForeground: HexString
     let minimumContrast: Double
-    let ansi: [String]
+    let ansi: [HexString]
 }
 
 private struct SemanticThemeEffects: Decodable {
@@ -200,22 +215,22 @@ private struct ThemeLibraryEntry: Identifiable, Decodable {
             note: summary,
             generator: "livery",
             scheme: style,
-            sourceColor: theme.ui.primary,
-            background: theme.ui.background,
-            surface: theme.ui.surface,
-            surfaceElevated: theme.ui.surfaceElevated,
-            primary: theme.ui.primary,
-            primaryContainer: theme.ui.selection,
-            secondary: theme.ui.secondary,
-            tertiary: theme.ui.tertiary,
-            text: theme.ui.text,
-            textMuted: theme.ui.textMuted,
-            outline: theme.ui.outline,
-            error: theme.signals.error,
-            terminal: theme.terminal.ansi,
-            ansi: theme.terminal.ansi,
-            terminalBackground: theme.terminal.background,
-            terminalForeground: theme.terminal.foreground,
+            sourceColor: theme.ui.primary.hex,
+            background: theme.ui.background.hex,
+            surface: theme.ui.surface.hex,
+            surfaceElevated: theme.ui.surfaceElevated.hex,
+            primary: theme.ui.primary.hex,
+            primaryContainer: theme.ui.selection.hex,
+            secondary: theme.ui.secondary.hex,
+            tertiary: theme.ui.tertiary.hex,
+            text: theme.ui.text.hex,
+            textMuted: theme.ui.textMuted.hex,
+            outline: theme.ui.outline.hex,
+            error: theme.signals.error.hex,
+            terminal: theme.terminal.ansi.map(\.hex),
+            ansi: theme.terminal.ansi.map(\.hex),
+            terminalBackground: theme.terminal.background.hex,
+            terminalForeground: theme.terminal.foreground.hex,
             minimumContrast: theme.terminal.minimumContrast,
             ghosttyBackgroundOpacity: theme.effects.ghosttyBackgroundOpacity
         )
