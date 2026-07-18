@@ -5,5 +5,8 @@
 # Always exits 0: a doorbell must never break a publisher.
 [ -n "${1:-}" ] || exit 0
 command -v notifyutil >/dev/null 2>&1 || exit 0
-notifyutil -p "vestiary.herald.$1" 2>/dev/null || true
+# notifyutil -p costs ~160ms; the doorbell must not tax publishers, and
+# ordering never matters (files are authoritative; consumers reconcile by
+# reading), so post detached and return immediately.
+( notifyutil -p "vestiary.herald.$1" >/dev/null 2>&1 & )
 exit 0

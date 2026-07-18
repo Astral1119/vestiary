@@ -167,7 +167,9 @@ agent-state.sh — the example publisher, not shipped infrastructure):
   Recorded idea: done → idle decay on tmux pane-focus ("user saw it").
 - Codex event mapping: SessionStart→idle, UserPromptSubmit→working,
   PermissionRequest→waiting(attention: permission), Stop→done,
-  Subagent*→ignored (never flips task state), Pre/PostCompact→working.
+  Subagent*→ignored (never flips task state). Pre/PostCompact are not
+  wired — the last state persists across compaction (amended 2026-07-18
+  per AGENT-LIFECYCLE §5.3: mapping follows reality).
   Blind spot: a Codex plain question has no hook — heuristics only.
 
 **Transitions (bells/notifications):** NOT encoded as snapshot field flips —
