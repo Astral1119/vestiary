@@ -1,9 +1,8 @@
 # fresco — phase-1 live wallpaper for macOS
 
-A single-file phase-1 implementation: Wallpaper Engine **video** and
-**web** wallpapers rendered at the desktop layer, per display, with the
-WE JavaScript API shimmed natively. Scene (.pkg) wallpapers are phase 2
-and not supported here.
+Single-file phase-1 implementation. Wallpaper Engine **video** and **web**
+wallpapers rendered at the desktop layer, per display, with the WE JavaScript
+API shimmed natively. Scene (.pkg) wallpapers are phase 2, not supported here.
 
 ## Run
 
@@ -32,8 +31,8 @@ Daemon (daily driver):
 State lives in `~/.config/fresco/` (`current`, `pid`, `log`,
 and the compiled `bin/fresco`); `fresco` recompiles
 automatically when the source is newer than the binary. Daily-driver starts run
-that mutable worker beneath `~/Applications/Fresco.app`, a tiny
-frozen host with bundle ID `local.vestiary.fresco`. Grant that app
+that mutable worker beneath `~/Applications/Fresco.app`, a frozen host with
+bundle ID `local.vestiary.fresco`. Grant that app
 Screen & System Audio Recording once. Normal worker rebuilds never rewrite or
 re-sign the host, so its TCC identity and permission remain stable. The host is
 only replaced if it is missing or its signature is invalid.
@@ -44,7 +43,7 @@ Host app `~/Applications/Fresco.app` (note: user-level `~/Applications`),
 bundle id `local.vestiary.fresco`, launchd label `local.fresco`, host binary
 `fresco-host`, worker `bin/fresco`. The System Audio Recording grant is
 anchored to the bundle id + signature; `build_host` preserves the exact bits,
-so only a deliberate identity change needs a re-grant — procedure: stop
+so only a deliberate identity change needs a re-grant. Procedure: stop
 everything, change identity, rebuild, then add `~/Applications/Fresco.app` in
 System Settings → Privacy & Security → Screen & System Audio Recording (Audio
 Only suffices; the entry is kTCCServiceAudioCapture, which manual + adds
@@ -101,9 +100,9 @@ create via the per-app mode dropdown), then `fresco restart`.
 [`samples/aurora-web/`](./samples/aurora-web/) is a WE-compatible web
 wallpaper written for this runtime: three audio-swelled, cursor-
 parallaxed aurora ribbons colored by `schemecolor`/`livery*` properties.
-Its status line (bottom-left) reports which bridge features are live —
-`props:livery · audio:live` means every bridge feature is up. It also runs in a plain
-browser (bridge-guarded) for quick visual checks.
+Its status line (bottom-left) reports which bridge features are live;
+`props:livery · audio:live` means every bridge feature is up. It also runs in a
+plain browser (bridge-guarded) for quick visual checks.
 
 ## Real WE wallpapers without Steam
 
@@ -118,7 +117,7 @@ no workshop mirrors):
 
 Plus `samples/gradient-loop.mp4`, generated locally with ffmpeg, for the
 video path. [hexxone/audiorbits](https://github.com/hexxone/audiorbits)
-(GPLv3, the best-known open WE wallpaper) needs a TypeScript build —
+(GPLv3, the best-known open WE wallpaper) needs a TypeScript build;
 worth trying once the three above work.
 
 ## Workshop content — the `workshop` client
@@ -153,16 +152,16 @@ livery apply "wallpaper:codetime:content" --colors-only
 `theme` extracts a representative frame — for video, ffmpeg's
 `thumbnail` filter ~40% in; for web/scene, scanned from the Workshop
 preview — and ingests it via `livery import-wallpaper` with Workshop
-provenance as the credit. Livery's existing machinery does the rest:
-three pinned matugen palettes, `wallpaper:<id>:<scheme>` profiles, full
-transactional apply. Low-res preview-derived frames get a
+provenance as the credit. Livery's machinery handles the rest: three pinned
+matugen palettes, `wallpaper:<id>:<scheme>` profiles, full transactional
+apply. Low-res preview-derived frames get a
 `--colors-only` recommendation (palette yes, stretched static wallpaper
 no — the live layer covers the desktop anyway). The
 runtime then pushes the derived theme's roles back into the wallpaper as
 `schemecolor`, so the wallpaper is recolored by the theme it generated.
 
 Search is keyless (public browse page for IDs + keyless details API for
-titles/tags/sizes); set `STEAM_API_KEY` for the richer QueryFiles
+titles/tags/sizes); set `STEAM_API_KEY` for the QueryFiles
 backend. Downloads land under `~/Library/Application
 Support/Steam/steamapps/workshop/content/431960/<id>/`. Web and video
 items play; scene (.pkg) items download fine but need phase 2 (see

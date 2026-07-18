@@ -1,13 +1,19 @@
 # Livery
 
 A native macOS panel and companion CLI for a bidirectional wallpaper/theme
-workflow. The panel previews and explicitly applies reversible Looks through
-the same `liveryctl` transaction engine as the CLI. Wallpaper-derived palettes
-and independently authored semantic themes are separate checked-in catalogs,
-so either side can be held fixed without pretending the operations are
-inverses.
+workflow. The panel previews and applies reversible Looks through the same
+`liveryctl` transaction engine as the CLI. Wallpaper-derived palettes and
+independently authored semantic themes are separate checked-in catalogs, so
+either side can be held fixed. The two directions aren't inverses, and the
+catalogs don't pretend they are.
 
-The interface is a graphical workbench, not a miniature desktop or a macOS settings panel. Grid mode is the source browser; detail mode uses the real image, semantic roles, a syntax-highlighted Lua specimen, and a draft terminal mapping as its inspection surfaces. JetBrains Mono, compact spacing, flat controls, hairline boundaries, explicit shortcut labels, restrained backdrop blur, and theme-colored scroll chrome follow the surrounding Ghostty/SketchyBar environment; decorative desktop mockups are intentionally absent.
+The interface is a graphical workbench, not a miniature desktop or a settings
+panel. Grid mode browses sources. Detail mode inspects one wallpaper through
+the real image, semantic roles, a syntax-highlighted Lua specimen, and a draft
+terminal mapping. JetBrains Mono, compact spacing, flat controls, hairline
+boundaries, shortcut labels, backdrop blur, and theme-colored scroll chrome
+follow the surrounding Ghostty/SketchyBar environment. No decorative desktop
+mockups.
 
 ## Run
 
@@ -109,7 +115,7 @@ cargo install matugen --version 4.1.0 --locked --root tools
 `liveryctl` resolves a canonical Look manifest and renders staged adapters for
 Ghostty, SketchyBar, borders, and the wallpaper. A normal `apply` means one
 global Look: coordinated colors plus one wallpaper across every managed desktop
-Space. `--colors-only` is an explicit manual override, not the default workflow.
+Space. `--colors-only` is a manual override, not the default workflow.
 `livery` is the short command installed on `PATH`.
 
 ```sh

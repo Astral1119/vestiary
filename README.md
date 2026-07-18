@@ -1,43 +1,43 @@
 # vestiary
 
-A coordinated-appearance system for macOS. One wallpaper-derived theme
-contract; adapters retheme tmux, nvim, Ghostty, SketchyBar, and JankyBorders
-transactionally from it; a Wallpaper Engine-compatible runtime plays video
-and web wallpapers at the desktop layer and rethemes them live from the same
-contract; a small file bus carries task state for bars and quiet-screens.
+A coordinated-appearance system for macOS, built on one wallpaper-derived
+theme contract. Adapters retheme tmux, nvim, Ghostty, SketchyBar, and
+JankyBorders from it, transactionally. A Wallpaper Engine-compatible runtime
+plays video and web wallpapers at the desktop layer and rethemes them live
+from the same contract. A file bus carries task state to bars and quiet-screens.
 
-Design principle: **theme-supported, not theme-critical** — every consumer
-works with the contract absent; **agent-supported, not agent-critical** —
-usable as a pure theming system with no agents installed.
+Nothing here is load-bearing for anything else. Consumers run with the
+contract absent (theme-supported, not theme-critical); the theming system runs
+with no agents installed (agent-supported, not agent-critical).
 
-![the live wallpaper, bar, and theme flipping together](captures/loop-hero.webp)
+![the live wallpaper, bar, and theme changing together](captures/loop-hero.webp)
 
 One `livery apply` rethemes the bar, terminal, borders, nvim, and the
-wallpaper layer. The `lvry` panel drives it: pick a wallpaper, preview the
+wallpaper layer. The `lvry` panel drives it. Pick a wallpaper, preview the
 derived palettes, apply.
 
 ![the lvry panel](captures/panel.png)
 
-The quiet-screen cover, composed over the live wallpaper:
+The quiet-screen cover, composed over the live wallpaper.
 
 ![repose, the quiet-screen](captures/loop-repose.webp)
 
 ## What stands alone
 
-The pieces compose but don't require each other:
+The pieces compose but don't require each other.
 
-- **livery** (with `contract/`, `adapters/`, `livery.nvim/`) — the theming
-  engine — is standalone: ingest a wallpaper image, get pinned Matugen
-  palettes and transactional themed surfaces. It calls fresco to set the
-  live wallpaper only if fresco is built, and skips that step if it isn't.
-- **fresco** — the wallpaper runtime — is standalone: it plays Wallpaper
-  Engine video/web projects with no theming installed; the livery bridge
-  activates only when a manifest exists. Owning Wallpaper Engine on Steam is
-  needed **only for Workshop downloads** — local WE project folders, bare
-  video files, and the `fetch-samples` wallpapers run without Steam.
-- **herald** — the state bus — is a spec, conformance rules, and a one-line
+- **livery** (with `contract/`, `adapters/`, `livery.nvim/`), the theming
+  engine. Ingest a wallpaper image, get pinned Matugen palettes and
+  transactional themed surfaces. Calls fresco to set the live wallpaper only
+  if fresco is built; skips that step otherwise.
+- **fresco**, the wallpaper runtime. Plays Wallpaper Engine video/web projects
+  with no theming installed; the livery bridge activates only when a manifest
+  exists. Wallpaper Engine on Steam is needed **only for Workshop downloads**.
+  Local WE project folders, bare video files, and the `fetch-samples`
+  wallpapers run without Steam.
+- **herald**, the state bus. A spec, conformance rules, and a one-line
   doorbell helper; publishers live in your own dotfiles/hooks.
-- **repose** — the quiet-screen — is the exception: it composes over fresco.
+- **repose**, the quiet-screen. The one exception: composes over fresco.
 
 ## Layout
 
@@ -70,17 +70,17 @@ livery apply <profile>
 
 Audio-reactive wallpapers need a one-time Screen & System Audio Recording
 grant (`fresco audio-permission` prints the steps); everything else works
-without it — ungranted wallpapers play silent. Workshop wallpapers need
+without it, and ungranted wallpapers play silent. Workshop wallpapers need
 Wallpaper Engine on Steam plus `steamcmd`; the bundled and fetchable samples
 don't.
 
 ## State
 
 Runtime/contract state lives at `~/.config/livery/` (contract dir; the name
-predates vestiary and is kept for path stability — compat rename deferred) and
+predates vestiary and is kept for path stability, compat rename deferred) and
 `~/.config/fresco/` (fresco state; `~/.config/wallpaper-runtime` remains as a
-compat symlink). Fresco's audio grant is anchored to a small frozen host app,
-`~/Applications/Fresco.app` — worker rebuilds never disturb it; see
+compat symlink). Fresco's audio grant is anchored to a frozen host app,
+`~/Applications/Fresco.app`; worker rebuilds never disturb it. See
 `fresco/README.md` for the TCC identity details.
 
 History note: graduated 2026-07-17 from `sketchybar-concepts/experiments/`
