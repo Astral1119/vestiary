@@ -70,6 +70,10 @@ reload() {
 }
 
 loader_check() {
+  if ! command -v nvim >/dev/null 2>&1; then
+    echo "loader n/a: nvim not installed"
+    exit 0
+  fi
   if [ -d "$NVIM_CONFIG" ] && grep -rq "livery" "$NVIM_CONFIG/lua/plugins" 2>/dev/null; then
     echo "loader installed: livery.nvim spec found in $NVIM_CONFIG/lua/plugins"
     exit 0
