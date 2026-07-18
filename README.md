@@ -49,8 +49,7 @@ The pieces compose but don't require each other:
 | `livery.nvim/` | The nvim consumer plugin (overlay + fs_event watcher), paired with `adapters/nvim`. |
 | `fresco/` | The wallpaper runtime: Wallpaper Engine video/web wallpapers at the macOS desktop layer, WE JS API shim, livery bridge. |
 | `herald/` | The state bus: per-channel JSON snapshots under `~/.config/herald/`, notifyd doorbell. Spec: `herald/SPEC.md`, frozen v1.0. |
-| `repose/` | Quiet-screen design lab (spikes, mockups, roadmap: `repose/HANDOFF.md`); the shipped composition fresco loads lives at `fresco/repose/`. |
-| `docs/` | Design records: SYSTEM-REVIEW.md (roadmap), THEME-LOOP-DESIGN.md (spec history; frozen contract is contract/SPEC.md), theming research. |
+| `repose/` | Quiet-screen design lab (spikes, mockups); the shipped composition fresco loads lives at `fresco/repose/`. |
 
 ## Quickstart
 

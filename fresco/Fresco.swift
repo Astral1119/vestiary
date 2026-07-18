@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 import AVFoundation
 
-// Phase-1 live-wallpaper runtime (see FEASIBILITY.md): desktop-level
+// Phase-1 live-wallpaper runtime: desktop-level
 // per-display windows playing Wallpaper Engine video and web wallpapers,
 // with the WE JavaScript API shimmed natively — audio via a Cava system
 // tap, cursor forwarding, occlusion-pause, and Livery Look colors pushed

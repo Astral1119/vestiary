@@ -1,7 +1,6 @@
 # fresco — phase-1 live wallpaper for macOS
 
-A lean, single-file implementation of phase 1 from
-[`FEASIBILITY.md`](./FEASIBILITY.md): Wallpaper Engine **video** and
+A lean, single-file phase-1 implementation: Wallpaper Engine **video** and
 **web** wallpapers rendered at the desktop layer, per display, with the
 WE JavaScript API shimmed natively. Scene (.pkg) wallpapers are phase 2
 and not supported here.
@@ -142,7 +141,7 @@ prompts for password + Steam Guard, then caches), and put the username in
 ```
 
 The gallery is the interim for — and interaction prototype of — the
-future Livery panel Workshop tab (FEASIBILITY.md stage 4).
+future Livery panel Workshop tab.
 
 ## Wallpaper → theme
 
@@ -168,7 +167,7 @@ titles/tags/sizes); set `STEAM_API_KEY` for the richer QueryFiles
 backend. Downloads land under `~/Library/Application
 Support/Steam/steamapps/workshop/content/431960/<id>/`. Web and video
 items play; scene (.pkg) items download fine but need phase 2 (see
-FEASIBILITY.md — the linux-wallpaperengine port path), and `info` warns
+phase 2 — the linux-wallpaperengine port path), and `info` warns
 about them.
 
 ## Upstream note
@@ -183,7 +182,7 @@ either way.
 ## Repose interplay
 
 The repose cover host's transparent-backdrop mode (see
-[`../repose/HANDOFF.md`](../repose/HANDOFF.md)) shows
+a design-record feature) shows
 this layer through the cover: the live wallpaper becomes the star,
 repose the stage lighting. During repose, cursor forwarding keeps the
 wallpaper reactive while the cover swallows clicks.

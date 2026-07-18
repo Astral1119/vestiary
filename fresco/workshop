@@ -486,7 +486,7 @@ def info(item_id):
     playable = "Web" in tags or "Video" in tags
     if not playable:
         print("note: scene wallpaper — downloads fine, but this runtime "
-              "renders web/video only (see FEASIBILITY.md phase 2)")
+              "renders web/video only (scene support is phase 2)")
 
 
 def get(item_id):
