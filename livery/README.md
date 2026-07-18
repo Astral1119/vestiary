@@ -97,10 +97,10 @@ livery plan theme:porcelain-day@blue-alps:subtle
 
 ## Regenerate palettes
 
-The generator is pinned to concept-local Matugen 4.1.0 under `../tools`; it runs with `--dry-run` and cannot apply a wallpaper, run reload commands, or write live configuration.
+The generator is pinned to Matugen 4.1.0 under `tools/`; it runs with `--dry-run` and cannot apply a wallpaper, run reload commands, or write live configuration.
 
 ```sh
-cargo install matugen --version 4.1.0 --locked --root ../tools
+cargo install matugen --version 4.1.0 --locked --root tools
 ./generate-palettes
 ```
 

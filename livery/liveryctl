@@ -16,8 +16,8 @@ RUNTIME_ROOT=${LIVERY_RUNTIME_ROOT:-$CONFIG_ROOT/livery}
 LIBRARY_ROOT="$RUNTIME_ROOT/library"
 LIBRARY_ASSETS="$LIBRARY_ROOT/assets"
 LIBRARY_CATALOG="$LIBRARY_ROOT/wallpapers.json"
-MATUGEN="$ROOT/../tools/bin/matugen"
-WALLPAPER_SOURCE_ROOT="$ROOT/../assets"
+MATUGEN="$ROOT/tools/bin/matugen"
+WALLPAPER_SOURCE_ROOT="$ROOT/assets"
 WALLPAPER_BIN="$BUILD_ROOT/bin/livery-wallpaper-engine"
 WALLPAPER_SOURCE="$ROOT/WallpaperEngine.swift"
 WALLPAPER_RUNTIME="$RUNTIME_ROOT/wallpaper"
@@ -425,7 +425,7 @@ import_wallpaper() {
   }
   [ -x "$MATUGEN" ] || {
     echo "missing pinned matugen binary: $MATUGEN" >&2
-    echo "fetch it with: tools/fetch-matugen" >&2
+    echo "fetch it with: livery/tools/fetch-matugen" >&2
     exit 1
   }
 

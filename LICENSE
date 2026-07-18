@@ -29,6 +29,6 @@ Third-party content:
   livery/README.md and livery/sources.json.
 - The Instrument Serif font (fresco/repose/font/) is licensed under the
   SIL Open Font License 1.1; see fresco/repose/font/LICENSE.md.
-- matugen (fetched by tools/fetch-matugen, not distributed here) is
+- matugen (fetched by livery/tools/fetch-matugen, not distributed here) is
   GPL-2.0-or-later, invoked as a standalone executable:
   https://github.com/InioX/matugen

@@ -51,17 +51,17 @@ if [ "$required_missing" -ne 0 ]; then
   exit 1
 fi
 
-MATUGEN="$REPO_ROOT/tools/bin/matugen"
+MATUGEN="$REPO_ROOT/livery/tools/bin/matugen"
 if [ -x "$MATUGEN" ]; then
   printf '\nmatugen: '
   "$MATUGEN" --version
 elif command -v cargo >/dev/null 2>&1; then
   echo ""
   echo "matugen: fetching pinned release"
-  "$REPO_ROOT/tools/fetch-matugen"
+  "$REPO_ROOT/livery/tools/fetch-matugen"
 else
   echo ""
-  echo "matugen: install cargo, then run tools/fetch-matugen"
+  echo "matugen: install cargo, then run livery/tools/fetch-matugen"
 fi
 
 for shim in \
