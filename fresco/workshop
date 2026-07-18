@@ -16,10 +16,11 @@
                                 # Livery Look derived from a WE wallpaper
 
 Search uses IPublishedFileService/QueryFiles when STEAM_API_KEY is set,
-otherwise scrapes the public workshop browse page. Downloads require the
-Steam username in $STEAM_USER or the .steam-user file next to this script
-(account must own Wallpaper Engine; log in once with
-`steamcmd +login <user> +quit`).
+otherwise scrapes the public workshop browse page. Downloads need one
+`steamcmd +login <user> +quit` on an account that owns Wallpaper Engine;
+the cached login is picked up automatically. $STEAM_USER or a .steam-user
+file next to this script overrides it (needed only with multiple cached
+accounts).
 """
 
 import json
@@ -44,6 +45,37 @@ def http(url, data=None):
         return response.read().decode("utf-8", "replace")
 
 
+def cached_steam_accounts():
+    # steamcmd records every cached login under the Accounts block of
+    # config.vdf; brace-walk rather than regex the block out because the
+    # sibling ConnectCache entries are multi-kilobyte blobs.
+    path = os.path.expanduser("~/Library/Application Support/Steam/config/config.vdf")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+    except OSError:
+        return []
+    start = re.search(r'"Accounts"\s*\{', text)
+    if not start:
+        return []
+    accounts, depth, pending = [], 1, None
+    for token in re.finditer(r'"(?:[^"\\]|\\.)*"|[{}]', text[start.end():]):
+        value = token.group()
+        if value == "{":
+            if depth == 1 and pending:
+                accounts.append(pending)
+            depth += 1
+            pending = None
+        elif value == "}":
+            depth -= 1
+            if depth == 0:
+                break
+            pending = None
+        else:
+            pending = None if pending else value[1:-1]
+    return accounts
+
+
 def steam_user():
     if shutil.which("steamcmd") is None:
         sys.exit("steamcmd not installed — brew install steamcmd, then run\n"
@@ -55,7 +87,16 @@ def steam_user():
         if os.path.exists(path):
             user = open(path).read().strip()
     if not user:
-        sys.exit("set STEAM_USER or write your Steam username to .steam-user")
+        accounts = cached_steam_accounts()
+        if len(accounts) == 1:
+            user = accounts[0]
+        elif len(accounts) > 1:
+            sys.exit("multiple cached Steam logins (" + ", ".join(accounts)
+                     + ") — set STEAM_USER or write one to .steam-user")
+    if not user:
+        sys.exit("no cached Steam login — run\n"
+                 "  steamcmd +login <your steam user> +quit\n"
+                 "once (or set STEAM_USER / write .steam-user)")
     return user
 
 
