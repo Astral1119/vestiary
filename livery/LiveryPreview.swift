@@ -840,12 +840,11 @@ private struct WorkshopIngest: Decodable {
 }
 
 private func workshopControlURL() -> URL {
-    // liveryctl file → livery/ → theming/ → experiments/, then the sibling.
+    // liveryctl file → livery/ → vestiary/, then the fresco sibling.
     liveryControlURL()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("wallpaper-runtime/workshop")
+        .appendingPathComponent("fresco/workshop")
 }
 
 private func runWorkshop(_ arguments: [String]) -> ControlResult {
@@ -883,14 +882,13 @@ private func wallpaperControlURL() -> URL {
     liveryControlURL()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("wallpaper-runtime/wallpaperctl")
+        .appendingPathComponent("fresco/fresco")
 }
 
 private func runWallpaperControl(_ arguments: [String]) -> ControlResult {
     let control = wallpaperControlURL()
     guard FileManager.default.isExecutableFile(atPath: control.path) else {
-        return ControlResult(status: 127, output: "wallpaperctl not found")
+        return ControlResult(status: 127, output: "fresco ctl not found")
     }
     let process = Process()
     let output = Pipe()
@@ -930,7 +928,7 @@ private func loadReposeSelection() -> ReposeSelection {
 
 private func reposeScenesURL() -> URL {
     FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/wallpaper-runtime/scenes")
+        .appendingPathComponent(".config/fresco/scenes")
 }
 
 private func sceneThumbnail(for scene: URL, generate: Bool) -> NSImage? {
