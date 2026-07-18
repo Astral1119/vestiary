@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "local.astral.livery.semantic-theme.v2",
+  "$id": "local.vestiary.livery.semantic-theme.v2",
   "title": "Livery semantic theme",
   "type": "object",
   "required": [

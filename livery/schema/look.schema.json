@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "local.astral.livery.look.v2",
+  "$id": "local.vestiary.livery.look.v2",
   "title": "Livery Look specification and resolved manifest",
   "oneOf": [
     {

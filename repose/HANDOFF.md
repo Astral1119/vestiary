@@ -565,7 +565,7 @@ SIGUSR2.
   Cava when permission is absent. More importantly, daily-driver starts put
   the mutable renderer beneath the frozen, signed
   `~/Applications/Wallpaper Runtime.app` host (bundle ID
-  `local.astral.wallpaper-runtime`). Grant that app once under System Settings
+  the pre-rename wallpaper-runtime bundle id). Grant that app once under System Settings
   > Privacy & Security > Screen & System Audio Recording; ordinary renderer
   rebuilds never touch the host signature, so they retain the grant. Both
   LaunchServices starts and the optional launchd agent use this same responsible

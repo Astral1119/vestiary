@@ -8,7 +8,7 @@
   <key>CFBundleExecutable</key>
   <string>fresco-host</string>
   <key>CFBundleIdentifier</key>
-  <string>local.astral.fresco</string>
+  <string>local.vestiary.fresco</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>

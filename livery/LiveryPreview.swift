@@ -14,7 +14,7 @@ private let readinessURL = URL(
 private let runtimeLogURL = URL(
     fileURLWithPath: "/tmp/lvry-runtime.log"
 )
-private let reposeControlQueue = DispatchQueue(label: "local.astral.livery.repose-control")
+private let reposeControlQueue = DispatchQueue(label: "local.vestiary.livery.repose-control")
 
 @MainActor
 private func runtimeLog(_ message: String) {
