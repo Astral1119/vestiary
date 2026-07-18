@@ -32,6 +32,7 @@ LEGIBILITY_SHARED="$ROOT/BarLegibility.swift"
 IMAGE_BIN="$BUILD_ROOT/bin/livery-image"
 IMAGE_SOURCE="$ROOT/ImagePipeline.swift"
 WALLPAPERCTL="$ROOT/../fresco/fresco"
+ADAPTERS_ROOT=${LIVERY_ADAPTERS_ROOT:-$ROOT/../adapters}
 DERIVATIVE_CACHE="$BUILD_ROOT/cache/derivatives"
 ORIGINAL_STORE="$BUILD_ROOT/store/originals"
 
@@ -1812,6 +1813,12 @@ validate_rendered() {
     echo "invalid borders adapter output" >&2
     exit 1
   fi
+  for adapter in "$ADAPTERS_ROOT"/*; do
+    [ -x "$adapter" ] || continue
+    if [ -d "$output_dir/$(basename "$adapter")" ]; then
+      "$adapter" validate "$output_dir/$(basename "$adapter")" >/dev/null
+    fi
+  done
 }
 
 render_profile() {
@@ -1826,6 +1833,11 @@ render_profile() {
   render_ghostty "$manifest" "$output_dir/ghostty/livery.conf"
   render_sketchybar "$manifest" "$output_dir/sketchybar/colors.lua"
   render_borders "$manifest" "$output_dir/borders/borders.args"
+  # Adapter targets render alongside the built-ins (SPEC §3.1; mixed period).
+  for adapter in "$ADAPTERS_ROOT"/*; do
+    [ -x "$adapter" ] || continue
+    "$adapter" render "$manifest" "$output_dir/$(basename "$adapter")" >/dev/null
+  done
   validate_rendered "$output_dir"
   printf '%s\n' "$output_dir"
 }
@@ -1890,6 +1902,14 @@ install_runtime_profile() {
     cp "$staged/ghostty/livery.conf" "$temporary/ghostty/livery.conf"
     cp "$staged/sketchybar/colors.lua" "$temporary/sketchybar/colors.lua"
     cp "$staged/borders/borders.args" "$temporary/borders/borders.args"
+    # Adapter-rendered targets: copy every adapter's staged subdir (SPEC §3.2).
+    for adapter in "$ADAPTERS_ROOT"/*; do
+      [ -x "$adapter" ] || continue
+      target=$(basename "$adapter")
+      if [ -d "$staged/$target" ]; then
+        cp -R "$staged/$target" "$temporary/$target"
+      fi
+    done
     if [ -d "$staged/wallpaper" ]; then
       cp -R "$staged/wallpaper" "$temporary/wallpaper"
     fi
@@ -1925,6 +1945,13 @@ reload_live_targets() {
       kill -USR2 "$pid"
     done
   fi
+  # Adapter reloads are best-effort and never roll back the apply (SPEC §3.2).
+  for adapter in "$ADAPTERS_ROOT"/*; do
+    [ -x "$adapter" ] || continue
+    if ! "$adapter" reload "$RUNTIME_ROOT/current"; then
+      echo "warning: $(basename "$adapter") reload failed — target may be stale" >&2
+    fi
+  done
 }
 
 ensure_wallpaper_helper() {
