@@ -1,15 +1,41 @@
 #!/bin/sh
 # fetch-matugen — install the pinned matugen release into tools/bin/.
-# The binary itself is not committed (9.5 MB Mach-O with local build paths
-# baked in, GPL-2.0-or-later); this fetch step replaces it. liveryctl
+# arm64 macs download the prebuilt asset from the vestiary release
+# (sha256-pinned; GPL-2.0-or-later, license + source offer in the
+# tarball); everything else builds from source via cargo. liveryctl
 # expects the result at tools/bin/matugen.
 set -eu
 
 VERSION=4.1.0
 ROOT=$(cd "$(dirname "$0")" && pwd)
 
+ASSET="matugen-$VERSION-aarch64-apple-darwin.tar.gz"
+ASSET_URL="https://github.com/Astral1119/vestiary/releases/download/matugen-$VERSION/$ASSET"
+ASSET_SHA256=cab0b13f1ecac379622b5b6ec8097bb5e2784a241cb3bb7b4b9c0d9381ffa69f
+
+fetch_prebuilt() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fetch-matugen.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+  echo "fetch-matugen: downloading prebuilt $ASSET"
+  curl -fsSL "$ASSET_URL" -o "$tmp/$ASSET" || return 1
+  echo "$ASSET_SHA256  $tmp/$ASSET" | shasum -a 256 -c - >/dev/null || {
+    echo "fetch-matugen: checksum mismatch — refusing the download" >&2
+    return 1
+  }
+  tar xzf "$tmp/$ASSET" -C "$tmp"
+  mkdir -p "$ROOT/bin"
+  mv -f "$tmp/matugen" "$ROOT/bin/matugen"
+  chmod +x "$ROOT/bin/matugen"
+}
+
+if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] && fetch_prebuilt; then
+  "$ROOT/bin/matugen" --version
+  exit 0
+fi
+
 command -v cargo >/dev/null 2>&1 || {
-  echo "fetch-matugen: cargo not found — install Rust (rustup or brew install rust)" >&2
+  echo "fetch-matugen: no prebuilt for this platform and cargo not found —" >&2
+  echo "install Rust (rustup or brew install rust), then rerun" >&2
   exit 1
 }
 
