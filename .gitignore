@@ -4,4 +4,5 @@
 **/samples/third-party/
 **/samples/gradient-loop.mp4
 **/__pycache__/
+tools/bin/
 **/.theme-frames/
