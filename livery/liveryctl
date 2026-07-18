@@ -17,7 +17,6 @@ LIBRARY_ROOT="$RUNTIME_ROOT/library"
 LIBRARY_ASSETS="$LIBRARY_ROOT/assets"
 LIBRARY_CATALOG="$LIBRARY_ROOT/wallpapers.json"
 MATUGEN="$ROOT/../tools/bin/matugen"
-GHOSTTY_BIN="/Applications/Ghostty.app/Contents/MacOS/ghostty"
 WALLPAPER_SOURCE_ROOT="$ROOT/../assets"
 WALLPAPER_BIN="$BUILD_ROOT/bin/livery-wallpaper-engine"
 WALLPAPER_SOURCE="$ROOT/WallpaperEngine.swift"
@@ -188,12 +187,6 @@ finalize_manifest() {
         scope: "global"
       }
   ' "$1" > "$_fin_tmp" && mv -f "$_fin_tmp" "$1"
-}
-
-# Read a color-valued jq expression from a manifest, yielding bare hex whether
-# the manifest carries v3 {hex,rgb} objects or legacy bare strings.
-color_value() {
-  jq -r "$JQ_COLOR_LIB"'('"$1"') | unwrap' "$2"
 }
 
 semantic_theme_json() {
@@ -1644,175 +1637,8 @@ json_value() {
   jq -r "$1" "$2"
 }
 
-opaque() {
-  color=${1#\#}
-  printf '0xff%s' "$color"
-}
-
-with_alpha() {
-  alpha=$1
-  color=${2#\#}
-  printf '0x%02x%s' "$alpha" "$color"
-}
-
-render_ghostty() {
-  manifest=$1
-  output=$2
-  {
-    index=0
-    color_value '.terminal.ansi[]' "$manifest" | while IFS= read -r color; do
-      printf 'palette = %s=%s\n' "$index" "$color"
-      index=$((index + 1))
-    done
-    printf 'background = %s\n' "$(color_value '.terminal.background | unwrap | ltrimstr("#")' "$manifest")"
-    printf 'foreground = %s\n' "$(color_value '.terminal.foreground | unwrap | ltrimstr("#")' "$manifest")"
-    printf 'cursor-color = %s\n' "$(color_value '.terminal.cursor | unwrap | ltrimstr("#")' "$manifest")"
-    printf 'cursor-text = %s\n' "$(color_value '.terminal.cursorText | unwrap | ltrimstr("#")' "$manifest")"
-    printf 'selection-background = %s\n' "$(color_value '.terminal.selectionBackground | unwrap | ltrimstr("#")' "$manifest")"
-    printf 'selection-foreground = %s\n' "$(color_value '.terminal.selectionForeground | unwrap | ltrimstr("#")' "$manifest")"
-    minimum_contrast=$(json_value '.terminal.minimumContrast' "$manifest")
-    if [ "$minimum_contrast" != "1" ]; then
-      printf 'minimum-contrast = %s\n' "$minimum_contrast"
-    fi
-  } > "$output"
-}
-
-render_sketchybar() {
-  manifest=$1
-  output=$2
-
-  black=$(color_value '.targets.sketchybar.colors.black // .ui.background' "$manifest")
-  white=$(color_value '.targets.sketchybar.colors.white // .ui.text' "$manifest")
-  red=$(color_value '.targets.sketchybar.colors.red // .signals.error' "$manifest")
-  green=$(color_value '.targets.sketchybar.colors.green // .signals.success' "$manifest")
-  blue=$(color_value '.targets.sketchybar.colors.blue // .ui.primary' "$manifest")
-  yellow=$(color_value '.targets.sketchybar.colors.yellow // .signals.warning' "$manifest")
-  orange=$(color_value '.targets.sketchybar.colors.orange // .signals.attention' "$manifest")
-  magenta=$(color_value '.targets.sketchybar.colors.magenta // .ui.secondary' "$manifest")
-  grey=$(color_value '.targets.sketchybar.colors.grey // .ui.textMuted' "$manifest")
-  maroon=$(color_value '.targets.sketchybar.colors.maroon // .signals.error' "$manifest")
-  mauve=$(color_value '.targets.sketchybar.colors.mauve // .ui.secondary' "$manifest")
-  lavender=$(color_value '.targets.sketchybar.colors.lavender // .ui.secondary' "$manifest")
-  teal=$(color_value '.targets.sketchybar.colors.teal // .ui.tertiary' "$manifest")
-  peach=$(color_value '.targets.sketchybar.colors.peach // .signals.attention' "$manifest")
-  background=$(color_value '.ui.background' "$manifest")
-  surface=$(color_value '.targets.sketchybar.surface // .ui.surface' "$manifest")
-  outline=$(color_value '.targets.sketchybar.barBorder // .ui.outline' "$manifest")
-  selection=$(color_value '.ui.selection' "$manifest")
-  hairline=$(color_value '.effects.hairline' "$manifest")
-  popup_alpha=$(json_value '.effects.popupBackgroundAlpha' "$manifest")
-  popup_border_alpha=$(json_value '.effects.popupBorderAlpha' "$manifest")
-  surface_alpha=$(json_value '.effects.surfaceAlpha' "$manifest")
-  wash_alpha=$(json_value '.effects.secondaryWashAlpha' "$manifest")
-  chip_alpha=$(json_value '.effects.chipAlpha' "$manifest")
-  bar_text=$(color_value '.presentation.barLegibility.text' "$manifest")
-  bar_text_muted=$(color_value '.presentation.barLegibility.textMuted' "$manifest")
-  bar_accent=$(color_value '.presentation.barLegibility.accent' "$manifest")
-  bar_scrim=$(color_value '.presentation.barLegibility.scrim' "$manifest")
-  bar_scrim_alpha=$(json_value '.presentation.barLegibility.scrimAlpha' "$manifest")
-  bar_red=$(color_value '.presentation.barLegibility.roles.red' "$manifest")
-  bar_green=$(color_value '.presentation.barLegibility.roles.green' "$manifest")
-  bar_blue=$(color_value '.presentation.barLegibility.roles.blue' "$manifest")
-  bar_yellow=$(color_value '.presentation.barLegibility.roles.yellow' "$manifest")
-  bar_orange=$(color_value '.presentation.barLegibility.roles.orange' "$manifest")
-  bar_magenta=$(color_value '.presentation.barLegibility.roles.magenta' "$manifest")
-  bar_grey=$(color_value '.presentation.barLegibility.roles.grey' "$manifest")
-  bar_maroon=$(color_value '.presentation.barLegibility.roles.maroon' "$manifest")
-  bar_mauve=$(color_value '.presentation.barLegibility.roles.mauve' "$manifest")
-  bar_lavender=$(color_value '.presentation.barLegibility.roles.lavender' "$manifest")
-  bar_teal=$(color_value '.presentation.barLegibility.roles.teal' "$manifest")
-  bar_peach=$(color_value '.presentation.barLegibility.roles.peach' "$manifest")
-
-  cat > "$output" <<EOF
-return {
-  black = $(opaque "$black"),
-  white = $(opaque "$white"),
-  red = $(opaque "$red"),
-  green = $(opaque "$green"),
-  blue = $(opaque "$blue"),
-  yellow = $(opaque "$yellow"),
-  orange = $(opaque "$orange"),
-  magenta = $(opaque "$magenta"),
-  grey = $(opaque "$grey"),
-  transparent = 0x00000000,
-  maroon = $(opaque "$maroon"),
-  mauve = $(opaque "$mauve"),
-  lavender = $(opaque "$lavender"),
-  teal = $(opaque "$teal"),
-  peach = $(opaque "$peach"),
-
-
-  bar = {
-    bg = $(with_alpha "$bar_scrim_alpha" "$bar_scrim"),
-    border = $(opaque "$outline"),
-    text = $(opaque "$bar_text"),
-    text_muted = $(opaque "$bar_text_muted"),
-    accent = $(opaque "$bar_accent"),
-    red = $(opaque "$bar_red"),
-    green = $(opaque "$bar_green"),
-    blue = $(opaque "$bar_blue"),
-    yellow = $(opaque "$bar_yellow"),
-    orange = $(opaque "$bar_orange"),
-    magenta = $(opaque "$bar_magenta"),
-    grey = $(opaque "$bar_grey"),
-    maroon = $(opaque "$bar_maroon"),
-    mauve = $(opaque "$bar_mauve"),
-    lavender = $(opaque "$bar_lavender"),
-    teal = $(opaque "$bar_teal"),
-    peach = $(opaque "$bar_peach"),
-  },
-  popup = {
-    -- Ghostty parity: catppuccin-mocha base at 0.5 opacity. The old
-    -- 0x2c2e34 base is what read "gray"; this matches the terminal glass.
-    bg = $(with_alpha "$popup_alpha" "$background"),
-    -- Liquid-glass edge: a faint light hairline, not a saturated outline.
-    border = $(with_alpha "$popup_border_alpha" "$hairline"),
-    text = $(opaque "$white"),
-    text_muted = $(opaque "$grey"),
-  },
-  bg1 = $(with_alpha "$surface_alpha" "$surface"),
-  bg2 = $(with_alpha "$wash_alpha" "$mauve"),
-  -- Neutral glass chip for the single active-space highlight in the rail.
-  chip = $(with_alpha "$chip_alpha" "$selection"),
-
-  with_alpha = function(color, alpha)
-    if alpha > 1.0 or alpha < 0.0 then return color end
-    return (color & 0x00ffffff) | (math.floor(alpha * 255.0) << 24)
-  end,
-}
-EOF
-}
-
-render_borders() {
-  manifest=$1
-  output=$2
-  active=$(color_value '.targets.borders.active // .ui.primary' "$manifest")
-  inactive=$(color_value '.targets.borders.inactive // .ui.primary' "$manifest")
-  inactive_alpha=$(json_value '.effects.borderInactiveAlpha' "$manifest")
-  width=$(json_value '.targets.borders.width // 4.0' "$manifest")
-  hidpi=$(json_value '.targets.borders.hidpi // "on"' "$manifest")
-  ax_focus=$(json_value '.targets.borders.axFocus // "on"' "$manifest")
-
-  printf 'borders active_color=%s hidpi=%s ax_focus=%s inactive_color=%s width=%.1f\n' \
-    "$(opaque "$active")" \
-    "$hidpi" \
-    "$ax_focus" \
-    "$(with_alpha "$inactive_alpha" "$inactive")" \
-    "$width" > "$output"
-}
-
 validate_rendered() {
   output_dir=$1
-  if [ -x "$GHOSTTY_BIN" ]; then
-    "$GHOSTTY_BIN" +validate-config --config-file="$output_dir/ghostty/livery.conf" >/dev/null
-  fi
-  if command -v luac >/dev/null 2>&1; then
-    luac -p "$output_dir/sketchybar/colors.lua"
-  fi
-  if ! grep -Eq '^borders active_color=0x[0-9a-f]{8} hidpi=(on|off) ax_focus=(on|off) inactive_color=0x[0-9a-f]{8} width=[0-9]+\.[0-9]+$' "$output_dir/borders/borders.args"; then
-    echo "invalid borders adapter output" >&2
-    exit 1
-  fi
   for adapter in "$ADAPTERS_ROOT"/*; do
     [ -x "$adapter" ] || continue
     if [ -d "$output_dir/$(basename "$adapter")" ]; then
@@ -1827,13 +1653,10 @@ render_profile() {
   output_dir="$BUILD_ROOT/$slug"
   manifest="$output_dir/manifest.json"
 
-  mkdir -p "$output_dir/ghostty" "$output_dir/sketchybar" "$output_dir/borders" "$output_dir/wallpaper"
+  mkdir -p "$output_dir/wallpaper"
   resolve_look "$profile" "$output_dir"
   validate_look_bundle "$output_dir"
-  render_ghostty "$manifest" "$output_dir/ghostty/livery.conf"
-  render_sketchybar "$manifest" "$output_dir/sketchybar/colors.lua"
-  render_borders "$manifest" "$output_dir/borders/borders.args"
-  # Adapter targets render alongside the built-ins (SPEC §3.1; mixed period).
+  # Every target is an adapter (SPEC §3.1); discovery = executables in adapters/.
   for adapter in "$ADAPTERS_ROOT"/*; do
     [ -x "$adapter" ] || continue
     "$adapter" render "$manifest" "$output_dir/$(basename "$adapter")" >/dev/null
@@ -1880,9 +1703,13 @@ plan_profile() {
 }
 
 loaders_installed() {
-  grep -Fq 'config-file = ?../livery/current/ghostty/livery.conf' "$CONFIG_ROOT/ghostty/config" \
-    && grep -Fq '/current/sketchybar/colors.lua' "$CONFIG_ROOT/sketchybar/colors.lua" \
-    && grep -Fq '.config/livery/current/borders/borders.args' "$CONFIG_ROOT/yabai/yabairc"
+  # A profile only earns apply when every adapter's consumer is wired
+  # (SPEC §3.1 loader-check); adapters own the knowledge of their loaders.
+  for adapter in "$ADAPTERS_ROOT"/*; do
+    [ -x "$adapter" ] || continue
+    "$adapter" loader-check >/dev/null || return 1
+  done
+  return 0
 }
 
 install_runtime_profile() {
@@ -1896,12 +1723,9 @@ install_runtime_profile() {
   mkdir -p "$RUNTIME_ROOT/profiles"
   if [ ! -d "$destination" ]; then
     temporary="$RUNTIME_ROOT/profiles/.$name.$$"
-    mkdir -p "$temporary/ghostty" "$temporary/sketchybar" "$temporary/borders"
+    mkdir -p "$temporary"
     cp "$staged/spec.json" "$temporary/spec.json"
     cp "$staged/manifest.json" "$temporary/manifest.json"
-    cp "$staged/ghostty/livery.conf" "$temporary/ghostty/livery.conf"
-    cp "$staged/sketchybar/colors.lua" "$temporary/sketchybar/colors.lua"
-    cp "$staged/borders/borders.args" "$temporary/borders/borders.args"
     # Adapter-rendered targets: copy every adapter's staged subdir (SPEC §3.2).
     for adapter in "$ADAPTERS_ROOT"/*; do
       [ -x "$adapter" ] || continue
@@ -1936,14 +1760,6 @@ atomic_link() {
 reload_live_targets() {
   if [ "${LIVERY_SKIP_RELOAD:-0}" = "1" ]; then
     return 0
-  fi
-  sh "$RUNTIME_ROOT/current/borders/borders.args"
-  sketchybar --reload
-  ghostty_pids=$(pgrep -x ghostty || true)
-  if [ -n "$ghostty_pids" ]; then
-    for pid in $ghostty_pids; do
-      kill -USR2 "$pid"
-    done
   fi
   # Adapter reloads are best-effort and never roll back the apply (SPEC §3.2).
   for adapter in "$ADAPTERS_ROOT"/*; do

@@ -1,0 +1,92 @@
+#!/bin/sh
+# vestiary adapter: borders (JankyBorders)
+# Contract: ../contract/SPEC.md §3 — render <manifest> <outdir> |
+# validate <outdir> | reload <profiledir> | loader-check.
+# Exit codes: 0 success · 1 operation failed · 2 usage/unknown verb.
+# Emits: <outdir>/borders.args — a single sh-sourceable `borders …` line,
+# sourced by yabairc and re-executed to reload.
+set -eu
+
+FRAGMENT_NAME="borders.args"
+YABAIRC="${LIVERY_YABAIRC:-$HOME/.config/yabai/yabairc}"
+LOADER_LINE='.config/livery/current/borders/borders.args'
+
+JQ_UNWRAP='def uw: if type == "object" and has("hex") then .hex else . end;'
+
+cv() {
+  jq -r "$JQ_UNWRAP($1) | uw" "$2"
+}
+
+opaque() {
+  color=${1#\#}
+  printf '0xff%s' "$color"
+}
+
+with_alpha() {
+  alpha=$1
+  color=${2#\#}
+  printf '0x%02x%s' "$alpha" "$color"
+}
+
+render() {
+  manifest=$1
+  outdir=$2
+  [ -r "$manifest" ] || { echo "render: manifest unreadable: $manifest" >&2; exit 1; }
+  mkdir -p "$outdir"
+  active=$(cv '.targets.borders.active // .ui.primary' "$manifest")
+  inactive=$(cv '.targets.borders.inactive // .ui.primary' "$manifest")
+  inactive_alpha=$(jq -r '.effects.borderInactiveAlpha' "$manifest")
+  width=$(jq -r '.targets.borders.width // 4.0' "$manifest")
+  hidpi=$(jq -r '.targets.borders.hidpi // "on"' "$manifest")
+  ax_focus=$(jq -r '.targets.borders.axFocus // "on"' "$manifest")
+
+  printf 'borders active_color=%s hidpi=%s ax_focus=%s inactive_color=%s width=%.1f\n' \
+    "$(opaque "$active")" \
+    "$hidpi" \
+    "$ax_focus" \
+    "$(with_alpha "$inactive_alpha" "$inactive")" \
+    "$width" > "$outdir/$FRAGMENT_NAME"
+  echo "rendered borders fragment: $outdir/$FRAGMENT_NAME"
+}
+
+validate() {
+  outdir=$1
+  fragment="$outdir/$FRAGMENT_NAME"
+  [ -r "$fragment" ] || { echo "validate: fragment missing: $fragment" >&2; exit 1; }
+  if ! grep -Eq '^borders active_color=0x[0-9a-f]{8} hidpi=(on|off) ax_focus=(on|off) inactive_color=0x[0-9a-f]{8} width=[0-9]+\.[0-9]+$' "$fragment"; then
+    echo "validate: invalid borders fragment" >&2
+    exit 1
+  fi
+  echo "borders fragment validates"
+}
+
+reload() {
+  profiledir=$1
+  if ! command -v borders >/dev/null 2>&1; then
+    echo "borders not installed — nothing to reload"
+    exit 0
+  fi
+  sh "$profiledir/borders/$FRAGMENT_NAME"
+  echo "borders reloaded"
+}
+
+loader_check() {
+  if [ -r "$YABAIRC" ] && grep -Fq "$LOADER_LINE" "$YABAIRC"; then
+    echo "loader installed: $YABAIRC"
+    exit 0
+  fi
+  echo "loader missing: source $LOADER_LINE from $YABAIRC"
+  exit 1
+}
+
+case "${1:-}" in
+  render)       [ $# -eq 3 ] || { echo "usage: borders render <manifest> <outdir>" >&2; exit 2; }
+                render "$2" "$3" ;;
+  validate)     [ $# -eq 2 ] || { echo "usage: borders validate <outdir>" >&2; exit 2; }
+                validate "$2" ;;
+  reload)       [ $# -eq 2 ] || { echo "usage: borders reload <profiledir>" >&2; exit 2; }
+                reload "$2" ;;
+  loader-check) loader_check ;;
+  *)            echo "unknown verb: ${1:-<none>} (render|validate|reload|loader-check)" >&2
+                exit 2 ;;
+esac

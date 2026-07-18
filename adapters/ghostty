@@ -1,0 +1,90 @@
+#!/bin/sh
+# vestiary adapter: ghostty
+# Contract: ../contract/SPEC.md §3 — render <manifest> <outdir> |
+# validate <outdir> | reload <profiledir> | loader-check.
+# Exit codes: 0 success · 1 operation failed · 2 usage/unknown verb.
+# Emits: <outdir>/livery.conf — palette + color overrides consumed via
+# `config-file = ?../livery/current/ghostty/livery.conf`.
+set -eu
+
+FRAGMENT_NAME="livery.conf"
+GHOSTTY_BIN="${LIVERY_GHOSTTY_BIN:-/Applications/Ghostty.app/Contents/MacOS/ghostty}"
+GHOSTTY_CONF="${LIVERY_GHOSTTY_CONF:-$HOME/.config/ghostty/config}"
+LOADER_LINE='config-file = ?../livery/current/ghostty/livery.conf'
+
+JQ_UNWRAP='def uw: if type == "object" and has("hex") then .hex else . end;'
+
+cv() {
+  jq -r "$JQ_UNWRAP($1) | uw" "$2"
+}
+
+render() {
+  manifest=$1
+  outdir=$2
+  [ -r "$manifest" ] || { echo "render: manifest unreadable: $manifest" >&2; exit 1; }
+  mkdir -p "$outdir"
+  {
+    index=0
+    cv '.terminal.ansi[]' "$manifest" | while IFS= read -r color; do
+      printf 'palette = %s=%s\n' "$index" "$color"
+      index=$((index + 1))
+    done
+    printf 'background = %s\n' "$(cv '.terminal.background | uw | ltrimstr("#")' "$manifest")"
+    printf 'foreground = %s\n' "$(cv '.terminal.foreground | uw | ltrimstr("#")' "$manifest")"
+    printf 'cursor-color = %s\n' "$(cv '.terminal.cursor | uw | ltrimstr("#")' "$manifest")"
+    printf 'cursor-text = %s\n' "$(cv '.terminal.cursorText | uw | ltrimstr("#")' "$manifest")"
+    printf 'selection-background = %s\n' "$(cv '.terminal.selectionBackground | uw | ltrimstr("#")' "$manifest")"
+    printf 'selection-foreground = %s\n' "$(cv '.terminal.selectionForeground | uw | ltrimstr("#")' "$manifest")"
+    minimum_contrast=$(jq -r '.terminal.minimumContrast' "$manifest")
+    if [ "$minimum_contrast" != "1" ]; then
+      printf 'minimum-contrast = %s\n' "$minimum_contrast"
+    fi
+  } > "$outdir/$FRAGMENT_NAME"
+  echo "rendered ghostty fragment: $outdir/$FRAGMENT_NAME"
+}
+
+validate() {
+  outdir=$1
+  fragment="$outdir/$FRAGMENT_NAME"
+  [ -r "$fragment" ] || { echo "validate: fragment missing: $fragment" >&2; exit 1; }
+  if [ -x "$GHOSTTY_BIN" ]; then
+    "$GHOSTTY_BIN" +validate-config --config-file="$fragment" >/dev/null \
+      || { echo "validate: ghostty rejected fragment" >&2; exit 1; }
+    echo "ghostty fragment validates"
+  else
+    echo "validate: ghostty binary not found — skipping"
+  fi
+}
+
+reload() {
+  ghostty_pids=$(pgrep -x ghostty || true)
+  if [ -z "$ghostty_pids" ]; then
+    echo "ghostty not running — nothing to reload"
+    exit 0
+  fi
+  for pid in $ghostty_pids; do
+    kill -USR2 "$pid"
+  done
+  echo "ghostty reloaded (SIGUSR2)"
+}
+
+loader_check() {
+  if [ -r "$GHOSTTY_CONF" ] && grep -Fq "$LOADER_LINE" "$GHOSTTY_CONF"; then
+    echo "loader installed: $GHOSTTY_CONF"
+    exit 0
+  fi
+  echo "loader missing: add '$LOADER_LINE' to $GHOSTTY_CONF"
+  exit 1
+}
+
+case "${1:-}" in
+  render)       [ $# -eq 3 ] || { echo "usage: ghostty render <manifest> <outdir>" >&2; exit 2; }
+                render "$2" "$3" ;;
+  validate)     [ $# -eq 2 ] || { echo "usage: ghostty validate <outdir>" >&2; exit 2; }
+                validate "$2" ;;
+  reload)       [ $# -eq 2 ] || { echo "usage: ghostty reload <profiledir>" >&2; exit 2; }
+                reload "$2" ;;
+  loader-check) loader_check ;;
+  *)            echo "unknown verb: ${1:-<none>} (render|validate|reload|loader-check)" >&2
+                exit 2 ;;
+esac
