@@ -2,7 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-APP="/tmp/Livery-$(id -u).app"
+APP="${XDG_CACHE_HOME:-$HOME/.cache}/livery/Livery.app"
 BIN="$APP/Contents/MacOS/lvry"
 PROCESS_PATTERN="^(/private)?${BIN}$"
 LOCK="/tmp/livery-$(id -u).launch.lock"
