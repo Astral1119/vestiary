@@ -24,6 +24,7 @@ WALLPAPER_RUNTIME="$RUNTIME_ROOT/wallpaper"
 WALLPAPER_BASELINE=${LIVERY_WALLPAPER_BASELINE:-$RUNTIME_ROOT/baseline/Index.plist}
 LOCK_STATE="$RUNTIME_ROOT/lock.json"
 LOCK_CACHE="$RUNTIME_ROOT/lock"
+FONTS_CONFIG=${LIVERY_FONTS_CONFIG:-$RUNTIME_ROOT/fonts.json}
 SCENE_ROOT=${LIVERY_SCENE_ROOT:-$CONFIG_ROOT/fresco/scenes}
 LEGIBILITY_BIN="$BUILD_ROOT/bin/livery-legibility"
 LEGIBILITY_SOURCE="$ROOT/LegibilityAnalyzer.swift"
@@ -167,18 +168,42 @@ augment_theme() {
   ' "$1" > "$_aug_tmp" && mv -f "$_aug_tmp" "$1"
 }
 
+# Fonts domain (contract §2.4, v1.1): configuration folded in at finalize,
+# never wallpaper derivation. User file $FONTS_CONFIG is role -> {family};
+# shipped defaults fill any role it omits. Malformed file warns and falls
+# back whole — a broken fonts.json must not abort an apply.
+FONTS_DEFAULTS='{
+  "mono":    {"family": "JetBrainsMono Nerd Font"},
+  "ui":      {"family": "JetBrainsMono Nerd Font"},
+  "display": {"family": "Instrument Serif"}
+}'
+
+fonts_block() {
+  if [ -r "$FONTS_CONFIG" ]; then
+    if _fonts=$(jq -c --argjson defaults "$FONTS_DEFAULTS" '$defaults * .' "$FONTS_CONFIG" 2>/dev/null); then
+      printf '%s' "$_fonts"
+      return
+    fi
+    echo "warning: $FONTS_CONFIG is not valid JSON — using shipped font defaults" >&2
+  fi
+  printf '%s' "$FONTS_DEFAULTS" | jq -c '.'
+}
+
 # Final manifest pass: wrap every hex color as {hex, rgb}, stamp schema v3,
-# and attach the public meta block. Runs once, as the last write to a staged
-# manifest. $1 = manifest path, $2 = meta.name, $3 = meta.source (JSON).
+# and attach the public meta block + fonts domain. Runs once, as the last
+# write to a staged manifest. $1 = manifest path, $2 = meta.name,
+# $3 = meta.source (JSON).
 finalize_manifest() {
   _fin_tmp=$(mktemp "${TMPDIR:-/tmp}/livery-finalize.XXXXXX")
   jq -S \
     --arg name "$2" \
     --argjson source "${3:-null}" \
+    --argjson fonts "$(fonts_block)" \
     --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$JQ_COLOR_LIB"'
     walk(wrap)
     | .schemaVersion = 3
+    | .fonts = $fonts
     | .meta = {
         name: $name,
         source: $source,
@@ -1555,6 +1580,12 @@ validate_manifest() {
       and (.presentation.barLegibility.textContrastP10
         | type == "number" and . >= 4.5)
       and (.variant == "dark" or .variant == "light")
+      # fonts is additive (contract §2.4): absent passes (pre-v1.1 bundles),
+      # present roles must carry a non-empty family string
+      and ((.fonts == null)
+        or (.fonts | type == "object"
+          and ([.mono, .ui, .display] | map(select(. != null))
+            | all(.family | type == "string" and length > 0))))
       and ([.ui[]] | all(color))
       and ([.signals[]] | all(color))
       and (.terminal.background | color)

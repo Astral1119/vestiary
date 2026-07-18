@@ -1,0 +1,33 @@
+{
+  "comment": "contract SPEC §2.4.3 — every family the shipped surfaces need, with the homebrew cask that provides it. ./install presence-checks these; font casks install per-user, so the check is per-account.",
+  "fonts": [
+    {
+      "family": "JetBrainsMono Nerd Font",
+      "cask": "font-jetbrains-mono-nerd-font",
+      "why": "fonts.mono/ui shipped default — terminal, bar text and numbers"
+    },
+    {
+      "family": "Instrument Serif",
+      "cask": "font-instrument-serif",
+      "why": "fonts.display shipped default — fresco browse, repose"
+    },
+    {
+      "family": "sketchybar-app-font",
+      "cask": "font-sketchybar-app-font",
+      "why": "bar app-icon glyph map"
+    },
+    {
+      "family": "CaskaydiaCove Nerd Font Mono",
+      "cask": "font-caskaydia-cove-nerd-font",
+      "why": "bar default-label nerd glyphs"
+    }
+  ],
+  "apps": [
+    {
+      "name": "SF Symbols",
+      "path": "/Applications/SF Symbols.app",
+      "cask": "sf-symbols",
+      "why": "bar icon glyph set"
+    }
+  ]
+}

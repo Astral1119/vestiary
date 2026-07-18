@@ -290,6 +290,17 @@ func liveryProperties() -> [String: Any] {
             }
         }
     }
+    // fonts domain (contract §2.4): pushed as text props so a composition
+    // MAY consume them. repose deliberately does not — its faces are the
+    // composition's identity (13-font trial verdict, repose/index.html).
+    if let fonts = object["fonts"] as? [String: Any] {
+        for role in ["mono", "ui", "display"] {
+            if let font = fonts[role] as? [String: Any],
+               let family = font["family"] as? String, !family.isEmpty {
+                properties["liveryfont" + role] = ["value": family]
+            }
+        }
+    }
     if let presentation = object["presentation"] as? [String: Any],
        let rawGradient = presentation["visualizerGradient"] as? [Any] {
         let gradient = rawGradient.compactMap(hexString)

@@ -39,6 +39,16 @@ render() {
     if [ "$minimum_contrast" != "1" ]; then
       printf 'minimum-contrast = %s\n' "$minimum_contrast"
     fi
+    # fonts domain (contract §2.4): absent means emit nothing — ghostty
+    # keeps its own default. Size is targets-only, never shared vocabulary.
+    font_family=$(jq -r '.targets.ghostty.fontFamily // .fonts.mono.family // empty' "$manifest")
+    if [ -n "$font_family" ]; then
+      printf 'font-family = %s\n' "$font_family"
+    fi
+    font_size=$(jq -r '.targets.ghostty.fontSize // empty' "$manifest")
+    if [ -n "$font_size" ]; then
+      printf 'font-size = %s\n' "$font_size"
+    fi
   } > "$outdir/$FRAGMENT_NAME"
   echo "rendered ghostty fragment: $outdir/$FRAGMENT_NAME"
 }

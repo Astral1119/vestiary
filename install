@@ -51,6 +51,83 @@ if [ "$required_missing" -ne 0 ]; then
   exit 1
 fi
 
+# fonts (contract §2.4.3): the map names every family the shipped surfaces
+# need. Font casks install per-user, so this check is per-account. Missing
+# fonts never fail the install — surfaces fall back per §2.4.1.
+FONTS_MAP="$REPO_ROOT/contract/fonts-map.json"
+echo ""
+echo "fonts"
+if ! command -v osascript >/dev/null 2>&1; then
+  echo "  osascript unavailable — skipping the font check"
+else
+  installed_families=$(osascript -l JavaScript -e \
+    'ObjC.import("AppKit"); $.NSFontManager.sharedFontManager.availableFontFamilies.js.map(function(f){return f.js}).join("\n")' \
+    2>/dev/null || true)
+  missing_casks=''
+
+  family_installed() {
+    printf '%s\n' "$installed_families" | grep -Fxq "$1"
+  }
+
+  while IFS="$(printf '\t')" read -r family cask why; do
+    [ -n "$family" ] || continue
+    if family_installed "$family"; then
+      printf '  %-30s %-8s\n' "$family" found
+    else
+      printf '  %-30s %-8s %s (cask: %s)\n' "$family" missing "$why" "$cask"
+      missing_casks="$missing_casks $cask"
+    fi
+  done <<FONTS
+$(jq -r '.fonts[] | [.family, .cask, .why] | @tsv' "$FONTS_MAP")
+FONTS
+
+  while IFS="$(printf '\t')" read -r name path cask why; do
+    [ -n "$name" ] || continue
+    if [ -d "$path" ]; then
+      printf '  %-30s %-8s\n' "$name" found
+    else
+      printf '  %-30s %-8s %s (cask: %s)\n' "$name" missing "$why" "$cask"
+      missing_casks="$missing_casks $cask"
+    fi
+  done <<FONTS
+$(jq -r '.apps[] | [.name, .path, .cask, .why] | @tsv' "$FONTS_MAP")
+FONTS
+
+  # families the user chose in ~/.config/livery/fonts.json that the map
+  # doesn't know: report-only, no cask to offer.
+  user_fonts="$HOME/.config/livery/fonts.json"
+  if [ -r "$user_fonts" ]; then
+    while IFS= read -r family; do
+      [ -n "$family" ] || continue
+      if ! family_installed "$family" \
+        && ! jq -e --arg f "$family" '[.fonts[].family] | index($f)' "$FONTS_MAP" >/dev/null; then
+        printf '  %-30s %-8s %s\n' "$family" missing \
+          "chosen in fonts.json — no known cask, install by hand"
+      fi
+    done <<FONTS
+$(jq -r '[.[]?.family // empty] | unique | .[]' "$user_fonts" 2>/dev/null || true)
+FONTS
+  fi
+
+  if [ -n "$missing_casks" ]; then
+    if command -v brew >/dev/null 2>&1; then
+      want=n
+      if [ -t 0 ]; then
+        printf '  install the missing casks via brew?%s [y/N] ' "$missing_casks"
+        read -r want || want=n
+      fi
+      case $want in
+        y|Y)
+          # shellcheck disable=SC2086 — cask names are unquoted by design
+          brew install --cask $missing_casks || echo "  brew install had errors; fonts above stay missing"
+          ;;
+      esac
+    else
+      echo "  brew unavailable — install the casks above by hand"
+    fi
+  fi
+fi
+
 MATUGEN="$REPO_ROOT/livery/tools/bin/matugen"
 if [ -x "$MATUGEN" ]; then
   printf '\nmatugen: '
