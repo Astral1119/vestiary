@@ -10,17 +10,17 @@ Design principle: **theme-supported, not theme-critical** — every consumer
 works with the contract absent; **agent-supported, not agent-critical** —
 usable as a pure theming system with no agents installed.
 
-![live Wallpaper Engine wallpaper with the bar themed from it](captures/hero-live.jpg)
+![the live wallpaper, bar, and theme flipping together](captures/loop-hero.webp)
 
-Same desktop, different Look — every surface re-themes from the wallpaper in
-one transactional apply:
+One `livery apply` rethemes the bar, terminal, borders, nvim, and the
+wallpaper layer. The `lvry` panel drives it: pick a wallpaper, preview the
+derived palettes, apply.
 
-![the same desktop under a light wallpaper-derived Look](captures/hero-dunes.jpg)
+![the lvry panel](captures/panel.png)
 
-The `lvry` panel drives the loop — pick a wallpaper, get pinned Matugen
-palettes, preview the derived theme, apply:
+The quiet-screen cover, composed over the live wallpaper:
 
-![the livery panel: wallpaper to theme](captures/panel.png)
+![repose, the quiet-screen](captures/loop-repose.webp)
 
 ## What stands alone
 
