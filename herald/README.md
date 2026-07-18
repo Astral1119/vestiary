@@ -1,7 +1,7 @@
 # herald
 
 The state bus: `~/.config/herald/` — per-channel JSON snapshots, atomically
-written, watched by consumers. Spec: [`SPEC.md`](./SPEC.md) — frozen v1.0.
+written, watched by consumers. Spec: [`SPEC.md`](./SPEC.md) — frozen v1.1.
 
 **Watch the directory; reconcile by reading.**
 
@@ -15,7 +15,7 @@ written, watched by consumers. Spec: [`SPEC.md`](./SPEC.md) — frozen v1.0.
   dotfiles.
 - `tasks.d/` is the multi-writer channel done maildir-style: one file per
   task, single writer each, glob-and-merge to consume, evict entries whose
-  focus.tmux pane is gone (pane-primary; pids in extension blocks are
-  advisory and never evict on their own).
+  focus.tmux pane is gone (pane-primary; a pane-anchored entry's pid never
+  evicts on its own, but a pane-less entry MAY fall back to pid liveness).
 
 Every consumer works with this directory absent.

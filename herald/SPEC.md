@@ -155,22 +155,24 @@ kinds and filename-safe: file is `tasks.d/<id>.json` with `:` → `-`).
 - **Liveness/eviction** (amended v1.1 — the v1.0 wording made a dead pid
   alone sufficient, which no shipped consumer implements): pane-liveness is
   the eviction primary — consumers evict entries whose focus.tmux pane is
-  gone (merge-time check). A pid in an extension block is advisory
-  publisher metadata; core consumers never evict on pid alone (some kinds'
-  pids are transient by nature — a hook runner's parent can die between
-  events under a live session). Kinds MAY define stricter liveness in their
-  own documentation. Entries carrying no focus.tmux identity are outside
-  pane-eviction's reach; their cleanup belongs to the publisher's
-  end-of-session path, plus a tasks.d reaper reserved as a future
-  amendment. Pane eviction remains the safety net for every kind whose
-  publisher crashes.
+  gone (merge-time check). For a PANE-ANCHORED entry a pid in the extension
+  block is advisory only — consumers MUST NOT evict it on a dead pid alone
+  (some kinds' pids are transient by nature: a hook runner's parent can die
+  between events under a live session). For an entry carrying NO focus.tmux
+  identity, pane eviction cannot reach it; consumers MAY fall back to pid
+  liveness there, and SHOULD, since an end-hook-less publisher (codex) would
+  otherwise leave the entry immortal until a reaper exists (reserved as a
+  future amendment). The rule in one line: pane present ⇒ pane decides, pid
+  ignored; pane absent ⇒ pid is the best signal available. Kinds MAY define
+  stricter liveness in their own documentation. Pane eviction remains the
+  safety net for every pane-anchored kind whose publisher crashes.
 
 **A worked kind example (build):** a make wrapper publishes
 `tasks.d/build-<name>.json` — working on start, done + outcome on exit,
 waiting(attention: input) if it ever prompts; its extension block carries
 the target and a log path. Removal at process exit is the publisher's job;
-the pane check evicts it if the wrapper dies inside a tmux pane, and a
-kind with no pane identity relies on its own cleanup.
+the pane check evicts it if the wrapper dies inside a tmux pane, and if it
+has no pane identity the pid fallback catches a crashed wrapper.
 
 Kind extension blocks are documented by their publishers, not here. The
 AI-agent kinds that drove this design live with their publisher in the
