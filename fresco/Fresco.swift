@@ -402,7 +402,7 @@ final class AudioTap {
             if consecutiveFailures >= 3 {
                 print("audio: cava failed \(consecutiveFailures)x with no frames — giving up. "
                     + "Grant System Audio Recording to Fresco "
-                    + "(System Settings > Privacy & Security), then wallpaperctl restart.")
+                    + "(System Settings > Privacy & Security), then fresco restart.")
                 pipe?.fileHandleForReading.readabilityHandler = nil
                 if process.isRunning { process.terminate() }
                 live = false
@@ -972,7 +972,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         if let wallpaper = initialWallpaper {
             apply(wallpaper)
         } else {
-            print("daemon idle — set a wallpaper with: wallpaperctl set <path-or-workshop-id>")
+            print("daemon idle — set a wallpaper with: fresco set <path-or-workshop-id>")
         }
     }
 
@@ -1028,7 +1028,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     }
     private var allWebHosts: [WebHost] { webHosts + coverWebHosts }
 
-    // MARK: Repose cover (SIGUSR2; command written by `wallpaperctl repose*`)
+    // MARK: Repose cover (SIGUSR2; command written by `fresco repose*`)
 
     func handleReposeCommand() {
         guard let raw = try? String(contentsOf: reposeCommandFile, encoding: .utf8) else { return }
@@ -1468,7 +1468,7 @@ if daemonMode {
                        containing project.json (type "video" or "web")
           --daemon:    read \(configFile.path), reload on SIGUSR1,
                        repose cover on SIGUSR2, write a pidfile
-                       (managed by wallpaperctl)
+                       (managed by fresco)
         """ + "\n", stderr)
         exit(64)
     }

@@ -11,10 +11,10 @@ approved; nvim = overlay over moonfly; adapters live at
 `~/personal/vestiary/adapters/`.
 
 Project layout (2026-07-17): umbrella repo **vestiary** at `~/personal/vestiary/`
-(contract/ orchestrator/ adapters/ livery/ fresco/ repose/), graduated from the
+(contract/ adapters/ livery/ livery.nvim/ fresco/ herald/ repose/), graduated from the
 sketchybar-concepts lab with history. The wallpaper runtime is named **fresco**.
 Contract/runtime state stays at `~/.config/livery/` and
-`~/.config/wallpaper-runtime/` (path stability; renames deferred).
+`~/.config/fresco/` (a `~/.config/wallpaper-runtime` compat symlink remains; renames deferred).
 
 Ground truth about livery internals referenced here comes from the 2026-07-17
 pipeline map (liveryctl line refs are to that day's source).
@@ -154,7 +154,7 @@ document N/A).
 
 ### 3.1 Form
 
-One executable per target at `theming/adapters/<target>` (POSIX sh + jq for
+One executable per target at `adapters/<target>` (POSIX sh + jq for
 house style; any executable is legal). Target name = filename. No config of its
 own; everything comes from the manifest and argv.
 

@@ -40,7 +40,7 @@ if let log = try? FileHandle(forWritingTo: logURL) {
     child.standardError = log
 }
 
-// launchd terminates the host, while wallpaperctl normally signals the worker
+// launchd terminates the host, while fresco normally signals the worker
 // directly. Forward termination so neither route can orphan the renderer.
 signal(SIGTERM, SIG_IGN)
 signal(SIGINT, SIG_IGN)

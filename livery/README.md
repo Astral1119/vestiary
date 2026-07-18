@@ -1,4 +1,4 @@
-# Livery Prototype
+# Livery
 
 A native macOS panel and companion CLI for a bidirectional wallpaper/theme
 workflow. The panel previews and explicitly applies reversible Looks through
@@ -174,7 +174,7 @@ cache the exact resolved wallpaper artifact beneath `lock/looks/` without
 applying the Look's desktop wallpaper or colors. `theme` follows the active
 profile and updates with later Look changes; `off` leaves the current store
 alone and returns future applies to their normal wallpaper behavior.
-Video scenes are resolved from `~/.config/wallpaper-runtime/scenes/` and
+Video scenes are resolved from `~/.config/fresco/scenes/` and
 reduced with ffmpeg to a content-addressed PNG beneath
 `~/.config/livery/lock/scenes/`. The source scene selection remains in the
 state record so the native panel can expose the same policy later.
@@ -203,7 +203,7 @@ Livery inspects the image, hashes and copies the untouched bytes beneath
 `~/.config/livery/library/assets/`, deduplicates repeat submissions, and writes
 the generated metadata to `~/.config/livery/library/wallpapers.json`. The
 checked-in fixtures and personal catalog are merged at read time; importing
-does not rewrite this experiment or install an application. The original
+does not rewrite the checked-in fixtures or install an application. The original
 source path can therefore move or disappear after a successful import.
 
 The grid uses adaptive card widths, the detail thumbnail rail scrolls

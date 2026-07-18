@@ -317,7 +317,7 @@
       document.querySelector(".help").classList.add("hidden"));
   }
 
-  WALLS.forEach(w => { new Image().src = `../../theming/assets/${w}.jpg`; });
+  WALLS.forEach(w => { new Image().src = `../../livery/assets/${w}.jpg`; });
 
   // ---- strings: static approximation of the accepted Zephyr baseline.
   // Shared endpoints, ten strands fanned by cubic bulges; energy only sets
@@ -523,7 +523,7 @@
     html.dataset.extras = state.extras ? "on" : "off";
     html.dataset.night = state.night ? "on" : "off";
     document.querySelector("#wall").style.backgroundImage =
-      `url("../../theming/assets/${WALLS[state.wall]}.jpg")`;
+      `url("../../livery/assets/${WALLS[state.wall]}.jpg")`;
     document.documentElement.style.setProperty("--scale", state.scale);
     renderClock(); renderViz(); renderMedia(); renderAgents(); renderExtras();
     localStorage.setItem("repose-mock", JSON.stringify(state));
