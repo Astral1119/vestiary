@@ -174,7 +174,7 @@ loader_check() {
     echo "loader installed: $SKETCHYBAR_SHIM"
     exit 0
   fi
-  echo "loader missing: dofile shim for $LOADER_LINE expected at $SKETCHYBAR_SHIM"
+  echo "loader missing: dofile shim for $LOADER_LINE expected at $SKETCHYBAR_SHIM (shim source: adapters/README.md)"
   exit 1
 }
 
