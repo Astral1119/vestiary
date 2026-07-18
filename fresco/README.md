@@ -39,6 +39,18 @@ Screen & System Audio Recording once. Normal worker rebuilds never rewrite or
 re-sign the host, so its TCC identity and permission remain stable. The host is
 only replaced if it is missing or its signature is invalid.
 
+### TCC identity
+
+Host app `~/Applications/Fresco.app` (note: user-level `~/Applications`),
+bundle id `local.astral.fresco`, launchd label `local.fresco`, host binary
+`fresco-host`, worker `bin/fresco`. The System Audio Recording grant is
+anchored to the bundle id + signature; `build_host` preserves the exact bits,
+so only a deliberate identity change needs a re-grant — procedure: stop
+everything, change identity, rebuild, then add `~/Applications/Fresco.app` in
+System Settings → Privacy & Security → Screen & System Audio Recording (Audio
+Only suffices; the entry is kTCCServiceAudioCapture, which manual + adds
+create via the per-app mode dropdown), then `fresco restart`.
+
 ## What's implemented
 
 - **Per-display desktop windows** — video via `AVPlayerLooper`

@@ -44,7 +44,7 @@ report_dependency borders optional "the borders surface won't be themed"
 report_dependency yabai optional "borders loader rides yabairc"
 report_dependency cava optional "fresco audio/now-playing"
 report_dependency media-control optional "fresco audio/now-playing"
-report_dependency steamcmd optional "workshop client"
+report_dependency steamcmd optional "workshop downloads (also needs Wallpaper Engine on Steam)"
 
 if [ "$required_missing" -ne 0 ]; then
   echo "install: required dependencies are missing" >&2
