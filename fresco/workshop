@@ -7,7 +7,7 @@
                                 # generate a static Livery-themed gallery
   workshop gallery [--port 8991] [--no-open]
                                 # live gallery server: search, previews,
-                                # click-to-apply via wallpaperctl
+                                # click-to-apply via fresco
   workshop info   <id>
   workshop get    <id>          # download via steamcmd (cached login)
   workshop run    <id>          # get + launch with ./run
@@ -373,7 +373,7 @@ def gallery(port, auto_open):
                        ("accent_a", "__ACCENT_A__"), ("accent_b", "__ACCENT_B__")]:
         page = page.replace(token, palette[key])
     state = {"applying": None}
-    config_path = os.path.expanduser("~/.config/wallpaper-runtime/current")
+    config_path = os.path.expanduser("~/.config/fresco/current")
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -451,7 +451,7 @@ def gallery(port, auto_open):
             state["applying"] = item_id
 
             def work():
-                subprocess.run([os.path.join(SCRIPT_DIR, "wallpaperctl"), "set", item_id],
+                subprocess.run([os.path.join(SCRIPT_DIR, "fresco"), "set", item_id],
                                capture_output=True)
                 state["applying"] = None
 
