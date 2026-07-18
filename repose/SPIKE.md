@@ -7,7 +7,7 @@ The event tap remains a documented fallback.**
 
 A disposable, instrumented full-screen cover — no scene, no strings. It
 exists to answer the platform questions beneath the repose design
-([`../desktop-scenes/HANDOFF.md`](../desktop-scenes/HANDOFF.md)) before the
+([`./HANDOFF.md`](./HANDOFF.md)) before the
 composition is built, and to pick between the two candidate architectures:
 
 - **`--mode tap`** (default): the cover never becomes key and never

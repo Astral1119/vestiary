@@ -6,9 +6,9 @@ Instrument Serif resolution → agent-attention contract). Sections are a chrono
 ledger — later entries supersede earlier ones where marked.
 This is the canonical repose document; the earlier SwiftUI vertical-slice
 plan is superseded (that day's spike verdicts remain valid and are kept
-below). Sibling docs: [`../wallpaper-runtime/README.md`](../wallpaper-runtime/README.md)
+below). Sibling docs: [`../fresco/README.md`](../fresco/README.md)
 (the runtime this all runs on) and
-[`../wallpaper-runtime/FEASIBILITY.md`](../wallpaper-runtime/FEASIBILITY.md)
+[`../fresco/FEASIBILITY.md`](../fresco/FEASIBILITY.md)
 (WE + Livery integration, all four stages shipped).
 
 ## Surface model (v2, agreed)
@@ -19,10 +19,10 @@ properties):
 
 - **Desktop** — pure ambience, zero information: the bar owns signals
   while working. Catalog WE wallpapers, changing freely (gallery, panel,
-  `wallpaperctl set`). An ambient variant of our composition is worth
+  `fresco set`). An ambient variant of our composition is worth
   doing eventually; not critical.
 - **Repose** — the stable cover-level composition at
-  [`../wallpaper-runtime/repose/`](../wallpaper-runtime/repose/), authored
+  [`../fresco/repose/`](../fresco/repose/), authored
   as a WE-compatible web wallpaper (web is the medium now; the dev
   harness is the product — open `index.html` in a browser). Two variants
   switched by the `reposevariant` property:
@@ -46,7 +46,7 @@ properties):
 - **No blended languages; no unixporn chrome**: no glass cards, plaques
   carry the structure; gradient confined to the visualizer; signal colors
   only where they mean something.
-- **Strings baseline frozen**: [`../zephyr-strings/BASELINE.md`](../zephyr-strings/BASELINE.md)
+- **Strings baseline frozen**: `zephyr-strings/BASELINE.md` (pre-graduation history; the shipped `strings` visualizer carries the frozen geometry)
   (10 strands, shared endpoints, 12ms attack / 45ms release, soft rolling
   normalization). The JS port approximates it — see gaps.
 - **Survey-derived** ([`../repose/RESEARCH.md`](../repose/RESEARCH.md)):
@@ -137,9 +137,9 @@ pixel-art strands, thin, flat accents, no glow. Colors stay Livery
 roles (qylock hardcodes per-scene palettes; our Looks derive them).
 
 Eleven qylock pixel scene videos are staged at
-`~/.config/wallpaper-runtime/qylock-bgs/` (third-party artists' work —
+`~/.config/fresco/qylock-bgs/` (third-party artists' work —
 local trial only, never committed). The cover backdrop slot
-(`wallpaperctl repose-bg <path-or-id|off>`, state file
+(`fresco repose-bg <path-or-id|off>`, state file
 `repose-wallpaper`) points repose at a dedicated scene without touching
 the desktop wallpaper; `repose/properties.local.json` currently sets
 `reposelook: pixel` for the trial — delete it (or set zephyr) to return
@@ -147,7 +147,7 @@ to the plaque language.
 
 ## Selection model (agreed 2026-07-17; **phase 1 built and smoke-tested
 same day** — state record, refresh channel, scenes/ library, in-cover
-keys, entry hint, wallpaperctl editors `repose`/`repose-bg`/
+keys, entry hint, fresco editors `repose`/`repose-bg`/
 `repose-look`; migration off repose-wallpaper and properties.local.json
 done. Live test: look flips and two in-place scene swaps on an open
 cover without a blink. Phase 2, the panel Repose mode, is not started.)
@@ -162,11 +162,11 @@ instrument) + **Livery panel Repose mode** (the library instrument),
 both over one core.
 
 **Core — one state record + live refresh.**
-`~/.config/wallpaper-runtime/repose.json`:
+`~/.config/fresco/repose.json`:
 `{ look, scene, variant, grade, night }` where scene is `"desktop"`, a
 path, or a workshop id. Replaces the scattered channels (fold
 repose-wallpaper in; stop using properties.local.json for look).
-`wallpaperctl` subcommands become editors of this record. A `refresh`
+`fresco` subcommands become editors of this record. A `refresh`
 action on the existing SIGUSR2 command file makes the daemon re-read it
 and apply live: look/variant/grade/night push as WE properties (the
 composition already handles all four); a scene change swaps the
@@ -175,7 +175,7 @@ blink. Cover closed → state simply applies at next entry. This also
 closes the "not everything's wired" gaps by construction.
 
 **Scene library = a directory.**
-`~/.config/wallpaper-runtime/scenes/` — mp4s, WE project dirs, or
+`~/.config/fresco/scenes/` — mp4s, WE project dirs, or
 symlinks (qylock-bgs links in); plus the implicit "desktop" mirror
 entry. Both pickers iterate the same library; the panel manages it.
 
@@ -219,7 +219,7 @@ arcade, own size/width metrics), **DotGothic16** (Japanese dot-matrix),
 **Sixtyfour** (C64 with scanline banding), **Micro 5** (skeletal
 5-pixel), **Jacquard 12** (pixel blackletter, the wild card).
 `font` joined the state record — in-cover `f` cycles it live,
-`wallpaperctl repose-font`, harness `f`/`?font=`, `reposefont` property;
+`fresco repose-font`, harness `f`/`?font=`, `reposefont` property;
 each font carries its own odometer column metrics.
 
 **Backlog — visualizer modes** (user request): additional families
@@ -286,7 +286,7 @@ covered both Looks and both variants over the moonlit-ocean fixture and caught
 one pre-existing cascade bug: pixel's compact width had been overriding the
 loud visualizer width. The explicit axis is now live and persistent as
 `reposeviz` / `repose.json.viz`, cycled by in-cover `b` or edited with
-`wallpaperctl repose-viz strings|spectrum`. Strings remain the migration default.
+`fresco repose-viz strings|spectrum`. Strings remain the migration default.
 
 Strings-freeze fix (2026-07-17, user report "sometimes the strings just
 stop working"): two hardening layers. Runtime: the cava tap gets a
@@ -447,19 +447,19 @@ composites before building):
    shows the static system wallpaper, which the user picks freely.
    Cheapest; "separate lock wallpaper" = System Settings.
 2. **Swap on lock**: same notifications, but swap the desktop surface to
-   a dedicated lock scene (`wallpaperctl lock-bg <scene>`, new channel
+   a dedicated lock scene (`fresco lock-bg <scene>`, new channel
    in repose.json) — keeps runtime content on the lock screen (a still
    or a scene that reads well paused). Watch for a flash at lock-engage;
    notification timing vs. the lock snapshot is the open question.
 
 ## Lock image in Livery — shipped 2026-07-17
 
-liveryctl now has a first-class **lock image** concept; `wallpaperctl
+liveryctl now has a first-class **lock image** concept; `fresco
 lock-bg` stays the low-level actuator. Grounding facts: the store's
 Desktop slot is only visible while locked (runtime covers the desktop);
 `apply_wallpaper_for_target` writes the theme still into that slot on
 every `livery apply`; rollback restores whole store snapshots;
-`sync_live_wallpaper` already bridges liveryctl → wallpaperctl.
+`sync_live_wallpaper` already bridges liveryctl → fresco.
 
 Implemented decisions:
 
@@ -479,7 +479,7 @@ Implemented decisions:
 5. **Runtime-down trade-off (accepted)**: daemon stopped ⇒ desktop
    shows the lock image. Static and fine; no lifecycle hooks.
 6. **Derivations**: `scene:<name>` = ffmpeg frame-grab from
-   `~/.config/wallpaper-runtime/scenes/`. Graded/night variants of the
+   `~/.config/fresco/scenes/`. Graded/night variants of the
    still so the lock matches the Look remain panel-era jam material.
 
 Shipped after pickup: `livery lock [status]`, `<image>`, `scene:<name>`,
@@ -490,7 +490,7 @@ Look wallpaper application and are reasserted after rollback. `theme` is an
 explicit follow-current-Look policy; `off` removes lock-specific state without
 changing the store immediately. Dry-run regression coverage exercises apply,
 rollback, scene extraction, theme-follow, and off. The WallpaperEngine stayed
-unchanged. The existing low-level `wallpaperctl lock-bg` remains useful as an
+unchanged. The existing low-level `fresco lock-bg` remains useful as an
 unmanaged actuator, but `livery lock` is now the durable interface.
 
 **UI jam seeds (pickup session)**: lock picker beside the theme picker
@@ -502,7 +502,7 @@ Repose mode grid).
 ## Wallpaper sourcing (for the backdrop catalog)
 
 - **WE Workshop** is the deep catalog and the plumbing already exists
-  (`workshop get`, `wallpaperctl set <id>`, panel search + gallery).
+  (`workshop get`, `fresco set <id>`, panel search + gallery).
   The affordance gap is *discovery*: the panel searches by query only —
   trending/top-rated/tag browsing (Workshop's `browse/?appid=431960`
   sort modes) would make it a real catalog browser.
@@ -525,7 +525,7 @@ pass through untouched. Entry hides the bar, exit restores it (also on
 daemon shutdown), covers fade out 250ms, and the web layer runs a
 dim-then-fade entrance on load. Covers receive the audio/agents/media
 feeds and Livery-role pushes (with per-scene theme overrides). Entry:
-**`cmd+alt-r`** (skhd) → `wallpaperctl repose` → `repose-command` +
+**`cmd+alt-r`** (skhd) → `fresco repose` → `repose-command` +
 SIGUSR2.
 
 ## Current state (end of 2026-07-17 session)
@@ -533,11 +533,11 @@ SIGUSR2.
 - `cmd+alt-r` toggles the cover; esc exits. In-cover: `←→` scene,
   `tab` look, `x` pixels, `v` variant, `g` grade, `n` night, `l`
   scene-name label — live, persisted to
-  `~/.config/wallpaper-runtime/repose.json`.
+  `~/.config/fresco/repose.json`.
 - **Scene-name label (2026-07-17, for narrowing the 25-scene library)**:
   small muted name bottom-right, fed by new `reposescene` (name) +
   `reposelabel` (on|off) properties from the state record; state axis
-  `label` (default on), `wallpaperctl repose-label on|off`, in-cover
+  `label` (default on), `fresco repose-label on|off`, in-cover
   `l`. The ctl/property channel is the hook a Livery panel toggle
   would use later. Built as an axis, not a debug hack — flip it off
   when the narrowing is done.
@@ -545,7 +545,7 @@ SIGUSR2.
   **pixel** (qylock bones + Instrument Serif voice, per-scene themes,
   pixelated-or-smooth strings). User's current resting state: pixel,
   dusk-city scene, grade off.
-- Scene library: `~/.config/wallpaper-runtime/scenes/` (11 qylock mp4
+- Scene library: `~/.config/fresco/scenes/` (11 qylock mp4
   symlinks + theme sidecars; add anything, arrows pick it up).
 - Hardening in place: agent/media state replay to new webviews, cava
   watchdog (device-switch deaths), chain-token draw loop, media
@@ -569,7 +569,7 @@ SIGUSR2.
   > Privacy & Security > Screen & System Audio Recording; ordinary renderer
   rebuilds never touch the host signature, so they retain the grant. Both
   LaunchServices starts and the optional launchd agent use this same responsible
-  app. `wallpaperctl audio-permission` reports the exact permission owner.
+  app. `fresco audio-permission` reports the exact permission owner.
 
 ## Roadmap (ordered)
 
@@ -630,12 +630,12 @@ SIGUSR2.
    live wallpaper" was that still. Since the runtime covers the
    desktop, the system wallpaper is only ever visible while locked, so
    the store's Desktop image IS the lock slot. Shipped:
-   `wallpaperctl lock-bg <image>` (drives Livery's
+   `fresco lock-bg <image>` (drives Livery's
    `livery-wallpaper-engine apply-global`; `theme` restores the
    current profile still; bare prints status). Hide-on-lock also
    shipped (screenIsLocked/Unlocked → hide+pause desktop hosts, exit
    open cover, restore on unlock) — right thing for power either way.
-   Also fixed en route: `wallpaperctl stop` now waits for the daemon
+   Also fixed en route: `fresco stop` now waits for the daemon
    to exit (restart race left it dead). The clobbering caveat is closed:
    `livery lock <image>|scene:<name>|theme|off` owns durable global policy,
    and pinned images are reasserted by Look apply and rollback. Scene inputs

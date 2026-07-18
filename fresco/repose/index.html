@@ -7,7 +7,7 @@
   /* The repose composition as a live wallpaper: zephyr-language monolith —
      plaque odometer clock, Zephyr strings, agent dots, media footer — all
      colored by Livery roles pushed as WE properties. Design record:
-     experiments/desktop-scenes/HANDOFF.md (book test, no chrome, one axis). */
+     repose/HANDOFF.md (book test, no chrome, one axis). */
   :root {
     --surface: #1b1b1b;
     --background: #101014;
@@ -470,7 +470,7 @@
 
   // ---------- shared audio model + renderers ----------
   // Strings preserve the accepted math from ZephyrStringsPreview.swift,
-  // frozen in ../../zephyr-strings/BASELINE.md. Spectrum consumes the same
+  // frozen in the zephyr-strings baseline (pre-graduation history). Spectrum consumes the same
   // magnitude/envelope contract at a finer frequency resolution; renderers
   // own geometry only, never audio smoothing.
   const canvas = document.getElementById("visualizer");
@@ -774,7 +774,7 @@
       document.body.dataset.wall = wallIndex < 0 ? "off" : "on";
       if (wallIndex >= 0) {
         document.getElementById("wall").style.backgroundImage =
-          `url("../../theming/assets/${WALLS[wallIndex]}.jpg")`;
+          `url("../../livery/assets/${WALLS[wallIndex]}.jpg")`;
       }
       localStorage.setItem("repose-wall", wallIndex);
       refreshHint();

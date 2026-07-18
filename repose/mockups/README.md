@@ -7,15 +7,16 @@ where you'd actually read it, and run the book test.
 
 Everything uses production materials, not placeholders:
 
-- Wallpapers from `../../theming/assets/` (the Livery fixture set).
+- Wallpapers from `../../livery/assets/` (the Livery fixture set).
 - Colors from the live Livery manifest: text/muted roles, the locked
   signal colors (peach = waiting, green = done), and the
   `presentation.visualizerGradient` mint-to-blue for the strings.
 - The mono voice's date uses the bar's `%a %F` grammar.
 
 The strings are a **static SVG approximation at the baseline's ~4:1
-aspect ratio** — they decide placement and scale only. Motion is frozen in
-`../../zephyr-strings/BASELINE.md` and is not being judged here.
+aspect ratio** — they decide placement and scale only. Motion is frozen in the
+zephyr-strings baseline (pre-graduation history; the shipped `strings`
+visualizer carries it) and is not being judged here.
 
 ## Keys
 
@@ -91,5 +92,5 @@ plaque components, quiet minutes vs animated seconds.
    wallpaper shows why polarity must flip).
 4. Scale (`[`/`]`) — the persisted anchor/scale value the slice needs.
 
-Record verdicts in `../../desktop-scenes/HANDOFF.md` under the decision
+Record verdicts in `../HANDOFF.md` under the decision
 ledger before starting the slice.

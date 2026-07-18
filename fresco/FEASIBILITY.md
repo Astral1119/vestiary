@@ -114,7 +114,7 @@ inside Livery's transaction**, not a competing owner. Stages:
 3. **Live wallpapers as first-class Looks — shipped 2026-07-16.**
    `import-wallpaper --live <path>` stores the payload on the record; it
    flows into `manifest.liveWallpaper` for wallpaper-authoritative
-   profiles; `apply` (look scope) points the runtime via `wallpaperctl
+   profiles; `apply` (look scope) points the runtime via `fresco
    set`, static Looks clear it, rollback and failure paths restore.
    `workshop theme <id>` wires all of it automatically, so:
    `./workshop theme <id>` → `livery apply "wallpaper:<id>:content"` is
