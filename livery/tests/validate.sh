@@ -27,15 +27,15 @@ plutil -lint "$ROOT/../fresco/HostInfo.plist" >/dev/null
 swiftc \
   -warnings-as-errors \
   "$ROOT/../fresco/FrescoHost.swift" \
-  -o "$TMP/wallpaper-runtime-host"
+  -o "$TMP/fresco-host"
 swiftc \
   -warnings-as-errors \
   -framework AppKit \
   -framework WebKit \
   -framework AVFoundation \
   "$ROOT/../fresco/Fresco.swift" \
-  -o "$TMP/wallpaper-runtime"
-"$TMP/wallpaper-runtime" --self-test-agent-counts >/dev/null
+  -o "$TMP/fresco-worker"
+"$TMP/fresco-worker" --self-test-agent-counts >/dev/null
 swiftc \
   -parse-as-library \
   -warnings-as-errors \
@@ -568,11 +568,11 @@ LIVERY_SKIP_RELOAD=1 \
 # selection. Missing state migrates to every scene; membership writes preserve
 # order, remove duplicates, and reconcile an excluded current scene.
 repose_home="$TMP/repose-home"
-mkdir -p "$repose_home/.config/wallpaper-runtime/scenes" \
-  "$repose_home/.config/wallpaper-runtime/bin"
-: > "$repose_home/.config/wallpaper-runtime/scenes/alpha.mp4"
-: > "$repose_home/.config/wallpaper-runtime/scenes/beta.mp4"
-: > "$repose_home/.config/wallpaper-runtime/bin/wallpaper-runtime"
+mkdir -p "$repose_home/.config/fresco/scenes" \
+  "$repose_home/.config/fresco/bin"
+: > "$repose_home/.config/fresco/scenes/alpha.mp4"
+: > "$repose_home/.config/fresco/scenes/beta.mp4"
+: > "$repose_home/.config/fresco/bin/fresco"
 HOME="$repose_home" "$ROOT/../fresco/fresco" repose-state \
   > "$TMP/repose-default.json"
 jq -e '
@@ -588,7 +588,7 @@ jq -e '
   .scenePool == ["beta.mp4", "alpha.mp4"]
     and (.scene | endswith("/scenes/beta.mp4"))
     and .viz == "spectrum"
-' "$repose_home/.config/wallpaper-runtime/repose.json" >/dev/null
+' "$repose_home/.config/fresco/repose.json" >/dev/null
 
 production_hashes > "$TMP/after.sha"
 diff -u "$TMP/before.sha" "$TMP/after.sha"

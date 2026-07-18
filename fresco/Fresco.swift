@@ -11,7 +11,7 @@ import AVFoundation
 // MARK: - Runtime paths (daemon mode)
 
 let runtimeDirectory = URL(fileURLWithPath: NSHomeDirectory())
-    .appendingPathComponent(".config/wallpaper-runtime")
+    .appendingPathComponent(".config/fresco")
 let configFile = runtimeDirectory.appendingPathComponent("current")
 let pidFile = runtimeDirectory.appendingPathComponent("pid")
 let reposeCommandFile = runtimeDirectory.appendingPathComponent("repose-command")
@@ -357,7 +357,7 @@ final class AudioTap {
         noise_reduction = 25
         """
         let configURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("wallpaper-runtime-cava-\(getuid()).conf")
+            .appendingPathComponent("fresco-cava-\(getuid()).conf")
         try? config.write(to: configURL, atomically: true, encoding: .utf8)
         self.configURL = configURL
         launch()
@@ -401,7 +401,7 @@ final class AudioTap {
             consecutiveFailures += 1
             if consecutiveFailures >= 3 {
                 print("audio: cava failed \(consecutiveFailures)x with no frames — giving up. "
-                    + "Grant System Audio Recording to wallpaper-runtime "
+                    + "Grant System Audio Recording to Fresco "
                     + "(System Settings > Privacy & Security), then wallpaperctl restart.")
                 pipe?.fileHandleForReading.readabilityHandler = nil
                 if process.isRunning { process.terminate() }
@@ -1463,7 +1463,7 @@ if daemonMode {
 } else {
     guard let inputPath = positional.first, let wallpaper = resolveWallpaper(inputPath) else {
         fputs("""
-        usage: wallpaper-runtime <wallpaper> | --daemon
+        usage: fresco-worker <wallpaper> | --daemon
           <wallpaper>: a .mp4/.mov file, or a Wallpaper Engine project folder
                        containing project.json (type "video" or "web")
           --daemon:    read \(configFile.path), reload on SIGUSR1,

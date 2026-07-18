@@ -1,39 +1,39 @@
 #!/usr/bin/env python3
 """Lifecycle control for the wallpaper runtime.
 
-  wallpaperctl set <path-or-workshop-id>   # switch wallpaper (starts if needed)
-  wallpaperctl clear                       # tear down to idle (static desktop)
-  wallpaperctl repose [quiet|loud|off]     # toggle the repose cover
+  fresco set <path-or-workshop-id>   # switch wallpaper (starts if needed)
+  fresco clear                       # tear down to idle (static desktop)
+  fresco repose [quiet|loud|off]     # toggle the repose cover
                                            # (explicit variant enters/switches)
-  wallpaperctl repose-bg <scene|desktop>   # cover scene (path, workshop id,
+  fresco repose-bg <scene|desktop>   # cover scene (path, workshop id,
                                            # or "desktop" to mirror it)
-  wallpaperctl repose-look <zephyr|pixel>  # composition language
-  wallpaperctl repose-viz <strings|spectrum> # audio visualizer shape
-  wallpaperctl repose-variant <quiet|loud> # composition arrangement
-  wallpaperctl repose-grade [on|off]       # backdrop grade treatment
-  wallpaperctl repose-night [on|off]       # StandBy night tint
-  wallpaperctl repose-pixels [on|off]      # pixelated visualizer treatment
-  wallpaperctl repose-label [on|off]       # scene-name label (bottom right)
-  wallpaperctl repose-pool <scene-id>...   # ordered scenes cycled by arrow keys
-  wallpaperctl repose-state                # print the persisted state as JSON
-  wallpaperctl repose-add <path-or-id>     # add a live source to scenes/
-  wallpaperctl lock-bg [<image>|theme]     # lock-screen wallpaper (the system
+  fresco repose-look <zephyr|pixel>  # composition language
+  fresco repose-viz <strings|spectrum> # audio visualizer shape
+  fresco repose-variant <quiet|loud> # composition arrangement
+  fresco repose-grade [on|off]       # backdrop grade treatment
+  fresco repose-night [on|off]       # StandBy night tint
+  fresco repose-pixels [on|off]      # pixelated visualizer treatment
+  fresco repose-label [on|off]       # scene-name label (bottom right)
+  fresco repose-pool <scene-id>...   # ordered scenes cycled by arrow keys
+  fresco repose-state                # print the persisted state as JSON
+  fresco repose-add <path-or-id>     # add a live source to scenes/
+  fresco lock-bg [<image>|theme]     # lock-screen wallpaper (the system
                                            # wallpaper — only visible locked)
 
-Repose selection lives in one record (~/.config/wallpaper-runtime/
+Repose selection lives in one record (~/.config/fresco/
 repose.json: look, scene, scenePool, viz, variant, grade, night, pixels, label); these
 subcommands and the in-cover keys (arrows scene, tab look, b visualizer, x pixels,
 v variant, g/n treatments, l label) are both thin writers over it,
 applied live to an open cover.
-  wallpaperctl start | stop | restart
-  wallpaperctl status
-  wallpaperctl build                       # (re)compile the daemon binary
-  wallpaperctl audio-permission            # show the stable app to grant once
-  wallpaperctl install-agent               # launchd agent: start at login
-  wallpaperctl uninstall-agent
+  fresco start | stop | restart
+  fresco status
+  fresco build                       # (re)compile the daemon binary
+  fresco audio-permission            # show the stable app to grant once
+  fresco install-agent               # launchd agent: start at login
+  fresco uninstall-agent
 
-State lives in ~/.config/wallpaper-runtime/: `current` (wallpaper path),
-`pid`, `log`, and `bin/wallpaper-runtime`. A running daemon hot-swaps on
+State lives in ~/.config/fresco/: `current` (wallpaper path),
+`pid`, `log`, and `bin/fresco`. A running daemon hot-swaps on
 SIGUSR1; `stop` uses launchctl when the agent is loaded so KeepAlive
 doesn't resurrect it.
 """
@@ -50,16 +50,16 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SOURCE = os.path.join(SCRIPT_DIR, "Fresco.swift")
 HOST_SOURCE = os.path.join(SCRIPT_DIR, "FrescoHost.swift")
 HOST_INFO = os.path.join(SCRIPT_DIR, "HostInfo.plist")
-STATE_DIR = os.path.expanduser("~/.config/wallpaper-runtime")
-BIN = os.path.join(STATE_DIR, "bin", "wallpaper-runtime")
-HOST_APP = os.path.expanduser("~/Applications/Wallpaper Runtime.app")
-HOST_BIN = os.path.join(HOST_APP, "Contents", "MacOS", "wallpaper-runtime-host")
+STATE_DIR = os.path.expanduser("~/.config/fresco")
+BIN = os.path.join(STATE_DIR, "bin", "fresco")
+HOST_APP = os.path.expanduser("~/Applications/Fresco.app")
+HOST_BIN = os.path.join(HOST_APP, "Contents", "MacOS", "fresco-host")
 HOST_PIDFILE = os.path.join(STATE_DIR, "host-pid")
-HOST_BUNDLE_ID = "local.astral.wallpaper-runtime"
+HOST_BUNDLE_ID = "local.astral.fresco"
 CONFIG = os.path.join(STATE_DIR, "current")
 PIDFILE = os.path.join(STATE_DIR, "pid")
 LOG = os.path.join(STATE_DIR, "log")
-LABEL = "local.wallpaper-runtime"
+LABEL = "local.fresco"
 PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
 LIVERY_ROOT = os.path.expanduser("~/.config/livery")
 LIVERY_ENGINE = os.path.join(os.path.dirname(SCRIPT_DIR), "theming", "livery",
@@ -368,7 +368,7 @@ def signal_repose(verb):
 def repose(args):
     action = args[0] if args else "toggle"
     if action not in ("quiet", "loud", "off", "toggle"):
-        sys.exit("usage: wallpaperctl repose [quiet|loud|off]")
+        sys.exit("usage: fresco repose [quiet|loud|off]")
     if action in ("quiet", "loud"):
         state = load_repose_state()
         state["variant"] = action
@@ -405,7 +405,7 @@ def repose_look(args):
         print(f"repose look: {state['look']}")
         return
     if args[0] not in ("zephyr", "pixel"):
-        sys.exit("usage: wallpaperctl repose-look <zephyr|pixel>")
+        sys.exit("usage: fresco repose-look <zephyr|pixel>")
     state["look"] = args[0]
     save_repose_state(state)
     signal_repose("refresh")
@@ -419,7 +419,7 @@ def repose_axis(args, key, choices, command):
         print(f"repose {key}: {state.get(key)}")
         return
     if args[0] not in choices:
-        sys.exit(f"usage: wallpaperctl {command} <{'|'.join(choices)}>")
+        sys.exit(f"usage: fresco {command} <{'|'.join(choices)}>")
     state[key] = args[0]
     save_repose_state(state)
     signal_repose("refresh")
@@ -456,7 +456,7 @@ def repose_add(args):
     Deliberately additive: curation/removal remains outside this phase.
     """
     if not args:
-        sys.exit("usage: wallpaperctl repose-add <path-or-workshop-id>")
+        sys.exit("usage: fresco repose-add <path-or-workshop-id>")
     source = resolve(args[0])
     title = os.path.basename(source.rstrip(os.sep))
     if os.path.isfile(source):
@@ -525,7 +525,7 @@ def repose_label(args):
         print(f"repose label: {state.get('label', 'on')}")
         return
     if args[0] not in ("on", "off"):
-        sys.exit("usage: wallpaperctl repose-label [on|off]")
+        sys.exit("usage: fresco repose-label [on|off]")
     state["label"] = args[0]
     save_repose_state(state)
     signal_repose("refresh")
@@ -604,7 +604,7 @@ def audio_permission():
     print(f"  {HOST_APP}")
     print("Grant or enable Wallpaper Runtime once in System Settings > "
           "Privacy & Security > Screen & System Audio Recording, then run:")
-    print("  wallpaperctl restart")
+    print("  fresco restart")
 
 
 def main():

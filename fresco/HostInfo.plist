@@ -4,15 +4,15 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleDisplayName</key>
-  <string>Wallpaper Runtime</string>
+  <string>Fresco</string>
   <key>CFBundleExecutable</key>
-  <string>wallpaper-runtime-host</string>
+  <string>fresco-host</string>
   <key>CFBundleIdentifier</key>
-  <string>local.astral.wallpaper-runtime</string>
+  <string>local.astral.fresco</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Wallpaper Runtime</string>
+  <string>Fresco</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

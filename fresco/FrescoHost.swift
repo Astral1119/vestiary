@@ -6,8 +6,8 @@ import Foundation
 // Do not rebuild an installed host for ordinary renderer source changes.
 
 private let stateDirectory = FileManager.default.homeDirectoryForCurrentUser
-    .appendingPathComponent(".config/wallpaper-runtime")
-private let worker = stateDirectory.appendingPathComponent("bin/wallpaper-runtime")
+    .appendingPathComponent(".config/fresco")
+private let worker = stateDirectory.appendingPathComponent("bin/fresco")
 private let hostPID = stateDirectory.appendingPathComponent("host-pid")
 private let logURL = stateDirectory.appendingPathComponent("log")
 
