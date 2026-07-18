@@ -15,6 +15,7 @@ written, watched by consumers. Spec: [`SPEC.md`](./SPEC.md) — frozen v1.0.
   dotfiles.
 - `tasks.d/` is the multi-writer channel done maildir-style: one file per
   task, single writer each, glob-and-merge to consume, evict entries whose
-  pid/tmux-pane is dead.
+  focus.tmux pane is gone (pane-primary; pids in extension blocks are
+  advisory and never evict on their own).
 
 Every consumer works with this directory absent.

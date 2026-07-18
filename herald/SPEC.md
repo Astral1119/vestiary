@@ -2,6 +2,10 @@
 
 **FROZEN v1.0 — 2026-07-17** (astral sign-off after prior-art validation,
 tasks reshape, and live publisher verification).
+**v1.1 — 2026-07-18**: §5 eviction corrected to pane-primary (a dead pid
+alone never evicts — no shipped consumer ever implemented pid-eviction);
+the worked kind example is now non-agent, and kind documentation moved
+out to the publishers that own it (ship boundary, §8).
 Sibling to contract/SPEC.md (the theme contract); this is the *state* contract.
 Prior-art validation done (15-source survey: maildir, git lockfiles, pywal,
 Hyprland/i3bar/waybar/eww/MPRIS/SketchyBar transports, FSEvents/kqueue/libuv
@@ -106,28 +110,24 @@ per-turn granularity).
   "schema": "tasks/1",
   "seq": 42,
   "updatedAt": "2026-07-17T22:00:00Z",
-  "producer": "agent-state.sh",
+  "producer": "make-watch",
   "data": {
-    "id": "claude:<sessionId>",
-    "kind": "claude" | "codex" | "<anything>",
-    "title": "lattice",
-    "cwd": "/Users/astral/personal/lattice",
+    "id": "build:lattice-test",
+    "kind": "build" | "<anything>",
+    "title": "make test",
+    "cwd": "~/personal/lattice",
     "state": "idle" | "working" | "waiting" | "done",
     "outcome": "success" | "failure" | "stopped",
     "attention": "permission" | "input" | "sandbox" | "dialog" | "idle_prompt",
     "urgent": true,
-    "lastMessage": "Refactored the parser; tests green.",
+    "lastMessage": "3 of 214 tests failing",
     "startedAt": "2026-07-17T21:40:02Z",
     "since": "2026-07-17T21:58:11Z",
     "focus": { "space": 4, "tmux": { "pane": "%12", "window": "@3", "session": "cockpit" } },
-    "claude": {
-      "sessionId": "…",
+    "build": {
       "pid": 12345,
-      "model": "claude-fable-5",
-      "permissionMode": "bypassPermissions",
-      "lastEvent": "Notification",
-      "sessionName": "lattice-parser",
-      "transcriptPath": "~/.claude/projects/…/….jsonl"
+      "target": "test",
+      "log": "/tmp/lattice-test.log"
     }
   }
 }
@@ -143,7 +143,7 @@ kinds and filename-safe: file is `tasks.d/<id>.json` with `:` → `-`).
   status/conclusion split); absent outcome ≙ indeterminate.
 - `attention`: machine enum for WHY a human is wanted (XMPP show-vs-status
   pattern; `waitingFor` precedent). Open vocabulary; the five listed values
-  are the claude/codex ones.
+  come from the AI-agent kinds that drove v1.
 - `urgent`: the one shared "should I glow" bit — derived (waiting ⇒ true)
   today, independently settable later (done+unread ⇒ urgent for quiet-screen).
 - `title`: short human label (project basename for agent kinds, derived from
@@ -152,25 +152,29 @@ kinds and filename-safe: file is `tasks.d/<id>.json` with `:` → `-`).
   optional; jump-to-task consumers use what's present.
 - `lastMessage` (~120 chars): task line for pickers/quiet-screen with zero
   further derivation.
-- **Liveness/eviction**: publishers SHOULD carry a pid in their extension
-  block; consumers evict entries whose pid is dead or whose focus.tmux pane
-  is gone (merge-time check). Mandatory in practice for the codex kind —
-  Codex has NO SessionEnd hook — and the safety net for every kind whose
+- **Liveness/eviction** (amended v1.1 — the v1.0 wording made a dead pid
+  alone sufficient, which no shipped consumer implements): pane-liveness is
+  the eviction primary — consumers evict entries whose focus.tmux pane is
+  gone (merge-time check). A pid in an extension block is advisory
+  publisher metadata; core consumers never evict on pid alone (some kinds'
+  pids are transient by nature — a hook runner's parent can die between
+  events under a live session). Kinds MAY define stricter liveness in their
+  own documentation. Entries carrying no focus.tmux identity are outside
+  pane-eviction's reach; their cleanup belongs to the publisher's
+  end-of-session path, plus a tasks.d reaper reserved as a future
+  amendment. Pane eviction remains the safety net for every kind whose
   publisher crashes.
 
-**The claude/codex kinds** (extension block, published by astral's
-agent-state.sh — the example publisher, not shipped infrastructure):
-- Lifecycle: SessionStart(source: resume) upserts the SAME file (session_id
-  stable across --continue/--resume); SessionEnd(reason ≠ resume) removes
-  it, as does the zsh precmd cleanup. Known v1 tradeoff: quitting a CLI with
-  an unread done-state loses the marker (brief tombstone = later refinement).
-  Recorded idea: done → idle decay on tmux pane-focus ("user saw it").
-- Codex event mapping: SessionStart→idle, UserPromptSubmit→working,
-  PermissionRequest→waiting(attention: permission), Stop→done,
-  Subagent*→ignored (never flips task state). Pre/PostCompact are not
-  wired — the last state persists across compaction (amended 2026-07-18
-  per the 2026-07-18 lifecycle audit: mapping follows reality).
-  Blind spot: a Codex plain question has no hook — heuristics only.
+**A worked kind example (build):** a make wrapper publishes
+`tasks.d/build-<name>.json` — working on start, done + outcome on exit,
+waiting(attention: input) if it ever prompts; its extension block carries
+the target and a log path. Removal at process exit is the publisher's job;
+the pane check evicts it if the wrapper dies inside a tmux pane, and a
+kind with no pane identity relies on its own cleanup.
+
+Kind extension blocks are documented by their publishers, not here. The
+AI-agent kinds that drove this design live with their publisher in the
+operator's dotfiles (ship boundary, §8).
 
 **Transitions (bells/notifications):** NOT encoded as snapshot field flips —
 coalescing watchers eat transient flips (research-confirmed). v1: transitions
