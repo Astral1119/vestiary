@@ -169,6 +169,11 @@ func shell(_ arguments: [String]) -> (status: Int32, stdout: String) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
     process.arguments = arguments
+    // launchd agents get a bare PATH; brew-installed helpers (media-control,
+    // tmux, sketchybar) must still resolve.
+    var environment = ProcessInfo.processInfo.environment
+    environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + (environment["PATH"] ?? "/usr/bin:/bin")
+    process.environment = environment
     let stdout = Pipe()
     process.standardOutput = stdout
     process.standardError = Pipe()
