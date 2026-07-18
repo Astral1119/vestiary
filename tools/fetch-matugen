@@ -1,0 +1,17 @@
+#!/bin/sh
+# fetch-matugen — install the pinned matugen release into tools/bin/.
+# The binary itself is not committed (9.5 MB Mach-O with local build paths
+# baked in, GPL-2.0-or-later); this fetch step replaces it. liveryctl
+# expects the result at tools/bin/matugen.
+set -eu
+
+VERSION=4.1.0
+ROOT=$(cd "$(dirname "$0")" && pwd)
+
+command -v cargo >/dev/null 2>&1 || {
+  echo "fetch-matugen: cargo not found — install Rust (rustup or brew install rust)" >&2
+  exit 1
+}
+
+cargo install matugen --version "=$VERSION" --locked --root "$ROOT"
+"$ROOT/bin/matugen" --version

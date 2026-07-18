@@ -424,7 +424,8 @@ import_wallpaper() {
     exit 1
   }
   [ -x "$MATUGEN" ] || {
-    echo "missing concept-local Matugen binary: $MATUGEN" >&2
+    echo "missing pinned matugen binary: $MATUGEN" >&2
+    echo "fetch it with: tools/fetch-matugen" >&2
     exit 1
   }
 
