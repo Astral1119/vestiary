@@ -34,7 +34,7 @@ echo "dependencies"
 printf '  %-14s %-10s %-8s %s\n' "command" "need" "status" "when missing"
 report_dependency jq required "required for bootstrap"
 report_dependency swiftc required "livery, lvry, and fresco compile Swift helpers"
-report_dependency cargo optional "needed once, to fetch matugen"
+report_dependency cargo optional "matugen fallback build (arm64 macs download a prebuilt)"
 report_dependency ffmpeg optional "scene lock images + video frame extraction"
 report_dependency tmux optional "the tmux surface won't be themed"
 report_dependency nvim optional "the nvim surface won't be themed"
@@ -55,13 +55,11 @@ MATUGEN="$REPO_ROOT/livery/tools/bin/matugen"
 if [ -x "$MATUGEN" ]; then
   printf '\nmatugen: '
   "$MATUGEN" --version
-elif command -v cargo >/dev/null 2>&1; then
-  echo ""
-  echo "matugen: fetching pinned release"
-  "$REPO_ROOT/livery/tools/fetch-matugen"
 else
   echo ""
-  echo "matugen: install cargo, then run livery/tools/fetch-matugen"
+  echo "matugen: fetching pinned release"
+  # arm64 downloads a prebuilt asset; other platforms build via cargo.
+  "$REPO_ROOT/livery/tools/fetch-matugen" || true
 fi
 
 for shim in \
@@ -118,13 +116,103 @@ case ":${PATH:-}:" in
   *) echo "warning: $SHIM_DIR is not in PATH" >&2 ;;
 esac
 
+# Loader wiring lives here rather than behind a new adapter verb: the
+# contract's verb set is frozen, and editing user configs is installer
+# policy, not adapter mechanism. Wiring only runs when asked (a TTY yes,
+# or --wire); the report alone stays the non-interactive behavior.
+backup_once() {
+  [ -f "$1" ] && [ ! -e "$1.pre-livery" ] && cp "$1" "$1.pre-livery" || true
+}
+
+append_line() {
+  target=$1
+  line=$2
+  mkdir -p "$(dirname "$target")"
+  backup_once "$target"
+  [ -f "$target" ] && [ -n "$(tail -c 1 "$target" 2>/dev/null)" ] && printf '\n' >> "$target"
+  printf '%s\n' "$line" >> "$target"
+}
+
+wire_loader() {
+  case $1 in
+    tmux)
+      append_line "$HOME/.config/tmux/tmux.conf" \
+        'source-file -q ~/.config/livery/current/tmux/livery.conf' ;;
+    ghostty)
+      append_line "$HOME/.config/ghostty/config" \
+        'config-file = ?../livery/current/ghostty/livery.conf' ;;
+    borders)
+      append_line "$HOME/.config/yabai/yabairc" \
+        'source "$HOME/.config/livery/current/borders/borders.args"' ;;
+    sketchybar)
+      shim="$HOME/.config/sketchybar/colors.lua"
+      mkdir -p "$(dirname "$shim")"
+      backup_once "$shim"
+      cat > "$shim" <<'LUA'
+local root = os.getenv("HOME") .. "/.config/livery"
+local current = root .. "/current/sketchybar/colors.lua"
+local fallback = root .. "/default/sketchybar/colors.lua"
+
+local ok, colors = pcall(dofile, current)
+if ok then return colors end
+
+return dofile(fallback)
+LUA
+      ;;
+    nvim)
+      plugins="$HOME/.config/nvim/lua/plugins"
+      if [ ! -d "$plugins" ]; then
+        echo "  nvim: no lazy.nvim plugins dir at $plugins — wire it by hand"
+        return 1
+      fi
+      cat > "$plugins/livery.lua" <<LUA
+return {
+  {
+    dir = "$REPO_ROOT/livery.nvim",
+    name = "livery.nvim",
+    lazy = false,
+    priority = 999,
+    config = function()
+      require("livery").setup()
+    end,
+  },
+}
+LUA
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+WIRE=ask
+case "${1:-}" in
+  --wire) WIRE=yes ;;
+  --no-wire) WIRE=no ;;
+esac
+
 echo ""
 echo "loader wiring"
 for adapter in "$REPO_ROOT"/adapters/*; do
   [ -x "$adapter" ] || continue
-  printf '\n%s:\n' "$(basename "$adapter")"
+  name=$(basename "$adapter")
+  printf '\n%s:\n' "$name"
   # loader failures are guidance, not installer failures.
-  "$adapter" loader-check || true
+  if "$adapter" loader-check; then
+    continue
+  fi
+  want=n
+  if [ "$WIRE" = yes ]; then
+    want=y
+  elif [ "$WIRE" = ask ] && [ -t 0 ]; then
+    printf '  wire it now (existing file kept at *.pre-livery)? [y/N] '
+    read -r want || want=n
+  fi
+  case $want in
+    y|Y)
+      if wire_loader "$name"; then
+        "$adapter" loader-check || true
+      fi
+      ;;
+  esac
 done
 
 # permissions command -v can't see: TCC grants and yabai's own setup.
