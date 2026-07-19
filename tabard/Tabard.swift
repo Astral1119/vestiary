@@ -415,8 +415,14 @@ final class Tabard: NSObject, NSApplicationDelegate {
       let oldState = previous[id]?.state
       guard entry.state != oldState else { continue }  // seq alone never toasts
       guard entry.state == "waiting" || entry.state == "done" else { continue }
-      if paused { continue }               // dropped, not queued — bar has it
-      if let pane = entry.pane, focused.contains(pane) { continue }
+      if paused {                          // dropped, not queued — bar has it
+        if env("TABARD_DEBUG") != nil { log("dropped (paused) \(id) → \(entry.state)") }
+        continue
+      }
+      if let pane = entry.pane, focused.contains(pane) {
+        if env("TABARD_DEBUG") != nil { log("suppressed (pane focused) \(id) → \(entry.state)") }
+        continue
+      }
       show(entry.state == "waiting" ? Toast.waiting(entry) : Toast.done(entry))
     }
   }
@@ -487,6 +493,14 @@ final class Tabard: NSObject, NSApplicationDelegate {
     if changed { render() }
   }
 
+  // active display = the pointer's screen; NSScreen.main resolves to the
+  // primary display for an app that never takes key.
+  func activeScreen() -> NSScreen? {
+    let mouse = NSEvent.mouseLocation
+    return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+      ?? NSScreen.main
+  }
+
   func idleSeconds() -> Double {
     let types: [CGEventType] = [.keyDown, .mouseMoved, .leftMouseDown,
                                 .rightMouseDown, .scrollWheel]
@@ -501,7 +515,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
   func render() {
     guard let content = panel.contentView else { return }
     content.subviews.forEach { $0.removeFromSuperview() }
-    guard !visible.isEmpty, let screen = NSScreen.main else {
+    guard !visible.isEmpty, let screen = activeScreen() else {
       panel.orderOut(nil)
       return
     }
@@ -568,7 +582,14 @@ func agentInstalled() -> Bool {
 }
 
 func installAgent() {
-  let binary = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath().path
+  let binary = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+  // launchd runs the sh wrapper when present: it rebuilds a cleaned or
+  // stale binary before exec'ing, where a pinned build/ path would leave
+  // KeepAlive thrashing a missing file.
+  let wrapper = binary.deletingLastPathComponent().deletingLastPathComponent()
+    .appendingPathComponent("tabard")
+  let program = FileManager.default.isExecutableFile(atPath: wrapper.path)
+    ? wrapper.path : binary.path
   let plist = """
   <?xml version="1.0" encoding="UTF-8"?>
   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -576,7 +597,7 @@ func installAgent() {
   <plist version="1.0"><dict>
     <key>Label</key><string>\(Config.label)</string>
     <key>ProgramArguments</key><array>
-      <string>\(binary)</string>
+      <string>\(program)</string>
       <string>run</string>
     </array>
     <key>RunAtLoad</key><true/>
