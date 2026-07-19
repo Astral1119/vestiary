@@ -60,24 +60,29 @@ snapshots remain authoritative.
 ## Inbox
 
 Toasts cover the moment; the inbox covers what you missed. `./tabard
-inbox` toggles a floating panel over the same herald state plus the
-events log (toasts are inhibited while it is open). Threads are tasks,
-or whole groups when tasks were dispatched as a batch. Channels are
-projects — the task title, normally the repo — listed alphabetically
-with badges carrying salience; a unified newest-first feed is the
-second tab. Each thread has a read cursor ("read through event N") in
-`~/.local/state/herald/seen.json`; channels and the feed are stateless
-views over that one map, so the partition can change without migrating
-anything.
+inbox` toggles a centered workbench panel — the livery panel's family:
+a channel rail on the left, detail on the right, breadcrumb header,
+keybind legend in the footer, esc to close. It takes keys while open
+(j/k or arrows move the rail, enter attends the selected channel's
+first waiting thread) and toasts are inhibited. Threads are tasks, or
+whole groups when tasks were dispatched as a batch. Channels are
+projects — the task title, normally the repo — grouped in the rail as
+NEEDS YOU / NEW / QUIET with a presence dot per channel, no counts;
+a unified newest-first feed sits pinned at the top. The channel view
+shows cards for its active threads (click one to attend and jump) and
+the recent scrollback with a NEW divider.
 
-Reading happens by act, not by arrival: a message fully on screen for
-700ms, attending a thread, an explicit mark, or the task's tmux pane
-being on the displayed window while you are at the machine. Entering a
-channel marks nothing. A thread is live exactly while its herald task
-file exists — the inbox adds no second lifecycle. A presence summary
-(`needsYou`/`unread` booleans, no counts) is exported to
-`~/.local/state/tabard/badge.json` for whatever status surface wants
-it.
+Reading happens by act, not by arrival: scrolling a channel to the
+bottom marks it read (Slack's shape — a channel that fits on screen
+reads on entry), as do attending and the task's tmux pane being on the
+displayed window while you are at the machine. The feed never marks.
+Each thread's cursor lives in `~/.local/state/herald/seen.json`;
+channels and the feed are stateless views over that one map, so the
+partition can change without migrating anything. A thread is live
+exactly while its herald task file exists — the inbox adds no second
+lifecycle. A presence summary (`needsYou`/`unread` booleans, no
+counts) is exported to `~/.local/state/tabard/badge.json` for
+whatever status surface wants it.
 
 ## Theme
 

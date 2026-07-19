@@ -606,12 +606,14 @@ final class Tabard: NSObject, NSApplicationDelegate {
         forName: Notification.Name("local.vestiary.tabard.inbox"), object: nil,
         queue: .main) { [weak self] _ in
           guard let self else { return }
-          if !self.inboxController.isOpen {
+          if self.inboxController.isOpen {
+            self.inboxController.close()
+          } else {
             self.visible.removeAll()
             self.queue.removeAll()
             self.render()
+            self.inboxController.open(screen: self.activeScreen())
           }
-          self.inboxController.toggle(screen: self.activeScreen())
         }
     }
     lookBaseline = currentLookIdentity()
@@ -914,6 +916,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
       : "digest:inbox:" + thread
     runAttend(argument, pane: member?.pane, space: member?.space,
               group: member?.group)
+    inboxController.close()
   }
 
   func runAttend(_ id: String, pane: String?, space: Int?, group: String?) {
