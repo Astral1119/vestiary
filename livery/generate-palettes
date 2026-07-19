@@ -2,7 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-THEMING_ROOT=$(CDPATH='' cd -- "$ROOT/.." && pwd)
+THEMING_ROOT=$ROOT # livery moved under the vestiary umbrella 2026-07-17; tools/ and assets/ moved with it
 MATUGEN="$THEMING_ROOT/tools/bin/matugen"
 SOURCES="$ROOT/sources.json"
 OUTPUT="$ROOT/palettes.json"
@@ -73,6 +73,10 @@ jq -c '.[]' "$SOURCES" | while IFS= read -r source; do
         text: .colors.on_surface.default.color,
         textMuted: .colors.on_surface_variant.default.color,
         outline: .colors.outline.default.color,
+        inverseSurface: .colors.inverse_surface.default.color,
+        inverseText: .colors.inverse_on_surface.default.color,
+        inversePrimary: .colors.inverse_primary.default.color,
+        scrim: .colors.scrim.default.color,
         error: .colors.error.default.color,
         terminalBackground: .colors.background.default.color,
         terminalForeground: .colors.on_surface.default.color,
