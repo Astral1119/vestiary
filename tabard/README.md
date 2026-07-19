@@ -34,7 +34,16 @@ fired mid-coffee is still there when you sit down. At most three are
 visible; more collapse into a "+N" count. The panel is click-through
 and never takes focus; jumping to a task belongs to your own tooling.
 A transition in the tmux pane you are currently focused on does not
-toast. Persistent state is deliberately not tabard's job: announcements
+toast.
+
+Tasks published with a `group` (herald `SPEC.md` v1.3 — batch
+dispatches like agent swarms) digest instead of parading: completions
+collect for 30s and annunciate as one chip with outcome counts
+("7 finished · 2 failed"), updating in place while visible and
+re-toasting at most every five minutes. Blocked group members
+annunciate immediately — attention never waits in a collector — and
+merge into one "N blocked" chip. The two tiers never share a chip.
+Ungrouped tasks toast individually, as above. Persistent state is deliberately not tabard's job: announcements
 decay, and whatever surface you keep task state on (a bar, a widget)
 remains the durable record.
 
