@@ -359,6 +359,7 @@ final class InboxController: NSObject {
   private let detailDocument = InboxDocumentView()
   private var theme: Theme
   private var channel: String?
+  private var newDividerY: CGFloat?
   private var railItems: [InboxRailItem] = []
   private var railRowFrames: [NSRect] = []
   private var detailObserver: NSObjectProtocol?
@@ -508,8 +509,17 @@ final class InboxController: NSObject {
     renderRail()
     renderDetail()
     restore(railScroll, y: preserveRail ? railTop : 0)
-    restore(detailScroll, y: preserveDetail ? detailTop : 0)
+    restore(detailScroll, y: preserveDetail ? detailTop : initialDetailOffset())
     DispatchQueue.main.async { [weak self] in self?.checkBottom() }
+  }
+
+  // the Slack entry point: an unread channel opens with NEW at the top
+  // of the viewport, a clean one at the bottom; the feed opens at the
+  // top (its newest is first)
+  private func initialDetailOffset() -> CGFloat {
+    guard channel != nil else { return 0 }
+    if let dividerY = newDividerY { return max(0, dividerY - 8) }
+    return max(0, detailDocument.frame.height - detailScroll.contentSize.height)
   }
 
   private func restore(_ scroll: NSScrollView, y: CGFloat) {
@@ -652,6 +662,7 @@ final class InboxController: NSObject {
     detailDocument.subviews.forEach { $0.removeFromSuperview() }
     detailDocument.frame = NSRect(x: 0, y: 0,
       width: detailScroll.contentSize.width, height: detailScroll.contentSize.height)
+    newDividerY = nil
     var y: CGFloat = 22
     if let channel {
       renderChannel(channel, y: &y)
@@ -661,21 +672,10 @@ final class InboxController: NSObject {
     detailDocument.frame.size.height = max(y + 22, detailScroll.contentSize.height)
   }
 
+  // the channel is pure past — the cockpit (panes, glyphs, bar) owns
+  // the present, so no live-thread cards here
   private func renderChannel(_ name: String, y: inout CGFloat) {
-    guard let project = model.projects().first(where: { $0.name == name }) else {
-      add(label("no messages in the window.", color: theme.inboxMuted),
-          to: detailDocument, y: &y, height: 30)
-      return
-    }
-    let active = project.threads.filter { thread in
-      thread.members.contains { $0.state == "waiting" || $0.state == "working" }
-    }
-    if !active.isEmpty {
-      add(sectionLabel("ACTIVE"), to: detailDocument, y: &y, height: 22)
-      for thread in active { renderThread(thread, y: &y) }
-    }
-    if !active.isEmpty { y += 18 }
-    add(sectionLabel("SCROLLBACK"), to: detailDocument, y: &y, height: 22)
+    newDividerY = nil
     let allEvents = model.events.filter { $0.project == name }
     let events = Array(allEvents.suffix(50))
     if allEvents.count > 50 {
@@ -692,6 +692,7 @@ final class InboxController: NSObject {
     for event in events {
       let unread = event.seq > (model.cursors[event.thread] ?? 0)
       if unread && !divided {
+        newDividerY = y
         add(label("NEW", size: 9, color: theme.inboxAccent),
             to: detailDocument, y: &y, height: 18)
         divided = true
@@ -700,49 +701,6 @@ final class InboxController: NSObject {
       styleMessage(row, event: event, unread: unread)
       add(row, to: detailDocument, y: &y, height: 30)
     }
-  }
-
-  private func renderThread(_ thread: InboxThread, y: inout CGFloat) {
-    let row = InboxClickView()
-    row.action = { [weak self] in self?.attend?(thread.id) }
-    row.wantsLayer = true
-    row.layer?.backgroundColor = theme.inboxAccent.withAlphaComponent(0.06).cgColor
-    let waiting = thread.members.contains { $0.state == "waiting" }
-    let stripe = NSView(frame: NSRect(x: 0, y: 3, width: 3, height: 48))
-    stripe.wantsLayer = true
-    stripe.layer?.backgroundColor = (waiting
-      ? theme.inboxAccent : theme.inboxOutline).cgColor
-    row.addSubview(stripe)
-    let title = label(thread.name, size: 12, display: true)
-    title.frame = NSRect(x: 12, y: 6,
-                         width: detailDocument.frame.width - 68, height: 18)
-    row.addSubview(title)
-    let state = label("", size: 10, color: theme.inboxMuted)
-    let states = NSMutableAttributedString()
-    for (index, member) in thread.members.enumerated() {
-      if index > 0 { states.append(NSAttributedString(string: " · ")) }
-      let word = member.state == "done" ? (member.outcome ?? "done")
-        : member.state
-      let color: NSColor
-      if member.state == "waiting" { color = theme.inboxAccent }
-      else if member.outcome == "failure" { color = .systemRed }
-      else if member.state == "done" { color = .systemGreen }
-      else { color = theme.inboxMuted }
-      states.append(NSAttributedString(string: word,
-        attributes: [.foregroundColor: color]))
-    }
-    if !thread.unread.isEmpty {
-      states.append(NSAttributedString(string: " · \(thread.unread.count) new",
-        attributes: [.foregroundColor: theme.inboxAccent]))
-    }
-    states.addAttribute(.font,
-      value: theme.font(family: theme.uiFamily, size: 10),
-      range: NSRange(location: 0, length: states.length))
-    state.attributedStringValue = states
-    state.frame = NSRect(x: 12, y: 29,
-                         width: detailDocument.frame.width - 68, height: 16)
-    row.addSubview(state)
-    add(row, to: detailDocument, y: &y, height: 54)
   }
 
   private func styleMessage(_ row: NSView, event: InboxEvent, unread: Bool) {
