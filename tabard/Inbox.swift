@@ -192,6 +192,15 @@ final class InboxModel {
     cursorChanged()
   }
 
+  func markRead(_ positions: [String: Int]) {
+    var changed = false
+    for (thread, seq) in positions where seq > (cursors[thread] ?? 0) {
+      cursors[thread] = seq
+      changed = true
+    }
+    if changed { cursorChanged() }
+  }
+
   func attend(_ thread: String) {
     guard let latest = threads().first(where: { $0.id == thread })?.events.last
     else { return }
@@ -311,53 +320,50 @@ final class InboxModel {
 // MARK: - inbox views
 
 final class InboxPanel: NSPanel {
-  override var canBecomeKey: Bool { false }
+  var handleKey: ((NSEvent) -> Bool)?
+
+  override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { false }
+
+  override func keyDown(with event: NSEvent) {
+    if handleKey?(event) != true { super.keyDown(with: event) }
+  }
 }
 
 class InboxClickView: NSView {
   var action: (() -> Void)?
 
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-  override func mouseDown(with event: NSEvent) { action?() }
-}
-
-final class InboxRow: InboxClickView {
-  let thread: String?
-  let seq: Int?
-  var dwellTimer: Timer?
-
-  init(thread: String? = nil, seq: Int? = nil) {
-    self.thread = thread
-    self.seq = seq
-    super.init(frame: .zero)
+  override func hitTest(_ point: NSPoint) -> NSView? {
+    bounds.contains(point) ? self : nil
   }
-
-  required init?(coder: NSCoder) { fatalError() }
+  override func mouseDown(with event: NSEvent) { action?() }
 }
 
 final class InboxDocumentView: NSView {
   override var isFlipped: Bool { true }
 }
 
+private struct InboxRailItem {
+  let channel: String?
+  let tier: InboxTier?
+}
+
 final class InboxController: NSObject {
   let model: InboxModel
   private let panel: InboxPanel
   private let root = NSView()
-  private let header = InboxDocumentView()
-  private let scroll = NSScrollView()
-  private let document = InboxDocumentView()
+  private let header = NSView()
+  private let footer = NSView()
+  private let railScroll = NSScrollView()
+  private let railDocument = InboxDocumentView()
+  private let detailScroll = NSScrollView()
+  private let detailDocument = InboxDocumentView()
   private var theme: Theme
-  private var tab = "channels"
   private var channel: String?
-  private var messageRows: [Int: InboxRow] = [:]
-  private weak var badgeLabel: NSTextField?
-  private weak var channelHead: NSView?
-  private weak var scrollbackLabel: NSView?
-  private var liveViews: [NSView] = []
-  private var newDivider: NSView?
-  private var channelEmpty: NSView?
-  private var clipObserver: NSObjectProtocol?
+  private var railItems: [InboxRailItem] = []
+  private var railRowFrames: [NSRect] = []
+  private var detailObserver: NSObjectProtocol?
   var attend: ((String) -> Void)?
 
   var isOpen: Bool { panel.isVisible }
@@ -374,44 +380,66 @@ final class InboxController: NSObject {
                                 .fullScreenAuxiliary, .ignoresCycle]
     panel.isOpaque = true
     panel.hasShadow = true
-    scroll.drawsBackground = false
-    scroll.hasVerticalScroller = true
-    scroll.autohidesScrollers = true
-    scroll.contentView.postsBoundsChangedNotifications = true
-    scroll.documentView = document
+    panel.handleKey = { [weak self] event in self?.handleKey(event) ?? false }
+    configure(railScroll, document: railDocument)
+    configure(detailScroll, document: detailDocument)
+    detailScroll.contentView.postsBoundsChangedNotifications = true
     root.addSubview(header)
-    root.addSubview(scroll)
+    root.addSubview(footer)
+    root.addSubview(railScroll)
+    root.addSubview(detailScroll)
     panel.contentView = root
-    clipObserver = NotificationCenter.default.addObserver(
-      forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
-      queue: .main) { [weak self] _ in self?.evaluateDwell() }
+    detailObserver = NotificationCenter.default.addObserver(
+      forName: NSView.boundsDidChangeNotification,
+      object: detailScroll.contentView, queue: .main) {
+        [weak self] _ in self?.checkBottom()
+      }
     model.onChange = { [weak self] in self?.modelChanged() }
   }
 
-  func toggle(screen: NSScreen?) {
-    if isOpen { close(); return }
+  private func configure(_ scroll: NSScrollView,
+                         document: InboxDocumentView) {
+    scroll.drawsBackground = false
+    scroll.hasVerticalScroller = false
+    scroll.hasHorizontalScroller = false
+    scroll.documentView = document
+  }
+
+  func open(screen: NSScreen?) {
     guard let screen else { return }
-    let height = min(640, screen.visibleFrame.height * 0.7)
-    panel.setFrame(NSRect(x: screen.visibleFrame.maxX - 440 - Config.margin,
-                          y: screen.visibleFrame.maxY - height - Config.margin,
-                          width: 440, height: height), display: false)
-    root.frame = NSRect(x: 0, y: 0, width: 440, height: height)
-    header.frame = NSRect(x: 0, y: height - 92, width: 440, height: 92)
-    scroll.frame = NSRect(x: 0, y: 0, width: 440, height: height - 92)
-    channel = nil
-    tab = "channels"
+    let visible = screen.visibleFrame
+    let width = min(880, visible.width * 0.62)
+    let height = min(620, visible.height * 0.72)
+    panel.setFrame(NSRect(x: visible.midX - width / 2,
+                          y: visible.midY - height / 2,
+                          width: width, height: height), display: false)
+    layout(width: width, height: height)
+    channel = defaultChannel()
     render()
-    panel.orderFrontRegardless()
+    panel.makeKeyAndOrderFront(nil)
   }
 
   func close() {
-    cancelDwell()
     panel.orderOut(nil)
   }
 
   func retheme(_ theme: Theme) {
     self.theme = theme
-    if isOpen { render(preserveScroll: true) }
+    if isOpen { render(preserveRail: true, preserveDetail: true) }
+  }
+
+  private func layout(width: CGFloat, height: CGFloat) {
+    root.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    root.wantsLayer = true
+    root.layer?.cornerRadius = 12
+    root.layer?.masksToBounds = true
+    root.layer?.borderColor = theme.inboxOutline.cgColor
+    root.layer?.borderWidth = 0.5
+    header.frame = NSRect(x: 0, y: height - 52, width: width, height: 52)
+    footer.frame = NSRect(x: 0, y: 0, width: width, height: 30)
+    railScroll.frame = NSRect(x: 0, y: 30, width: 240, height: height - 82)
+    detailScroll.frame = NSRect(x: 240, y: 30,
+                                width: width - 240, height: height - 82)
   }
 
   private func label(_ text: String, size: CGFloat = 12,
@@ -426,222 +454,264 @@ final class InboxController: NSObject {
     return field
   }
 
-  private func button(_ text: String, action: @escaping () -> Void) -> InboxClickView {
+  private func hairline(frame: NSRect) -> NSView {
+    let line = NSView(frame: frame)
+    line.wantsLayer = true
+    line.layer?.backgroundColor = theme.inboxOutline.cgColor
+    return line
+  }
+
+  private func chip(key: String, word: String,
+                    action: (() -> Void)? = nil) -> InboxClickView {
     let view = InboxClickView()
     view.action = action
-    let field = label(text, size: 11, color: theme.inboxAccent)
-    field.frame = NSRect(x: 0, y: 2, width: 110, height: 18)
-    view.addSubview(field)
+    let keyLabel = label("[\(key)]", size: 10,
+                         color: theme.inboxAccent, mono: true)
+    keyLabel.sizeToFit()
+    keyLabel.frame = NSRect(x: 0, y: 0,
+                            width: ceil(keyLabel.frame.width) + 2, height: 16)
+    view.addSubview(keyLabel)
+    let wordLabel = label(word, size: 10, color: theme.inboxMuted)
+    wordLabel.sizeToFit()
+    wordLabel.frame = NSRect(x: keyLabel.frame.maxX + 4, y: 0,
+                             width: ceil(wordLabel.frame.width) + 2, height: 16)
+    view.addSubview(wordLabel)
+    view.frame.size = NSSize(width: wordLabel.frame.maxX, height: 16)
     return view
   }
 
-  private func clear() {
-    cancelDwell()
-    document.subviews.forEach { $0.removeFromSuperview() }
-    header.subviews.forEach { $0.removeFromSuperview() }
-    messageRows.removeAll()
-    liveViews.removeAll()
-    newDivider = nil
-    channelEmpty = nil
+  private func sectionLabel(_ text: String) -> NSTextField {
+    label(text, size: 9.5, color: theme.inboxMuted)
   }
 
-  private func add(_ view: NSView, y: inout CGFloat, height: CGFloat,
-                   inset: CGFloat = 14) {
-    view.frame = NSRect(x: inset, y: y, width: 440 - inset * 2, height: height)
+  private func add(_ view: NSView, to document: NSView, y: inout CGFloat,
+                   height: CGFloat, inset: CGFloat = 22) {
+    view.frame = NSRect(x: inset, y: y,
+                        width: document.frame.width - inset * 2, height: height)
     document.addSubview(view)
     y += height
   }
 
-  private func addHeader(_ view: NSView, y: inout CGFloat, height: CGFloat,
-                         inset: CGFloat = 14) {
-    view.frame = NSRect(x: inset, y: y, width: 440 - inset * 2, height: height)
-    header.addSubview(view)
-    y += height
+  private func render(preserveRail: Bool = false,
+                      preserveDetail: Bool = false) {
+    let railTop = railScroll.contentView.bounds.origin.y
+    let detailTop = detailScroll.contentView.bounds.origin.y
+    panel.backgroundColor = theme.inboxBG
+    root.layer?.backgroundColor = theme.inboxBG.cgColor
+    root.layer?.borderColor = theme.inboxOutline.cgColor
+    renderHeader()
+    renderFooter()
+    renderRail()
+    renderDetail()
+    restore(railScroll, y: preserveRail ? railTop : 0)
+    restore(detailScroll, y: preserveDetail ? detailTop : 0)
+    DispatchQueue.main.async { [weak self] in self?.checkBottom() }
   }
 
-  private func render(preserveScroll: Bool = false) {
-    let old = scroll.contentView.bounds.origin.y
-    clear()
-    panel.backgroundColor = theme.inboxBG
-    document.wantsLayer = true
-    document.layer?.backgroundColor = theme.inboxBG.cgColor
-    var headerY: CGFloat = 10
-    renderHeader(y: &headerY)
-    var y: CGFloat = 8
-    if tab == "activity" {
-      renderFeed(y: &y)
-    } else if let channel {
+  private func restore(_ scroll: NSScrollView, y: CGFloat) {
+    let maximum = max(0, (scroll.documentView?.frame.height ?? 0)
+      - scroll.contentSize.height)
+    scroll.contentView.scroll(to: NSPoint(x: 0, y: min(y, maximum)))
+    scroll.reflectScrolledClipView(scroll.contentView)
+  }
+
+  private func renderHeader() {
+    header.subviews.forEach { $0.removeFromSuperview() }
+    let width = header.frame.width
+    let breadcrumb = label("", size: 15, display: true)
+    let segments = ["tabard", "inbox"] + (channel.map { [$0] } ?? [])
+    let text = NSMutableAttributedString()
+    for (index, segment) in segments.enumerated() {
+      if index > 0 {
+        text.append(NSAttributedString(string: " // ", attributes: [
+          .foregroundColor: theme.inboxMuted]))
+      }
+      text.append(NSAttributedString(string: segment, attributes: [
+        .foregroundColor: index == segments.count - 1
+          ? theme.inboxFG : theme.inboxMuted]))
+    }
+    text.addAttribute(.font,
+      value: theme.font(family: theme.displayFamily, size: 15),
+      range: NSRange(location: 0, length: text.length))
+    breadcrumb.attributedStringValue = text
+    breadcrumb.frame = NSRect(x: 22, y: 16, width: width - 170, height: 20)
+    header.addSubview(breadcrumb)
+    let closeChip = chip(key: "esc", word: "close") {
+      [weak self] in self?.close()
+    }
+    closeChip.frame.origin = NSPoint(x: width - closeChip.frame.width - 22,
+                                     y: 18)
+    header.addSubview(closeChip)
+    header.addSubview(hairline(frame: NSRect(x: 0, y: 0,
+                                             width: width, height: 0.5)))
+  }
+
+  private func renderFooter() {
+    footer.subviews.forEach { $0.removeFromSuperview() }
+    footer.addSubview(hairline(frame: NSRect(x: 0, y: 29.5,
+                                             width: footer.frame.width,
+                                             height: 0.5)))
+    let legends = [("j/k", "channels"), ("enter", "attend"),
+                   ("esc", "close")]
+    var x: CGFloat = 22
+    for (key, word) in legends {
+      let item = chip(key: key, word: word)
+      item.frame.origin = NSPoint(x: x, y: 7)
+      footer.addSubview(item)
+      x = item.frame.maxX + 18
+    }
+  }
+
+  private func projectTier(_ project: InboxProject) -> InboxTier? {
+    if project.threads.contains(where: { $0.tier == .waiting }) {
+      return .waiting
+    }
+    if project.threads.contains(where: { $0.tier == .activity }) {
+      return .activity
+    }
+    return nil
+  }
+
+  private func defaultChannel() -> String? {
+    model.projects().first { projectTier($0) == .waiting }?.name
+  }
+
+  private func renderRail() {
+    railDocument.subviews.forEach { $0.removeFromSuperview() }
+    railDocument.frame = NSRect(x: 0, y: 0, width: 240,
+                                height: railScroll.contentSize.height)
+    let projects = model.projects()
+    let sections: [(String, InboxTier?, [InboxProject])] = [
+      ("NEEDS YOU", .waiting,
+       projects.filter { projectTier($0) == .waiting }),
+      ("NEW", .activity,
+       projects.filter { projectTier($0) == .activity }),
+      ("QUIET", nil, projects.filter { projectTier($0) == nil })
+    ]
+    railItems = [InboxRailItem(channel: nil, tier: nil)]
+    for (_, tier, items) in sections {
+      railItems += items.map { InboxRailItem(channel: $0.name, tier: tier) }
+    }
+    railRowFrames.removeAll()
+    var y: CGFloat = 10
+    renderRailRow(InboxRailItem(channel: nil, tier: nil), y: &y)
+    y += 6
+    let line = hairline(frame: .zero)
+    add(line, to: railDocument, y: &y, height: 0.5, inset: 0)
+    if projects.isEmpty {
+      y += 14
+      add(label("quiet.", color: theme.inboxMuted),
+          to: railDocument, y: &y, height: 24)
+    } else {
+      for (title, tier, items) in sections where !items.isEmpty {
+        y += 14
+        add(sectionLabel(title), to: railDocument, y: &y, height: 20)
+        for project in items {
+          renderRailRow(InboxRailItem(channel: project.name, tier: tier), y: &y)
+        }
+      }
+    }
+    railDocument.frame.size.height = max(y + 12, railScroll.contentSize.height)
+    railDocument.addSubview(hairline(frame: NSRect(x: 239.5, y: 0,
+      width: 0.5, height: railDocument.frame.height)))
+  }
+
+  private func renderRailRow(_ item: InboxRailItem, y: inout CGFloat) {
+    let selected = item.channel == channel
+    let row = InboxClickView()
+    row.action = { [weak self] in self?.select(item.channel) }
+    row.wantsLayer = true
+    row.layer?.backgroundColor = selected
+      ? theme.inboxAccent.withAlphaComponent(0.10).cgColor
+      : theme.inboxBG.cgColor
+    let name = item.channel ?? "activity"
+    let nameColor = selected || item.channel == nil || item.tier != nil
+      ? theme.inboxFG : theme.inboxMuted
+    let field = label(name, size: 12, color: nameColor)
+    field.frame = NSRect(x: 22, y: 7, width: 178, height: 18)
+    row.addSubview(field)
+    if let tier = item.tier {
+      let dot = NSView(frame: NSRect(x: 210, y: 12.5, width: 7, height: 7))
+      dot.wantsLayer = true
+      dot.layer?.cornerRadius = 3.5
+      dot.layer?.backgroundColor = theme.inboxAccent
+        .withAlphaComponent(tier == .waiting ? 1 : 0.4).cgColor
+      row.addSubview(dot)
+    }
+    row.frame = NSRect(x: 0, y: y, width: 239.5, height: 32)
+    railRowFrames.append(row.frame)
+    railDocument.addSubview(row)
+    y += 32
+  }
+
+  private func renderDetail() {
+    detailDocument.subviews.forEach { $0.removeFromSuperview() }
+    detailDocument.frame = NSRect(x: 0, y: 0,
+      width: detailScroll.contentSize.width, height: detailScroll.contentSize.height)
+    var y: CGFloat = 22
+    if let channel {
       renderChannel(channel, y: &y)
     } else {
-      renderProjects(y: &y)
+      renderFeed(y: &y)
     }
-    document.frame = NSRect(x: 0, y: 0, width: 440,
-                            height: max(y + 12, scroll.contentSize.height))
-    // a fresh view starts at the top; only in-place updates keep position
-    scroll.contentView.scroll(to: NSPoint(x: 0, y: preserveScroll ? old : 0))
-    scroll.reflectScrolledClipView(scroll.contentView)
-  }
-
-  private func renderHeader(y: inout CGFloat) {
-    let header = NSView()
-    let title = label("inbox", size: 18, display: true)
-    title.frame = NSRect(x: 0, y: 0, width: 100, height: 24)
-    header.addSubview(title)
-    let threads = model.threads()
-    let waiting = threads.filter { $0.tier == .waiting }.count
-    let activity = threads.filter { $0.tier == .activity }.count
-    let badges = label("\(waiting) need you   \(activity) new", size: 10,
-      color: waiting + activity == 0 ? theme.inboxMuted : theme.inboxAccent)
-    badges.frame = NSRect(x: 100, y: 3, width: 145, height: 18)
-    header.addSubview(badges)
-    badgeLabel = badges
-    let all = button("mark all read") { [weak self] in self?.model.markAllRead() }
-    all.frame = NSRect(x: 255, y: 0, width: 100, height: 22)
-    header.addSubview(all)
-    let close = button("✕") { [weak self] in self?.close() }
-    close.frame = NSRect(x: 390, y: 0, width: 20, height: 22)
-    header.addSubview(close)
-    addHeader(header, y: &y, height: 28)
-
-    let tabs = NSView()
-    let channels = button(tab == "channels" ? "channels •" : "channels") {
-      [weak self] in self?.switchTab("channels")
-    }
-    channels.frame = NSRect(x: 0, y: 0, width: 90, height: 22)
-    tabs.addSubview(channels)
-    let activityButton = button(tab == "activity" ? "activity •" : "activity") {
-      [weak self] in self?.switchTab("activity")
-    }
-    activityButton.frame = NSRect(x: 100, y: 0, width: 90, height: 22)
-    tabs.addSubview(activityButton)
-    addHeader(tabs, y: &y, height: 24)
-    let hint = tab == "channels"
-      ? "stable alphabetical order — salience rides the badge, not the sort"
-      : "unified feed, newest first — reads only on click, never on scroll"
-    addHeader(label(hint, size: 10, color: theme.inboxMuted),
-              y: &y, height: 24)
-  }
-
-  private func switchTab(_ value: String) {
-    guard tab != value else { return }
-    channel = nil
-    tab = value
-    render()
-  }
-
-  private func renderProjects(y: inout CGFloat) {
-    let projects = model.projects()
-    if projects.isEmpty {
-      add(label("quiet.", color: theme.inboxMuted), y: &y, height: 36)
-      return
-    }
-    for project in projects {
-      let waiting = project.threads.filter { $0.tier == .waiting }.count
-      let activity = project.threads.filter { $0.tier == .activity }.count
-      let live = project.threads.filter { $0.live }.count
-      var text = project.name
-      if waiting > 0 { text += "   [\(waiting) need you]" }
-      if activity > 0 { text += "   [\(activity) new]" }
-      text += "   \(live) live"
-      let row = InboxRow()
-      row.action = { [weak self] in self?.enterChannel(project.name) }
-      let field = label(text, size: 12,
-        color: waiting + activity == 0 ? theme.inboxMuted : theme.inboxFG)
-      field.frame = NSRect(x: 8, y: 10, width: 396, height: 20)
-      row.addSubview(field)
-      row.wantsLayer = true
-      row.layer?.borderColor = theme.inboxOutline.cgColor
-      row.layer?.borderWidth = 0.5
-      add(row, y: &y, height: 40)
-    }
-  }
-
-  private func enterChannel(_ name: String) {
-    channel = name
-    render()
-    guard let first = model.events.first(where: {
-      $0.project == name && $0.seq > (model.cursors[$0.thread] ?? 0)
-    }), let row = messageRows[first.seq] else {
-      evaluateDwell(); return
-    }
-    let target = max(0, row.frame.midY - scroll.contentSize.height / 2)
-    scroll.contentView.scroll(to: NSPoint(x: 0, y: target))
-    scroll.reflectScrolledClipView(scroll.contentView)
-    evaluateDwell()
+    detailDocument.frame.size.height = max(y + 22, detailScroll.contentSize.height)
   }
 
   private func renderChannel(_ name: String, y: inout CGFloat) {
-    let head = NSView()
-    let back = button("←") { [weak self] in
-      self?.channel = nil
-      self?.render()
-    }
-    back.frame = NSRect(x: 0, y: 0, width: 24, height: 22)
-    head.addSubview(back)
-    let nameLabel = label(name, size: 15, display: true)
-    nameLabel.frame = NSRect(x: 32, y: 0, width: 180, height: 22)
-    head.addSubview(nameLabel)
-    let copy = label("entering marked nothing — scroll or attend does",
-                     size: 9.5, color: theme.inboxMuted)
-    copy.frame = NSRect(x: 215, y: 1, width: 200, height: 18)
-    head.addSubview(copy)
-    add(head, y: &y, height: 30)
-    channelHead = head
-    let project = model.projects().first { $0.name == name }
-    guard let project else {
-      add(label("this channel's history aged out.", color: theme.inboxMuted),
-          y: &y, height: 40)
+    guard let project = model.projects().first(where: { $0.name == name }) else {
+      add(label("no messages in the window.", color: theme.inboxMuted),
+          to: detailDocument, y: &y, height: 30)
       return
     }
-    let live = project.threads.filter { $0.live }
-    if !live.isEmpty {
-      add(label("LIVE THREADS", size: 10, color: theme.inboxMuted),
-          y: &y, height: 24)
-      liveViews.append(document.subviews.last!)
-      for thread in live {
-        renderThread(thread, y: &y)
-        liveViews.append(document.subviews.last!)
-      }
+    let active = project.threads.filter { thread in
+      thread.members.contains { $0.state == "waiting" || $0.state == "working" }
     }
-    let scrollLabel = label("SCROLLBACK", size: 10, color: theme.inboxMuted)
-    add(scrollLabel, y: &y, height: 24)
-    scrollbackLabel = scrollLabel
-    let events = model.events.filter { $0.project == name }
+    if !active.isEmpty {
+      add(sectionLabel("ACTIVE"), to: detailDocument, y: &y, height: 22)
+      for thread in active { renderThread(thread, y: &y) }
+    }
+    if !active.isEmpty { y += 18 }
+    add(sectionLabel("SCROLLBACK"), to: detailDocument, y: &y, height: 22)
+    let allEvents = model.events.filter { $0.project == name }
+    let events = Array(allEvents.suffix(50))
+    if allEvents.count > 50 {
+      add(label("↑ older history in the archive", size: 10.5,
+                color: theme.inboxMuted),
+          to: detailDocument, y: &y, height: 28)
+    }
     if events.isEmpty {
-      let empty = label("no messages in the window.", color: theme.inboxMuted)
-      add(empty, y: &y, height: 40)
-      channelEmpty = empty
+      add(label("no messages in the window.", color: theme.inboxMuted),
+          to: detailDocument, y: &y, height: 30)
       return
     }
-    var divider = false
+    var divided = false
     for event in events {
       let unread = event.seq > (model.cursors[event.thread] ?? 0)
-      if unread && !divider {
-        let view = label("NEW", size: 9, color: theme.inboxAccent)
-        add(view, y: &y, height: 18)
-        newDivider = view
-        divider = true
+      if unread && !divided {
+        add(label("NEW", size: 9, color: theme.inboxAccent),
+            to: detailDocument, y: &y, height: 18)
+        divided = true
       }
-      let row = InboxRow(thread: event.thread, seq: event.seq)
+      let row = NSView()
       styleMessage(row, event: event, unread: unread)
-      messageRows[event.seq] = row
-      add(row, y: &y, height: 30)
+      add(row, to: detailDocument, y: &y, height: 30)
     }
-    DispatchQueue.main.async { [weak self] in self?.evaluateDwell() }
   }
 
   private func renderThread(_ thread: InboxThread, y: inout CGFloat) {
-    let row = InboxRow(thread: thread.id)
+    let row = InboxClickView()
+    row.action = { [weak self] in self?.attend?(thread.id) }
     row.wantsLayer = true
-    row.layer?.backgroundColor = theme.inboxBG.blended(
-      withFraction: 0.06, of: theme.inboxAccent)?.cgColor
+    row.layer?.backgroundColor = theme.inboxAccent.withAlphaComponent(0.06).cgColor
+    let waiting = thread.members.contains { $0.state == "waiting" }
     let stripe = NSView(frame: NSRect(x: 0, y: 3, width: 3, height: 48))
     stripe.wantsLayer = true
-    stripe.layer?.backgroundColor = (thread.waiting
+    stripe.layer?.backgroundColor = (waiting
       ? theme.inboxAccent : theme.inboxOutline).cgColor
     row.addSubview(stripe)
     let title = label(thread.name, size: 12, display: true)
-    title.frame = NSRect(x: 10, y: 5, width: 180, height: 18)
+    title.frame = NSRect(x: 12, y: 6,
+                         width: detailDocument.frame.width - 68, height: 18)
     row.addSubview(title)
     let state = label("", size: 10, color: theme.inboxMuted)
     let states = NSMutableAttributedString()
@@ -665,22 +735,13 @@ final class InboxController: NSObject {
       value: theme.font(family: theme.uiFamily, size: 10),
       range: NSRange(location: 0, length: states.length))
     state.attributedStringValue = states
-    state.frame = NSRect(x: 10, y: 27, width: 230, height: 16)
+    state.frame = NSRect(x: 12, y: 29,
+                         width: detailDocument.frame.width - 68, height: 16)
     row.addSubview(state)
-    let attendButton = button("attend") { [weak self] in self?.attend?(thread.id) }
-    attendButton.frame = NSRect(x: 275, y: 15, width: 55, height: 22)
-    row.addSubview(attendButton)
-    if thread.unread.isEmpty {
-      let unread = button("mark unread") { [weak self] in
-        self?.model.markUnread(thread.id)
-      }
-      unread.frame = NSRect(x: 335, y: 15, width: 75, height: 22)
-      row.addSubview(unread)
-    }
-    add(row, y: &y, height: 54)
+    add(row, to: detailDocument, y: &y, height: 54)
   }
 
-  private func styleMessage(_ row: InboxRow, event: InboxEvent, unread: Bool) {
+  private func styleMessage(_ row: NSView, event: InboxEvent, unread: Bool) {
     row.wantsLayer = true
     row.layer?.backgroundColor = unread
       ? theme.inboxAccent.withAlphaComponent(0.08).cgColor : theme.inboxBG.cgColor
@@ -688,25 +749,28 @@ final class InboxController: NSObject {
     formatter.dateFormat = "HH:mm"
     let time = label("[\(formatter.string(from: event.date))]", size: 10,
                      color: theme.inboxMuted, mono: true)
-    time.frame = NSRect(x: 4, y: 7, width: 48, height: 16)
+    time.frame = NSRect(x: 6, y: 7, width: 48, height: 16)
     row.addSubview(time)
     let text = label("\(event.threadName)  \(event.label)", size: 11,
                      color: unread ? theme.inboxFG : theme.inboxMuted)
-    text.frame = NSRect(x: 54, y: 6, width: 346, height: 18)
+    text.frame = NSRect(x: 58, y: 6,
+                        width: detailDocument.frame.width - 108, height: 18)
     row.addSubview(text)
   }
 
   private func renderFeed(y: inout CGFloat) {
-    if model.events.isEmpty {
-      add(label("quiet.", color: theme.inboxMuted), y: &y, height: 36)
+    let events = Array(model.events.suffix(50).reversed())
+    if events.isEmpty {
+      add(label("quiet.", color: theme.inboxMuted),
+          to: detailDocument, y: &y, height: 30)
       return
     }
     let formatter = DateFormatter()
     formatter.dateFormat = "HH:mm"
-    for event in model.events.reversed() {
+    for event in events {
       let unread = event.seq > (model.cursors[event.thread] ?? 0)
       let suffix = event.tier == .waiting ? "   needs you" : ""
-      let row = InboxRow(thread: event.thread, seq: event.seq)
+      let row = InboxClickView()
       row.action = { [weak self] in self?.attend?(event.thread) }
       row.wantsLayer = true
       row.layer?.backgroundColor = unread
@@ -717,139 +781,90 @@ final class InboxController: NSObject {
       row.addSubview(time)
       let field = label("\(event.project)  \(event.threadName) — "
         + "\(event.label)\(suffix)", size: 10.5,
-                        color: unread ? theme.inboxFG : theme.inboxMuted)
-      field.frame = NSRect(x: 56, y: 8, width: 350, height: 18)
+        color: unread ? theme.inboxFG : theme.inboxMuted)
+      field.frame = NSRect(x: 58, y: 8,
+                           width: detailDocument.frame.width - 108, height: 18)
       row.addSubview(field)
-      add(row, y: &y, height: 34)
+      add(row, to: detailDocument, y: &y, height: 34)
     }
+  }
+
+  private func select(_ value: String?) {
+    guard channel != value else { return }
+    channel = value
+    render(preserveRail: true)
+    scrollRailSelectionIntoView()
+  }
+
+  private func scrollRailSelectionIntoView() {
+    guard let index = railItems.firstIndex(where: { $0.channel == channel }),
+          railRowFrames.indices.contains(index) else { return }
+    let row = railRowFrames[index]
+    let visible = railScroll.contentView.bounds
+    var target = visible.origin.y
+    if row.minY < visible.minY { target = row.minY }
+    if row.maxY > visible.maxY { target = row.maxY - visible.height }
+    restore(railScroll, y: target)
+  }
+
+  private func handleKey(_ event: NSEvent) -> Bool {
+    switch event.keyCode {
+    case 53:
+      close()
+      return true
+    case 125:
+      moveSelection(by: 1)
+      return true
+    case 126:
+      moveSelection(by: -1)
+      return true
+    case 36, 76:
+      attendSelected()
+      return true
+    default:
+      let key = event.charactersIgnoringModifiers?.lowercased()
+      if key == "j" { moveSelection(by: 1); return true }
+      if key == "k" { moveSelection(by: -1); return true }
+      return false
+    }
+  }
+
+  private func moveSelection(by offset: Int) {
+    guard !railItems.isEmpty else { return }
+    let current = railItems.firstIndex { $0.channel == channel } ?? 0
+    let target = min(max(current + offset, 0), railItems.count - 1)
+    select(railItems[target].channel)
+  }
+
+  private func attendSelected() {
+    guard let channel,
+          let project = model.projects().first(where: { $0.name == channel })
+    else { return }
+    let candidate = project.threads.compactMap { thread -> (String, String)? in
+      guard let member = thread.members.first(where: { $0.state == "waiting" })
+      else { return nil }
+      return (member.id, thread.id)
+    }.min { $0.0 < $1.0 }
+    if let candidate { attend?(candidate.1) }
   }
 
   private func modelChanged() {
     guard isOpen else { return }
-    if let channel {
-      syncChannel(channel)
-    } else {
-      render(preserveScroll: tab == "activity")
+    if let selected = channel,
+       !model.projects().contains(where: { $0.name == selected }) {
+      channel = defaultChannel()
     }
+    render(preserveRail: true, preserveDetail: true)
   }
 
-  private func syncChannel(_ name: String) {
-    guard let head = channelHead, let scrollLabel = scrollbackLabel else {
-      render(preserveScroll: true)
-      return
-    }
-    let oldScroll = scroll.contentView.bounds.origin.y
-    let projected = model.threads()
-    let waiting = projected.filter { $0.tier == .waiting }.count
-    let activity = projected.filter { $0.tier == .activity }.count
-    badgeLabel?.stringValue = "\(waiting) need you   \(activity) new"
-    badgeLabel?.textColor = waiting + activity == 0
-      ? theme.inboxMuted : theme.inboxAccent
-
-    for view in liveViews { view.removeFromSuperview() }
-    liveViews.removeAll()
-    var y = head.frame.maxY
-    if let project = model.projects().first(where: { $0.name == name }) {
-      let live = project.threads.filter { $0.live }
-      if !live.isEmpty {
-        let section = label("LIVE THREADS", size: 10, color: theme.inboxMuted)
-        add(section, y: &y, height: 24)
-        liveViews.append(section)
-        for thread in live {
-          renderThread(thread, y: &y)
-          liveViews.append(document.subviews.last!)
-        }
-      }
-    }
-    scrollLabel.frame = NSRect(x: 14, y: y, width: 412, height: 24)
-    y += 24
-
-    let events = model.events.filter { $0.project == name }
-    let retained = Set(events.map { $0.seq })
-    for (seq, row) in messageRows where !retained.contains(seq) {
-      row.dwellTimer?.invalidate()
-      row.removeFromSuperview()
-      messageRows.removeValue(forKey: seq)
-    }
-    if events.isEmpty {
-      newDivider?.removeFromSuperview(); newDivider = nil
-      let copy = model.projects().contains { $0.name == name }
-        ? "no messages in the window." : "this channel's history aged out."
-      if channelEmpty == nil {
-        let empty = label(copy, color: theme.inboxMuted)
-        document.addSubview(empty)
-        channelEmpty = empty
-      }
-      (channelEmpty as? NSTextField)?.stringValue = copy
-      channelEmpty?.frame = NSRect(x: 14, y: y, width: 412, height: 40)
-      y += 40
-    } else {
-      channelEmpty?.removeFromSuperview(); channelEmpty = nil
-      let firstUnread = events.first {
-        $0.seq > (model.cursors[$0.thread] ?? 0)
-      }?.seq
-      if firstUnread != nil, newDivider == nil {
-        let divider = label("NEW", size: 9, color: theme.inboxAccent)
-        document.addSubview(divider)
-        newDivider = divider
-      } else if firstUnread == nil {
-        newDivider?.removeFromSuperview(); newDivider = nil
-      }
-      for event in events {
-        if event.seq == firstUnread, let divider = newDivider {
-          divider.frame = NSRect(x: 14, y: y, width: 412, height: 18)
-          y += 18
-        }
-        let unread = event.seq > (model.cursors[event.thread] ?? 0)
-        let row: InboxRow
-        if let existing = messageRows[event.seq] {
-          row = existing
-          row.subviews.forEach { $0.removeFromSuperview() }
-          styleMessage(row, event: event, unread: unread)
-        } else {
-          row = InboxRow(thread: event.thread, seq: event.seq)
-          styleMessage(row, event: event, unread: unread)
-          messageRows[event.seq] = row
-          document.addSubview(row)
-        }
-        row.frame = NSRect(x: 14, y: y, width: 412, height: 30)
-        y += 30
-      }
-    }
-    document.frame.size.height = max(y + 12, scroll.contentSize.height)
-    scroll.contentView.scroll(to: NSPoint(x: 0, y: oldScroll))
-    scroll.reflectScrolledClipView(scroll.contentView)
-    evaluateDwell()
-  }
-
-  private func evaluateDwell() {
-    guard isOpen, channel != nil else { cancelDwell(); return }
-    let viewport = scroll.contentView.documentVisibleRect
-    for row in messageRows.values {
-      guard let thread = row.thread, let seq = row.seq,
-            seq > (model.cursors[thread] ?? 0) else {
-        row.dwellTimer?.invalidate(); row.dwellTimer = nil
-        continue
-      }
-      let intersection = row.frame.intersection(viewport)
-      let visible = !intersection.isNull
-        && intersection.height >= row.frame.height * 0.95
-      if visible && row.dwellTimer == nil {
-        row.dwellTimer = Timer.scheduledTimer(withTimeInterval: 0.7,
-                                               repeats: false) {
-          [weak self, weak row] _ in
-          row?.dwellTimer = nil
-          self?.model.markRead(thread, through: seq)
-        }
-      } else if !visible {
-        row.dwellTimer?.invalidate(); row.dwellTimer = nil
-      }
-    }
-  }
-
-  private func cancelDwell() {
-    for row in messageRows.values {
-      row.dwellTimer?.invalidate(); row.dwellTimer = nil
-    }
+  private func checkBottom() {
+    guard isOpen, let channel,
+          let project = model.projects().first(where: { $0.name == channel })
+    else { return }
+    let visibleBottom = detailScroll.contentView.bounds.maxY
+    let contentBottom = detailDocument.frame.height
+    guard contentBottom - visibleBottom <= 8 else { return }
+    model.markRead(Dictionary(uniqueKeysWithValues:
+      project.threads.map { ($0.id, $0.lastSeq) }))
   }
 }
