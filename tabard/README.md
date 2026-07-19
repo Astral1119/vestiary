@@ -16,6 +16,7 @@ stay so across two sweeps.
 ```
 ./tabard                 # run in the foreground
 ./tabard install-agent   # launchd agent: start at login, survive reboot
+./tabard inbox           # toggle the inbox panel (bind this to a key)
 ./tabard pause           # drop toasts (state stays wherever you show it)
 ./tabard resume
 ./tabard status
@@ -56,10 +57,35 @@ gap. The log is best-effort and prunes to 30 days at startup. Live
 task state stays wherever you show it (a bar, a widget); the herald
 snapshots remain authoritative.
 
+## Inbox
+
+Toasts cover the moment; the inbox covers what you missed. `./tabard
+inbox` toggles a floating panel over the same herald state plus the
+events log (toasts are inhibited while it is open). Threads are tasks,
+or whole groups when tasks were dispatched as a batch. Channels are
+projects — the task title, normally the repo — listed alphabetically
+with badges carrying salience; a unified newest-first feed is the
+second tab. Each thread has a read cursor ("read through event N") in
+`~/.local/state/herald/seen.json`; channels and the feed are stateless
+views over that one map, so the partition can change without migrating
+anything.
+
+Reading happens by act, not by arrival: a message fully on screen for
+700ms, attending a thread, an explicit mark, or the task's tmux pane
+being on the displayed window while you are at the machine. Entering a
+channel marks nothing. A thread is live exactly while its herald task
+file exists — the inbox adds no second lifecycle. A presence summary
+(`needsYou`/`unread` booleans, no counts) is exported to
+`~/.local/state/tabard/badge.json` for whatever status surface wants
+it.
+
 ## Theme
 
 Tabard reads `~/.config/livery/current/manifest.json` directly:
 `ui.inverseSurface` / `ui.inverseText` / `ui.inversePrimary` for the
-chip, `fonts.display` for headings, `fonts.ui` for body text. With no
-manifest present it falls back to a built-in monochrome chip —
-theme-supported, not theme-critical.
+chip, `fonts.display` for headings, `fonts.ui` for body text. The inbox
+panel is a workspace surface, not a chip, and renders on the non-inverse
+roles (`ui.surfaceElevated` falling back to `ui.surface`, `ui.text`,
+`ui.textMuted`, `ui.primary`, `ui.outline`) with `fonts.mono` for
+timestamps. With no manifest present both fall back to built-in
+neutrals — theme-supported, not theme-critical.

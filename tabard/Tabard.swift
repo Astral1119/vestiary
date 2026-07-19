@@ -4,11 +4,13 @@
 // subscriber under the SPEC §4 conformance rules; also the host's
 // designated reaper (herald SPEC §5, v1.2).
 //
-// Verbs: run (default) | pause | resume | status | install-agent |
-// uninstall-agent. Env: TABARD_HERALD_ROOT, LIVERY_RUNTIME (contract
-// §2.1 reserved override), TABARD_REAPER_GRACE / TABARD_REAPER_INTERVAL /
+// Verbs: run (default) | pause | resume | status | inbox | inbox-dump |
+// install-agent | uninstall-agent. Env: TABARD_HERALD_ROOT,
+// LIVERY_RUNTIME (contract §2.1 reserved override), TABARD_REAPER_GRACE /
+// TABARD_REAPER_INTERVAL /
 // TABARD_DIGEST_COLLECT / TABARD_DIGEST_RETOAST / TABARD_DWELL_DONE /
-// TABARD_DWELL_WAITING / TABARD_IDLE_THRESHOLD (seconds; testing).
+// TABARD_DWELL_WAITING / TABARD_IDLE_THRESHOLD /
+// TABARD_RECONCILE_INTERVAL (seconds; testing).
 //
 // The notifyd doorbell is deliberately not subscribed: the directory
 // watcher already delivers sub-100ms latency on the same host, and the
@@ -45,15 +47,23 @@ enum Config {
   // countdown holds while user away
   static let idleThreshold = Double(env("TABARD_IDLE_THRESHOLD") ?? "") ?? 30
   static let debounce: Double = 0.08        // herald S5: 50-100ms
-  static let reconcileInterval: Double = 30 // belt for missed events
+  static let reconcileInterval =
+    Double(env("TABARD_RECONCILE_INTERVAL") ?? "") ?? 30
   static let reaperGrace = Double(env("TABARD_REAPER_GRACE") ?? "") ?? 60
   static let reaperInterval = Double(env("TABARD_REAPER_INTERVAL") ?? "") ?? 300
   // events log (the host's designated recorder)
   static let heraldLogRoot = env("TABARD_HERALD_LOG_ROOT")
     ?? home + "/.local/state/herald"
   static var eventsPath: String { heraldLogRoot + "/events.jsonl" }
+  static var seenPath: String { heraldLogRoot + "/seen.json" }
+  static var badgePath: String {
+    env("TABARD_BADGE_PATH") ?? stateDir + "/badge.json"
+  }
   static let eventRetention =
     (Double(env("TABARD_EVENT_RETENTION_DAYS") ?? "") ?? 30) * 86400
+  // batteries opt in explicitly: WindowServer-less environments can't
+  // host NSApplication, and the flag must never trip on a debug run
+  static let headlessTest = env("TABARD_HEADLESS") != nil
   static let chipWidth: CGFloat = 320
   static let margin: CGFloat = 12
 }
@@ -69,8 +79,14 @@ struct Theme {
   var chipBG = NSColor(red: 0.94, green: 0.93, blue: 0.91, alpha: 1)
   var chipFG = NSColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1)
   var chipAccent = NSColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1)
+  var inboxBG = NSColor(red: 0.94, green: 0.93, blue: 0.91, alpha: 1)
+  var inboxFG = NSColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1)
+  var inboxMuted = NSColor(red: 0.40, green: 0.40, blue: 0.40, alpha: 1)
+  var inboxAccent = NSColor(red: 0.20, green: 0.30, blue: 0.55, alpha: 1)
+  var inboxOutline = NSColor(red: 0.75, green: 0.74, blue: 0.72, alpha: 1)
   var displayFamily: String?
   var uiFamily: String?
+  var monoFamily: String?
   var lookName = ""
 
   static func color(_ node: Any?) -> NSColor? {
@@ -94,10 +110,18 @@ struct Theme {
       theme.chipBG = color(ui["inverseSurface"]) ?? theme.chipBG
       theme.chipFG = color(ui["inverseText"]) ?? theme.chipFG
       theme.chipAccent = color(ui["inversePrimary"]) ?? theme.chipFG
+      theme.inboxBG = color(ui["surfaceElevated"]) ?? color(ui["surface"])
+        ?? theme.inboxBG
+      theme.inboxFG = color(ui["text"]) ?? theme.inboxFG
+      theme.inboxMuted = color(ui["textMuted"]) ?? theme.inboxMuted
+      theme.inboxAccent = color(ui["primary"]) ?? theme.inboxAccent
+      theme.inboxOutline = color(ui["outline"]) ?? color(ui["outlineVariant"])
+        ?? theme.inboxOutline
     }
     if let fonts = root["fonts"] as? [String: Any] {
       theme.displayFamily = (fonts["display"] as? [String: Any])?["family"] as? String
       theme.uiFamily = (fonts["ui"] as? [String: Any])?["family"] as? String
+      theme.monoFamily = (fonts["mono"] as? [String: Any])?["family"] as? String
     }
     if let meta = root["meta"] as? [String: Any] {
       theme.lookName = meta["name"] as? String ?? ""
@@ -178,6 +202,8 @@ final class Recorder {
   static let formatter = ISO8601DateFormatter()
   private var fd: Int32 = -1
   private let path: String
+  private var nextSeq = 1
+  var onRecord: (([String: Any]) -> Void)?
 
   init(path: String = Config.eventsPath) {
     self.path = path
@@ -185,6 +211,7 @@ final class Recorder {
       atPath: (path as NSString).deletingLastPathComponent,
       withIntermediateDirectories: true)
     prune()
+    scanSequence()
     fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
     // the generation header: declares a possible gap and stamps the
     // schema — everything until the next marker is this recorder run
@@ -238,13 +265,31 @@ final class Recorder {
   private func append(_ event: String, _ fields: [String: Any]) {
     guard fd >= 0 else { return }
     var line: [String: Any] = ["ts": Self.formatter.string(from: Date()),
-                               "event": event]
+                               "event": event, "seq": nextSeq]
+    nextSeq += 1
     line.merge(fields) { current, _ in current }
     guard var data = try? JSONSerialization.data(withJSONObject: line,
                                                  options: [.sortedKeys])
     else { return }
     data.append(0x0a)
     data.withUnsafeBytes { _ = write(fd, $0.baseAddress, data.count) }
+    if Thread.isMainThread {
+      onRecord?(line)
+    } else {
+      DispatchQueue.main.async { [weak self] in self?.onRecord?(line) }
+    }
+  }
+
+  private func scanSequence() {
+    guard let data = FileManager.default.contents(atPath: path),
+          let text = String(data: data, encoding: .utf8) else { return }
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+    let maximum = lines.compactMap { line -> Int? in
+      guard let json = try? JSONSerialization.jsonObject(with: Data(line.utf8)),
+            let dict = json as? [String: Any] else { return nil }
+      return dict["seq"] as? Int
+    }.max() ?? 0
+    nextSeq = max(maximum, lines.count) + 1
   }
 
   // 30-day age-out at startup, temp + rename. Unparseable lines (torn
@@ -519,6 +564,9 @@ final class Tabard: NSObject, NSApplicationDelegate {
   var panel: NSPanel!
   var theme = Theme.load()
   let recorder = Recorder()
+  var inboxModel: InboxModel!
+  var inboxController: InboxController!
+  var inboxObserver: NSObjectProtocol?
   var previous: [String: TaskEntry]?      // nil until the baseline read
   var visible: [Toast] = []
   var queue: [Toast] = []                 // expiry paused until shown
@@ -530,11 +578,37 @@ final class Tabard: NSObject, NSApplicationDelegate {
   var tasksWatch: DispatchSourceFileSystemObject?
   var liveryWatch: DispatchSourceFileSystemObject?
   var pendingReconcile: DispatchWorkItem?
+  var started = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    start(headless: false)
+  }
+
+  func start(headless: Bool) {
+    guard !started else { return }
+    started = true
     try? FileManager.default.createDirectory(
       atPath: Config.stateDir, withIntermediateDirectories: true)
-    makePanel()
+    inboxModel = InboxModel()
+    recorder.onRecord = { [weak self] event in self?.inboxModel.record(event) }
+    if !headless {
+      makePanel()
+      inboxController = InboxController(model: inboxModel, theme: theme)
+      inboxController.attend = { [weak self] thread in
+        self?.userAttendInbox(thread)
+      }
+      inboxObserver = DistributedNotificationCenter.default().addObserver(
+        forName: Notification.Name("local.vestiary.tabard.inbox"), object: nil,
+        queue: .main) { [weak self] _ in
+          guard let self else { return }
+          if !self.inboxController.isOpen {
+            self.visible.removeAll()
+            self.queue.removeAll()
+            self.render()
+          }
+          self.inboxController.toggle(screen: self.activeScreen())
+        }
+    }
     lookBaseline = currentLookIdentity()
     reconcile()                            // baseline: state, not news (S3)
     armWatch()
@@ -544,6 +618,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
       self?.checkLook()
       self?.armWatch()                     // re-arm if dirs appeared/moved
       self?.sweepGroups()
+      self?.inboxModel.sweep()
     }
     reap()
     Timer.scheduledTimer(withTimeInterval: Config.reaperInterval,
@@ -622,9 +697,13 @@ final class Tabard: NSObject, NSApplicationDelegate {
     if env("TABARD_DEBUG") != nil {
       log("reconcile merged=\(merged.count) baseline=\(previous == nil)")
     }
+    inboxModel.setTasks(merged)
     defer { previous = merged }
     guard let previous else {              // baseline established, no news
       seedGroupBaseline(merged)
+      if idleSeconds() < Config.idleThreshold {
+        inboxModel.paneVisible(tasks: merged, panes: visiblePanes())
+      }
       return
     }
 
@@ -665,6 +744,9 @@ final class Tabard: NSObject, NSApplicationDelegate {
       show(entry.state == "waiting" ? Toast.waiting(entry) : Toast.done(entry))
     }
     reconcileGroupWaiting(merged, paused: paused, onScreen: onScreen)
+    if idleSeconds() < Config.idleThreshold {
+      inboxModel.paneVisible(tasks: merged, panes: onScreen)
+    }
   }
 
   // MARK: grouped-burst digesting (TABARD-DESIGN §12)
@@ -806,19 +888,35 @@ final class Tabard: NSObject, NSApplicationDelegate {
       pane = groups[digestGroup]?.pane
       space = nil
       group = digestGroup
+      inboxModel.attend(digestGroup)
     } else {
       let entry = previous?[id]
       pane = entry?.pane
       space = entry?.space
       group = entry?.group
+      inboxModel.attend(entry?.group ?? id)
     }
 
+    runAttend(id, pane: pane, space: space, group: group)
+  }
+
+  func userAttendInbox(_ thread: String) {
+    guard let projected = inboxModel.threads().first(where: { $0.id == thread })
+    else { return }
+    inboxModel.attend(thread)
+    let member = projected.members.first
+    let argument = member?.group == nil ? (member?.id ?? thread)
+      : "digest:inbox:" + thread
+    runAttend(argument, pane: member?.pane, space: member?.space,
+              group: member?.group)
+  }
+
+  func runAttend(_ id: String, pane: String?, space: Int?, group: String?) {
     guard FileManager.default.isExecutableFile(atPath: Config.attendHook)
     else {
       if env("TABARD_DEBUG") != nil { log("attend ignored (no hook) \(id)") }
       return
     }
-
     let process = Process()
     process.executableURL = URL(fileURLWithPath: Config.attendHook)
     process.arguments = [id]
@@ -865,6 +963,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
     lookBaseline = identity
     theme = Theme.load()
     render()                               // retheme anything visible
+    inboxController?.retheme(theme)
     guard identity != nil,
           !FileManager.default.fileExists(atPath: Config.pauseFlag)
     else { return }
@@ -874,6 +973,10 @@ final class Tabard: NSObject, NSApplicationDelegate {
   // MARK: toast lifecycle
 
   func show(_ toast: Toast) {
+    if inboxController?.isOpen == true {
+      if env("TABARD_DEBUG") != nil { log("dropped (inbox open)") }
+      return
+    }
     log("toast \(toast.kind) \(toast.id): \(toast.heading) — \(toast.body)")
     // coalesce: a repeat announcement replaces its predecessor in place
     if let index = visible.firstIndex(where: { $0.id == toast.id }) {
@@ -929,7 +1032,8 @@ final class Tabard: NSObject, NSApplicationDelegate {
 
   func dwellHeld() -> Bool {
     idleSeconds() >= Config.idleThreshold
-      || (panel.isVisible && panel.frame.contains(NSEvent.mouseLocation))
+      || (panel?.isVisible == true
+        && panel.frame.contains(NSEvent.mouseLocation))
   }
 
   // active display = the pointer's screen; NSScreen.main resolves to the
@@ -952,7 +1056,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
   // MARK: rendering
 
   func render() {
-    guard let content = panel.contentView else { return }
+    guard let panel, let content = panel.contentView else { return }
     content.subviews.forEach { $0.removeFromSuperview() }
     guard !visible.isEmpty, let screen = activeScreen() else {
       panel.orderOut(nil)
@@ -1077,32 +1181,55 @@ func status() {
   print("agent: \(agentInstalled() ? "installed" : "none")")
   print("herald: \(Config.tasksDir) (\(tasks.count) task files)")
   print("events: \(Config.eventsPath)")
+  print("seen: \(Config.seenPath) (\(InboxModel.cursorCount()) cursors)")
   print("log: \(Config.logPath)")
 }
 
-let verb = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "run"
-switch verb {
-case "run":
-  let app = NSApplication.shared
-  app.setActivationPolicy(.accessory)
-  let agent = Tabard()
-  app.delegate = agent
-  app.run()
-case "pause":
-  try? FileManager.default.createDirectory(
-    atPath: Config.stateDir, withIntermediateDirectories: true)
-  FileManager.default.createFile(atPath: Config.pauseFlag, contents: nil)
-  print("paused (toasts dropped; the bar still carries state)")
-case "resume":
-  try? FileManager.default.removeItem(atPath: Config.pauseFlag)
-  print("resumed")
-case "status":
-  status()
-case "install-agent":
-  installAgent()
-case "uninstall-agent":
-  uninstallAgent()
-default:
-  print("usage: tabard [run|pause|resume|status|install-agent|uninstall-agent]")
-  exit(2)
+@main
+enum TabardMain {
+  static func main() {
+    let verb = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "run"
+    switch verb {
+    case "run":
+      if Config.headlessTest {
+        let agent = Tabard()
+        agent.start(headless: true)
+        RunLoop.current.run()
+      } else {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        let agent = Tabard()
+        app.delegate = agent
+        app.run()
+      }
+    case "pause":
+      try? FileManager.default.createDirectory(
+        atPath: Config.stateDir, withIntermediateDirectories: true)
+      FileManager.default.createFile(atPath: Config.pauseFlag, contents: nil)
+      print("paused (toasts dropped; the bar still carries state)")
+    case "resume":
+      try? FileManager.default.removeItem(atPath: Config.pauseFlag)
+      print("resumed")
+    case "status":
+      status()
+    case "inbox":
+      DistributedNotificationCenter.default().postNotificationName(
+        Notification.Name("local.vestiary.tabard.inbox"), object: nil,
+        userInfo: nil, deliverImmediately: true)
+    case "inbox-dump":
+      let model = InboxModel(loadTasks: true, writesEnabled: false)
+      if let data = model.dumpData() {
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+      }
+    case "install-agent":
+      installAgent()
+    case "uninstall-agent":
+      uninstallAgent()
+    default:
+      print("usage: tabard [run|pause|resume|status|inbox|inbox-dump|"
+        + "install-agent|uninstall-agent]")
+      exit(2)
+    }
+  }
 }
