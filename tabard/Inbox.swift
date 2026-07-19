@@ -334,9 +334,6 @@ class InboxClickView: NSView {
   var action: (() -> Void)?
 
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-  override func hitTest(_ point: NSPoint) -> NSView? {
-    bounds.contains(point) ? self : nil
-  }
   override func mouseDown(with event: NSEvent) { action?() }
 }
 
@@ -353,6 +350,7 @@ final class InboxController: NSObject {
   let model: InboxModel
   private let panel: InboxPanel
   private let root = NSView()
+  private let backdrop = NSVisualEffectView()
   private let header = NSView()
   private let footer = NSView()
   private let railScroll = NSScrollView()
@@ -378,12 +376,20 @@ final class InboxController: NSObject {
     panel.level = .statusBar
     panel.collectionBehavior = [.canJoinAllSpaces, .stationary,
                                 .fullScreenAuxiliary, .ignoresCycle]
-    panel.isOpaque = true
+    // the rounded root layer is the window shape; the panel itself is
+    // clear (an opaque panel shows square corners behind the layer)
+    panel.isOpaque = false
+    panel.backgroundColor = .clear
     panel.hasShadow = true
     panel.handleKey = { [weak self] event in self?.handleKey(event) ?? false }
+    // livery's backdrop recipe: behind-window blur under translucent color
+    backdrop.material = .underPageBackground
+    backdrop.blendingMode = .behindWindow
+    backdrop.state = .active
     configure(railScroll, document: railDocument)
     configure(detailScroll, document: detailDocument)
     detailScroll.contentView.postsBoundsChangedNotifications = true
+    root.addSubview(backdrop)
     root.addSubview(header)
     root.addSubview(footer)
     root.addSubview(railScroll)
@@ -431,10 +437,9 @@ final class InboxController: NSObject {
   private func layout(width: CGFloat, height: CGFloat) {
     root.frame = NSRect(x: 0, y: 0, width: width, height: height)
     root.wantsLayer = true
-    root.layer?.cornerRadius = 12
+    root.layer?.cornerRadius = 16
     root.layer?.masksToBounds = true
-    root.layer?.borderColor = theme.inboxOutline.cgColor
-    root.layer?.borderWidth = 0.5
+    backdrop.frame = root.bounds
     header.frame = NSRect(x: 0, y: height - 52, width: width, height: 52)
     footer.frame = NSRect(x: 0, y: 0, width: width, height: 30)
     railScroll.frame = NSRect(x: 0, y: 30, width: 240, height: height - 82)
@@ -496,9 +501,8 @@ final class InboxController: NSObject {
                       preserveDetail: Bool = false) {
     let railTop = railScroll.contentView.bounds.origin.y
     let detailTop = detailScroll.contentView.bounds.origin.y
-    panel.backgroundColor = theme.inboxBG
-    root.layer?.backgroundColor = theme.inboxBG.cgColor
-    root.layer?.borderColor = theme.inboxOutline.cgColor
+    root.layer?.backgroundColor =
+      theme.inboxBG.withAlphaComponent(0.90).cgColor
     renderHeader()
     renderFooter()
     renderRail()
@@ -623,7 +627,7 @@ final class InboxController: NSObject {
     row.wantsLayer = true
     row.layer?.backgroundColor = selected
       ? theme.inboxAccent.withAlphaComponent(0.10).cgColor
-      : theme.inboxBG.cgColor
+      : NSColor.clear.cgColor
     let name = item.channel ?? "activity"
     let nameColor = selected || item.channel == nil || item.tier != nil
       ? theme.inboxFG : theme.inboxMuted
@@ -744,7 +748,7 @@ final class InboxController: NSObject {
   private func styleMessage(_ row: NSView, event: InboxEvent, unread: Bool) {
     row.wantsLayer = true
     row.layer?.backgroundColor = unread
-      ? theme.inboxAccent.withAlphaComponent(0.08).cgColor : theme.inboxBG.cgColor
+      ? theme.inboxAccent.withAlphaComponent(0.08).cgColor : NSColor.clear.cgColor
     let formatter = DateFormatter()
     formatter.dateFormat = "HH:mm"
     let time = label("[\(formatter.string(from: event.date))]", size: 10,
@@ -774,7 +778,7 @@ final class InboxController: NSObject {
       row.action = { [weak self] in self?.attend?(event.thread) }
       row.wantsLayer = true
       row.layer?.backgroundColor = unread
-        ? theme.inboxAccent.withAlphaComponent(0.08).cgColor : theme.inboxBG.cgColor
+        ? theme.inboxAccent.withAlphaComponent(0.08).cgColor : NSColor.clear.cgColor
       let time = label("[\(formatter.string(from: event.date))]", size: 10,
                        color: theme.inboxMuted, mono: true)
       time.frame = NSRect(x: 6, y: 8, width: 48, height: 18)
