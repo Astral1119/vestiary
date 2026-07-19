@@ -68,14 +68,16 @@ first waiting thread) and toasts are inhibited. Threads are tasks, or
 whole groups when tasks were dispatched as a batch. Channels are
 projects — the task title, normally the repo — grouped in the rail as
 NEEDS YOU / NEW / QUIET with a presence dot per channel, no counts;
-a unified newest-first feed sits pinned at the top. The channel view
-shows cards for its active threads (click one to attend and jump) and
-the recent scrollback with a NEW divider.
+a unified newest-first feed sits pinned at the top. A channel is pure
+scrollback with a NEW divider — the cockpit (panes, glyphs, the bar)
+already owns the present, so the inbox owns only the past.
 
-Reading happens by act, not by arrival: scrolling a channel to the
-bottom marks it read (Slack's shape — a channel that fits on screen
-reads on entry), as do attending and the task's tmux pane being on the
-displayed window while you are at the machine. The feed never marks.
+Reading happens by act, not by arrival, in Slack's shape: an unread
+channel opens at the NEW divider and scrolling to the bottom marks it
+read (a channel that fits on screen reads on entry; a clean one opens
+at the bottom). Attending marks too, as does the task's tmux pane
+being on the displayed window while you are at the machine. The feed
+never marks.
 Each thread's cursor lives in `~/.local/state/herald/seen.json`;
 channels and the feed are stateless views over that one map, so the
 partition can change without migrating anything. A thread is live
