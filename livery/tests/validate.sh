@@ -184,6 +184,10 @@ jq -e --slurpfile baseline "$ROOT/profiles/default.json" '
     and (.signals | walk(uw)) == $baseline[0].signals
     and (.meta.scope == "global")
     and (.ui.onPrimary | uw | test("^#[0-9a-f]{6}$"))
+    and (.ui.inverseSurface | uw | test("^#[0-9a-f]{6}$"))
+    and (.ui.inverseText | uw | test("^#[0-9a-f]{6}$"))
+    and (.ui.inversePrimary | uw | test("^#[0-9a-f]{6}$"))
+    and ((.ui.scrim | uw) == "#000000")
     and .coherence.authority == "wallpaper"
     and .coherence.operation == "derive-theme"
     and .coherence.wallpaperScope == "all-managed-spaces"
@@ -217,7 +221,8 @@ jq -e --slurpfile baseline "$ROOT/profiles/default.json" '
     and .coherence.operation == "grade-wallpaper"
     and .coherence.constraints.preserveThemeDomains
       == ["ui", "signals", "terminal", "presentation", "effects"]
-    and ((.ui | walk(uw) | del(.onPrimary, .outlineVariant, .overlay))
+    and ((.ui | walk(uw) | del(.onPrimary, .outlineVariant, .overlay,
+        .inverseSurface, .inverseText, .inversePrimary, .scrim))
       == $baseline[0].ui)
     and (.signals | walk(uw)) == $baseline[0].signals
     and (.terminal | walk(uw)) == $baseline[0].terminal

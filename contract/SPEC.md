@@ -9,6 +9,11 @@ and §2.4, resolving §8's deferred fonts item. No schemaVersion bump (additive
 keys are non-breaking per §2.2; shipped manifests stamp v3 since the schema-v3
 color plumbing — the §2.2 heading's "schemaVersion 2" predates that and is a
 known doc drift, left for its own pass).
+**AMENDED v1.2 — 2026-07-18** (maintainer-ruled design session): additive
+inverse-polarity roles under the §2.2 vocabulary evolution policy — `ui` gains
+inverseSurface, inverseText, inversePrimary, scrim (new §2.5), filling the
+v1.0 OSD-phase reservation plus one ruled addition (inversePrimary was not
+reserved). No schemaVersion bump.
 Frozen surfaces: §2 (contract incl. evolution policy) and §3 (adapter verbs
 incl. stability rules). Everything else is tunable. Companion to
 SYSTEM-REVIEW.md §3A. Decided parameters: contract-first direction
@@ -103,7 +108,7 @@ Stable, adapters may depend on:
 
 | Domain | Keys | Notes |
 |---|---|---|
-| `ui` | background, surface, surfaceElevated, **overlay**, text, textMuted, primary, **onPrimary**, secondary, tertiary, outline, **outlineVariant**, selection | semantic roles. onPrimary = text/glyphs drawn ON any accent fill (one on-accent serves all three accents unless a `targets` override says otherwise). outlineVariant = the quieter outline (inactive borders). overlay = third surface tier. Reserved for the OSD phase: inverseSurface, inverseText, scrim |
+| `ui` | background, surface, surfaceElevated, **overlay**, text, textMuted, primary, **onPrimary**, secondary, tertiary, outline, **outlineVariant**, selection, inverseSurface, inverseText, inversePrimary, scrim | semantic roles. onPrimary = text/glyphs drawn ON any accent fill (one on-accent serves all three accents unless a `targets` override says otherwise). outlineVariant = the quieter outline (inactive borders). overlay = third surface tier. inverseSurface/inverseText/inversePrimary/scrim = v1.2 additive, the OSD-phase reservation filled (§2.5) |
 | `terminal` | ansi[16] (ANSI order), base16[16] (generator order), background, foreground, cursor, cursorText, selectionBackground, selectionForeground, minimumContrast | terminal-domain consumers use THIS, not ui, for content colors. Schema doc MUST carry the base16↔ANSI permutation table + base00-0F slot semantics and state the brights-derivation policy (ansi[8..15]) — indexing base16 as ANSI is the classic footgun |
 | `signals` | success, warning, error, info, attention | workflow semantics; locked across wallpaper derivation — the agent-marker colors. Crisp definitions (frozen): success = completed/ready; warning = degraded but working; error = failed/broken; info = neutral status, no action implied; attention = a human's input is wanted (distinct from warning: attention is a request, warning is a condition). Signal colors are for glyphs/text/accents on neutral surfaces; a *filled* signal chip needs an on-color — `onSuccess`-style names are RESERVED for future additive use; until then filled chips pair the signal fill with ui.background as text |
 | `effects` | alpha/opacity/blur policy keys | separate from RGB by design |
@@ -224,6 +229,50 @@ theme flip must not restyle a designed face; OSD consumes from birth when its
 arc lands. Per the §1b ship boundary the
 sketchybar step is two workstreams: adapter fragment (product) and the
 dots-side bar configs (personal), shipped together, versioned apart.
+
+### 2.5 Inverse-polarity roles (v1.2, additive)
+
+Four `ui` roles for the surface class that must read against every ordinary
+tier — the OSD/toast chip and its modal veil. Three fill the v1.0 reservation;
+`inversePrimary` was added by maintainer ruling in the same session (the OSD
+is its first consumer, and matugen emits it anyway).
+
+- `inverseSurface` — a surface in the opposite polarity of the active
+  variant: a dark look floats a light chip, a light look a dark one. Pops
+  against every ordinary surface tier by construction.
+- `inverseText` — text and glyphs drawn ON `inverseSurface`. Maps to M3
+  `inverse_on_surface`; the contract keeps its reserved name (names are
+  never rebound).
+- `inversePrimary` — the accent re-toned for the opposite polarity, the only
+  legible accent on `inverseSurface`: in a sample dark scheme `ui.primary`
+  reads at 1.32:1 on the chip, the re-tone at 4.98:1 (WCAG ratios, computed
+  from matugen 4.1.0 output for seed #3a6ea5).
+- `scrim` — the veil behind a modal surface, constant `#000000` in both
+  polarities (M3 ground truth; maintainer-ruled). RGB only — veil alpha is
+  the consumer's choice and rides `effects`/`targets` under the standard
+  alpha policy.
+
+Sourcing splits like fonts did: matugen emits all four natively
+(`inverse_surface`, `inverse_on_surface`, `inverse_primary`, `scrim`), so
+palette snapshots carry true M3 values for new imports and regenerated
+built-ins. Hand-authored themes, pre-v1.2 palettes, and the captured baseline
+get producer derivations at resolve, polarity-neutral by construction:
+inverseSurface = ui.text (equals the M3 dark value in the sample scheme),
+inverseText = ui.surface mixed 15% toward ui.text (the `overlay` recipe;
+within two hex points of the M3 value in the sample scheme), inversePrimary =
+ui.primary mixed 50% toward ui.background (4.04:1 on the derived chip in the
+sample scheme), scrim = `#000000`.
+
+Fallback chains (policy rule 3, for adapters reading pre-v1.2 manifests):
+`inverseSurface // ui.text` · `inverseText // ui.surface` ·
+`inversePrimary // inverseText` (degrading an accent to a neutral keeps it
+legible; keeping its hue would not) · `scrim` degrades to the constant
+`#000000` — the value is invariant, so the chain terminates in the literal.
+The produce-time contrast lint (§3.2 item 7) gains the
+inverseText/inverseSurface pair when built. Schema-doc mapping-table entries:
+inverseSurface↔inverse_surface, inverseText↔inverse_on_surface,
+inversePrimary↔inverse_primary, scrim↔scrim; base16 has no inverse-polarity
+concept — the mapping table marks the column n/a for these roles.
 
 ## 3. Adapter interface specification
 
@@ -378,7 +427,7 @@ spec): on startup and on change —
    re-check (appearance can change during sleep), flipping between
    pre-rendered `variants.dark`/`variants.light` profiles (~30 lines,
    dark-mode-notify pattern).
-5. OSD adapter (add inverseSurface/inverseText/scrim to `ui` then); data-plane
+5. OSD adapter (roles LANDED v1.2, §2.5); data-plane
    design doc (separate — event channels for agent/system state into
    wallpaper/widgets, per SYSTEM-REVIEW §3A.3).
 
@@ -421,7 +470,8 @@ nvim maps syntax accents from base16 not ansi.
 monospace + per-context sizes; Ghostty/SketchyBar/OSD would consume) —
 LANDED v1.1, §2.4,
 per-surface-class `effects` split, inverseSurface/inverseText/scrim (OSD
-phase), base16-scheme→manifest importer (open-source time), palette-per-
+phase) — LANDED v1.2, §2.5, base16-scheme→manifest importer (open-source
+time), palette-per-
 wallpaper cache in livery.
 
 **Rejected with reasons**: OSC-escape live terminal recolor (pywal16 trick) —

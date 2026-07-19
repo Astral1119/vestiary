@@ -158,13 +158,20 @@ JQ_COLOR_LIB='
 # Derive the v3 ui roles when a theme does not provide them explicitly.
 # onPrimary follows the Catppuccin rule (text on accent = background);
 # outlineVariant is the quieter outline (halfway to background); overlay is
-# the third surface tier (surfaceElevated nudged toward text). Idempotent.
+# the third surface tier (surfaceElevated nudged toward text). The inverse-
+# polarity roles (contract §2.5, v1.2) approximate M3: matugen-sourced
+# palettes carry the true values, everything else derives here — the
+# derivations invert correctly for light variants too. Idempotent.
 augment_theme() {
   _aug_tmp=$(mktemp "${TMPDIR:-/tmp}/livery-augment.XXXXXX")
   jq -S "$JQ_COLOR_LIB"'
     .ui.onPrimary //= .ui.background
     | .ui.outlineVariant //= mix2(.ui.outline; .ui.background; 0.5)
     | .ui.overlay //= mix2(.ui.surfaceElevated; .ui.text; 0.15)
+    | .ui.inverseSurface //= .ui.text
+    | .ui.inverseText //= mix2(.ui.surface; .ui.text; 0.15)
+    | .ui.inversePrimary //= mix2(.ui.primary; .ui.background; 0.5)
+    | .ui.scrim //= "#000000"
   ' "$1" > "$_aug_tmp" && mv -f "$_aug_tmp" "$1"
 }
 
@@ -385,6 +392,10 @@ generate_import_palette() (
       text: .colors.on_surface.default.color,
       textMuted: .colors.on_surface_variant.default.color,
       outline: .colors.outline.default.color,
+      inverseSurface: .colors.inverse_surface.default.color,
+      inverseText: .colors.inverse_on_surface.default.color,
+      inversePrimary: .colors.inverse_primary.default.color,
+      scrim: .colors.scrim.default.color,
       error: .colors.error.default.color,
       terminalBackground: .colors.background.default.color,
       terminalForeground: .colors.on_surface.default.color,
@@ -633,6 +644,12 @@ resolve_palette_theme() (
       | .ui.tertiary = $p.tertiary
       | .ui.outline = $p.outline
       | .ui.selection = $p.primaryContainer
+      # pre-v1.2 palette snapshots lack the inverse roles; null here is
+      # filled by the augment_theme derivations (contract §2.5)
+      | .ui.inverseSurface = $p.inverseSurface
+      | .ui.inverseText = $p.inverseText
+      | .ui.inversePrimary = $p.inversePrimary
+      | .ui.scrim = $p.scrim
       | .terminal.background = $p.background
       | .terminal.foreground = $p.text
       | .terminal.cursor = $p.primary
@@ -1541,7 +1558,9 @@ validate_manifest() {
     def digest: type == "string" and test("^sha256:[0-9a-f]{64}$");
     .schemaVersion == 3
       and .kind == "look-manifest"
-      and (.ui | has("onPrimary") and has("outlineVariant") and has("overlay"))
+      and (.ui | has("onPrimary") and has("outlineVariant") and has("overlay")
+        and has("inverseSurface") and has("inverseText")
+        and has("inversePrimary") and has("scrim"))
       and (.meta.name | type == "string" and length > 0)
       and (.meta.producer.name == "livery")
       and (.meta.scope == "global")
