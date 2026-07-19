@@ -4,12 +4,15 @@ set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 BIN="$ROOT/build/tabard"
 SRC="$ROOT/Tabard.swift"
-if [ ! -x "$BIN" ] || [ "$SRC" -nt "$BIN" ]; then
+INBOX="$ROOT/Inbox.swift"
+if [ ! -x "$BIN" ] || [ "$SRC" -nt "$BIN" ] || [ "$INBOX" -nt "$BIN" ]; then
   command -v swiftc >/dev/null 2>&1 || {
     echo "tabard: swiftc not found (Xcode Command Line Tools required)" >&2
     exit 1
   }
   mkdir -p "$ROOT/build"
-  swiftc -O -warnings-as-errors -framework AppKit "$SRC" -o "$BIN"
+  mkdir -p "$ROOT/build/module-cache"
+  CLANG_MODULE_CACHE_PATH="$ROOT/build/module-cache" \
+    swiftc -O -warnings-as-errors -framework AppKit "$SRC" "$INBOX" -o "$BIN"
 fi
 exec "$BIN" "$@"
