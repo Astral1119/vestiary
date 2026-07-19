@@ -1,0 +1,47 @@
+# tabard
+
+The herald's garment: vestiary's on-screen display. A small resident
+agent that floats brief announcements over the desktop — a task needs
+attention, a task finished, a look was applied — rendered on the theme
+contract's inverse-polarity roles so the chip reads against any look.
+
+Tabard subscribes to herald's tasks channel (files are the bus; tabard
+watches the directory and reconciles by reading) and is the host's
+designated reaper (herald `SPEC.md` §5): orphaned task files from
+publishers without end hooks are unlinked once they are evictable and
+stay so across two sweeps.
+
+## Use
+
+```
+./tabard                 # run in the foreground
+./tabard install-agent   # launchd agent: start at login, survive reboot
+./tabard pause           # drop toasts (state stays wherever you show it)
+./tabard resume
+./tabard status
+```
+
+The wrapper builds the binary on first run and whenever the source is
+newer (requires the Xcode Command Line Tools, already a vestiary
+dependency). After a source update, re-run `./tabard install-agent` so
+launchd picks up the fresh binary.
+
+## Behavior
+
+Toasts decay — 5s for completions and look changes, 10s for attention —
+and the countdown holds while you are away from the machine, so a toast
+fired mid-coffee is still there when you sit down. At most three are
+visible; more collapse into a "+N" count. The panel is click-through
+and never takes focus; jumping to a task belongs to your own tooling.
+A transition in the tmux pane you are currently focused on does not
+toast. Persistent state is deliberately not tabard's job: announcements
+decay, and whatever surface you keep task state on (a bar, a widget)
+remains the durable record.
+
+## Theme
+
+Tabard reads `~/.config/livery/current/manifest.json` directly:
+`ui.inverseSurface` / `ui.inverseText` / `ui.inversePrimary` for the
+chip, `fonts.display` for headings, `fonts.ui` for body text. With no
+manifest present it falls back to a built-in monochrome chip —
+theme-supported, not theme-critical.
