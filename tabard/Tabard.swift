@@ -46,6 +46,12 @@ enum Config {
   static let reconcileInterval: Double = 30 // belt for missed events
   static let reaperGrace = Double(env("TABARD_REAPER_GRACE") ?? "") ?? 60
   static let reaperInterval = Double(env("TABARD_REAPER_INTERVAL") ?? "") ?? 300
+  // events log (the host's designated recorder)
+  static let heraldLogRoot = env("TABARD_HERALD_LOG_ROOT")
+    ?? home + "/.local/state/herald"
+  static var eventsPath: String { heraldLogRoot + "/events.jsonl" }
+  static let eventRetention =
+    (Double(env("TABARD_EVENT_RETENTION_DAYS") ?? "") ?? 30) * 86400
   static let chipWidth: CGFloat = 320
   static let margin: CGFloat = 12
 }
@@ -159,6 +165,97 @@ func readTasks() -> [String: (entry: TaskEntry, path: String)] {
     merged[entry.id] = (entry, path)
   }
   return merged
+}
+
+// MARK: - events recorder (tabard is the host's designated recorder:
+// sole writer of the herald events log; best-effort by doctrine)
+
+final class Recorder {
+  static let formatter = ISO8601DateFormatter()
+  private var fd: Int32 = -1
+  private let path: String
+
+  init(path: String = Config.eventsPath) {
+    self.path = path
+    try? FileManager.default.createDirectory(
+      atPath: (path as NSString).deletingLastPathComponent,
+      withIntermediateDirectories: true)
+    prune()
+    fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+    // the generation header: declares a possible gap and stamps the
+    // schema — everything until the next marker is this recorder run
+    append("rebaselined", ["schema": "events/1", "producer": "tabard"])
+  }
+
+  func stateChanged(_ entry: TaskEntry, from: String?) {
+    var fields = context(entry)
+    if let from { fields["from"] = from }   // absent on first observation
+    fields["to"] = entry.state
+    if entry.state == "waiting", let attention = entry.attention {
+      fields["attention"] = attention
+    }
+    append("state-changed", fields)
+  }
+
+  func attentionRequested(_ entry: TaskEntry) {
+    var fields = context(entry)
+    if let attention = entry.attention { fields["attention"] = attention }
+    append("attention-requested", fields)
+  }
+
+  func finished(_ entry: TaskEntry) {
+    var fields = context(entry)
+    if let outcome = entry.outcome { fields["outcome"] = outcome }
+    append("finished", fields)
+  }
+
+  func reaped(_ entry: TaskEntry) {
+    append("reaped", ["id": entry.id, "kind": entry.kind])
+  }
+
+  private func context(_ entry: TaskEntry) -> [String: Any] {
+    var fields: [String: Any] = ["id": entry.id, "kind": entry.kind,
+                                 "title": entry.title]
+    if let group = entry.group { fields["group"] = group }
+    return fields
+  }
+
+  // recorder-supported, not recorder-critical: any failure drops the
+  // line and never touches toasting. One write per line (O_APPEND).
+  private func append(_ event: String, _ fields: [String: Any]) {
+    guard fd >= 0 else { return }
+    var line: [String: Any] = ["ts": Self.formatter.string(from: Date()),
+                               "event": event]
+    line.merge(fields) { current, _ in current }
+    guard var data = try? JSONSerialization.data(withJSONObject: line,
+                                                 options: [.sortedKeys])
+    else { return }
+    data.append(0x0a)
+    data.withUnsafeBytes { _ = write(fd, $0.baseAddress, data.count) }
+  }
+
+  // 30-day age-out at startup, temp + rename. Unparseable lines (torn
+  // final line from a crash) are dropped here; readers skip them.
+  private func prune() {
+    guard let data = FileManager.default.contents(atPath: path),
+          let text = String(data: data, encoding: .utf8) else { return }
+    let cutoff = Date().addingTimeInterval(-Config.eventRetention)
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: true)
+    let kept = lines.filter { line in
+      guard let json = try? JSONSerialization.jsonObject(with: Data(line.utf8)),
+            let dict = json as? [String: Any],
+            let ts = dict["ts"] as? String,
+            let date = Self.formatter.date(from: ts) else { return false }
+      return date >= cutoff
+    }
+    guard kept.count != lines.count else { return }
+    let tmp = (path as NSString).deletingLastPathComponent
+      + "/.events.\(getpid()).tmp"
+    let out = kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n"
+    guard (try? out.write(toFile: tmp, atomically: false, encoding: .utf8))
+      != nil else { return }
+    rename(tmp, path)
+  }
 }
 
 // MARK: - tmux (the one read outside herald + the manifest; severable)
@@ -351,6 +448,7 @@ final class OverflowChip: NSView {
 final class Tabard: NSObject, NSApplicationDelegate {
   var panel: NSPanel!
   var theme = Theme.load()
+  let recorder = Recorder()
   var previous: [String: TaskEntry]?      // nil until the baseline read
   var visible: [Toast] = []
   var queue: [Toast] = []                 // expiry paused until shown
@@ -462,7 +560,20 @@ final class Tabard: NSObject, NSApplicationDelegate {
     let paused = FileManager.default.fileExists(atPath: Config.pauseFlag)
     let focused = focusedPanes()
     for (id, entry) in merged {
-      let oldState = previous[id]?.state
+      let oldEntry = previous[id]
+      let oldState = oldEntry?.state
+      // record before the annunciation guards: the archive keeps
+      // transitions that pause, suppression, and digesting never toast
+      if entry.state != oldState {
+        if entry.state == "done" {
+          recorder.finished(entry)
+        } else {
+          recorder.stateChanged(entry, from: oldState)
+        }
+      } else if entry.state == "waiting", entry.attention != nil,
+                entry.attention != oldEntry?.attention {
+        recorder.attentionRequested(entry)
+      }
       guard entry.state != oldState else { continue }  // seq alone never toasts
       guard entry.state == "waiting" || entry.state == "done" else { continue }
       if let group = entry.group {
@@ -745,29 +856,31 @@ final class Tabard: NSObject, NSApplicationDelegate {
 
   func reap() {
     let panes = livePanes()
-    var evictable: Set<String> = []
+    var evictable: [String: TaskEntry] = [:]   // path → entry
     for (_, item) in readTasks() {
       let entry = item.entry
       if let pane = entry.pane {
-        if let panes, !panes.contains(pane) { evictable.insert(item.path) }
+        if let panes, !panes.contains(pane) { evictable[item.path] = entry }
       } else if let pid = entry.pid {
-        if !pidAlive(pid) { evictable.insert(item.path) }
+        if !pidAlive(pid) { evictable[item.path] = entry }
       }
       // neither pane nor pid: exempt — never aged out by time alone
     }
     let now = Date()
-    for path in evictable {
+    for (path, entry) in evictable {
       if let first = reapCandidates[path] {
         if now.timeIntervalSince(first) >= Config.reaperGrace {
-          try? FileManager.default.removeItem(atPath: path)
+          if (try? FileManager.default.removeItem(atPath: path)) != nil {
+            recorder.reaped(entry)
+            log("reaped \(path)")
+          }
           reapCandidates.removeValue(forKey: path)
-          log("reaped \(path)")
         }
       } else {
         reapCandidates[path] = now
       }
     }
-    reapCandidates = reapCandidates.filter { evictable.contains($0.key) }
+    reapCandidates = reapCandidates.filter { evictable[$0.key] != nil }
   }
 }
 
@@ -825,6 +938,7 @@ func status() {
   print("paused: \(paused)")
   print("agent: \(agentInstalled() ? "installed" : "none")")
   print("herald: \(Config.tasksDir) (\(tasks.count) task files)")
+  print("events: \(Config.eventsPath)")
   print("log: \(Config.logPath)")
 }
 
