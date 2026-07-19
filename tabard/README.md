@@ -43,9 +43,15 @@ collect for 30s and annunciate as one chip with outcome counts
 re-toasting at most every five minutes. Blocked group members
 annunciate immediately — attention never waits in a collector — and
 merge into one "N blocked" chip. The two tiers never share a chip.
-Ungrouped tasks toast individually, as above. Persistent state is deliberately not tabard's job: announcements
-decay, and whatever surface you keep task state on (a bar, a widget)
-remains the durable record.
+Ungrouped tasks toast individually, as above.
+
+Tabard is also the host's designated recorder: observed transitions
+append to `~/.local/state/herald/events.jsonl`, one JSON object per
+line — state changes, completions with outcome, attention requests,
+reaps, and a `rebaselined` marker at every start declaring a possible
+gap. The log is best-effort and prunes to 30 days at startup. Live
+task state stays wherever you show it (a bar, a widget); the herald
+snapshots remain authoritative.
 
 ## Theme
 
