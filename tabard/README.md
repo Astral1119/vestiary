@@ -31,10 +31,13 @@ launchd picks up the fresh binary.
 Toasts decay — 5s for completions and look changes, 10s for attention —
 and the countdown holds while you are away from the machine, so a toast
 fired mid-coffee is still there when you sit down. At most three are
-visible; more collapse into a "+N" count. The panel is click-through
-and never takes focus; jumping to a task belongs to your own tooling.
-A transition in a tmux pane that is on screen (any pane of the window
-you have up in an attached session) does not toast.
+visible; more collapse into a "+N" count. The panel never takes focus.
+Each chip shows a countdown bar and pauses it while hovered;
+middle-click or right-click dismisses. Left-click runs
+`~/.config/tabard/attend-hook` if you have installed one — your own
+jump-to-task tooling — and is quietly eaten otherwise. A transition in
+a tmux pane that is on screen (any pane of the window you have up in an
+attached session) does not toast.
 
 Tasks published with a `group` (herald `SPEC.md` v1.3 — batch
 dispatches like agent swarms) digest instead of parading: completions

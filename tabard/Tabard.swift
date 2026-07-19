@@ -486,6 +486,11 @@ final class ChipView: NSView {
     if event.buttonNumber == 2 { dismiss(toast.id) }
   }
 
+  // trackpad-reachable dismiss; same semantics as middle-click
+  override func rightMouseDown(with event: NSEvent) {
+    dismiss(toast.id)
+  }
+
   required init?(coder: NSCoder) { fatalError() }
 }
 
@@ -786,7 +791,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
   }
 
   func userDismiss(_ id: String) {
-    if env("TABARD_DEBUG") != nil { log("dismissed (middle-click) \(id)") }
+    if env("TABARD_DEBUG") != nil { log("dismissed (pointer) \(id)") }
     recorder.dismissed(chip: id)
     dismissChip(id)
   }
