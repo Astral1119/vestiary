@@ -48,7 +48,7 @@ The pieces compose but don't require each other.
 | `livery/` | Producer: the wallpaper↔theme engine (Matugen palettes, semantic themes, transactional Looks). `liveryctl` is the orchestrator; fixtures in `assets/`, matugen fetch in `tools/`. |
 | `livery.nvim/` | The nvim consumer plugin (overlay + fs_event watcher), paired with `adapters/nvim`. |
 | `fresco/` | The wallpaper runtime: Wallpaper Engine video/web wallpapers at the macOS desktop layer, WE JS API shim, livery bridge. |
-| `herald/` | The state bus: per-channel JSON snapshots under `~/.config/herald/`, notifyd doorbell. Spec: `herald/SPEC.md`, frozen v1.0. |
+| `herald/` | The state bus: per-channel JSON snapshots under `~/.config/herald/`, notifyd doorbell. Conformance summary in `herald/README.md`. |
 | `repose/` | Quiet-screen design lab (spikes, mockups); the shipped composition fresco loads lives at `fresco/repose/`. |
 
 ## Quickstart

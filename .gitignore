@@ -9,6 +9,7 @@ livery/tools/bin/
 livery/tools/.crates.toml
 livery/tools/.crates2.json
 docs/
+herald/SPEC.md
 repose/HANDOFF.md
 repose/RESEARCH.md
 repose/SPIKE.md
