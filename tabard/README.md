@@ -33,8 +33,8 @@ and the countdown holds while you are away from the machine, so a toast
 fired mid-coffee is still there when you sit down. At most three are
 visible; more collapse into a "+N" count. The panel is click-through
 and never takes focus; jumping to a task belongs to your own tooling.
-A transition in the tmux pane you are currently focused on does not
-toast.
+A transition in a tmux pane that is on screen (any pane of the window
+you have up in an attached session) does not toast.
 
 Tasks published with a `group` (herald `SPEC.md` v1.3 — batch
 dispatches like agent swarms) digest instead of parading: completions

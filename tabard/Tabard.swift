@@ -300,9 +300,12 @@ func livePanes() -> Set<String>? {
   return Set(output.split(separator: "\n").map(String.init))
 }
 
-func focusedPanes() -> Set<String> {
+// "already looking at it" = any pane of the displayed window of an
+// attached session. pane_active alone marks one pane per window,
+// including windows nobody has on screen.
+func visiblePanes() -> Set<String> {
   guard let output = runTool(["tmux", "list-panes", "-a",
-                              "-f", "#{&&:#{pane_active},#{session_attached}}",
+                              "-f", "#{&&:#{window_active},#{session_attached}}",
                               "-F", "#{pane_id}"]) else { return [] }
   return Set(output.split(separator: "\n").map(String.init))
 }
@@ -621,7 +624,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
     }
 
     let paused = FileManager.default.fileExists(atPath: Config.pauseFlag)
-    let focused = focusedPanes()
+    let onScreen = visiblePanes()
     for (id, entry) in merged {
       let oldEntry = previous[id]
       let oldState = oldEntry?.state
@@ -650,13 +653,13 @@ final class Tabard: NSObject, NSApplicationDelegate {
         if env("TABARD_DEBUG") != nil { log("dropped (paused) \(id) → \(entry.state)") }
         continue
       }
-      if let pane = entry.pane, focused.contains(pane) {
-        if env("TABARD_DEBUG") != nil { log("suppressed (pane focused) \(id) → \(entry.state)") }
+      if let pane = entry.pane, onScreen.contains(pane) {
+        if env("TABARD_DEBUG") != nil { log("suppressed (pane visible) \(id) → \(entry.state)") }
         continue
       }
       show(entry.state == "waiting" ? Toast.waiting(entry) : Toast.done(entry))
     }
-    reconcileGroupWaiting(merged, paused: paused, focused: focused)
+    reconcileGroupWaiting(merged, paused: paused, onScreen: onScreen)
   }
 
   // MARK: grouped-burst digesting (TABARD-DESIGN §12)
@@ -715,8 +718,8 @@ final class Tabard: NSObject, NSApplicationDelegate {
       if env("TABARD_DEBUG") != nil { log("dropped (paused) digest done \(group)") }
       return
     }
-    if let pane = state.pane, focusedPanes().contains(pane) {
-      if env("TABARD_DEBUG") != nil { log("suppressed (pane focused) digest done \(group)") }
+    if let pane = state.pane, visiblePanes().contains(pane) {
+      if env("TABARD_DEBUG") != nil { log("suppressed (pane visible) digest done \(group)") }
       return
     }
     show(Toast.doneDigest(group: group, counts: state.doneCounts))
@@ -728,7 +731,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
   // the first member annunciates immediately, later ones merge in
   // place; tiers never share a chip.
   func reconcileGroupWaiting(_ merged: [String: TaskEntry],
-                             paused: Bool, focused: Set<String>) {
+                             paused: Bool, onScreen: Set<String>) {
     var current: [String: Set<String>] = [:]
     for entry in merged.values {
       guard let group = entry.group, entry.state == "waiting" else { continue }
@@ -752,8 +755,8 @@ final class Tabard: NSObject, NSApplicationDelegate {
       } else if added {
         if paused {
           if env("TABARD_DEBUG") != nil { log("dropped (paused) digest waiting \(group)") }
-        } else if let pane = state.pane, focused.contains(pane) {
-          if env("TABARD_DEBUG") != nil { log("suppressed (pane focused) digest waiting \(group)") }
+        } else if let pane = state.pane, onScreen.contains(pane) {
+          if env("TABARD_DEBUG") != nil { log("suppressed (pane visible) digest waiting \(group)") }
         } else {
           show(Toast.waitingDigest(group: group, count: ids.count,
                                    reason: state.lastWaitingReason))
