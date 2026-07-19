@@ -28,6 +28,8 @@ enum Config {
   static var tasksDir: String { heraldRoot + "/tasks.d" }
   static let liveryRoot = env("LIVERY_RUNTIME") ?? home + "/.config/livery"
   static let stateDir = home + "/.local/state/tabard"
+  static let attendHook = env("TABARD_ATTEND_HOOK")
+    ?? home + "/.config/tabard/attend-hook"
   static var pauseFlag: String { stateDir + "/paused" }
   static var logPath: String { stateDir + "/tabard.log" }
   static let label = "local.vestiary.tabard"
@@ -125,6 +127,7 @@ struct TaskEntry {
   var lastMessage: String?
   var group: String?
   var pane: String?
+  var space: Int?
   var pid: Int?
 
   // Envelope per herald SPEC §6; generic core only per the ship
@@ -147,6 +150,7 @@ struct TaskEntry {
       lastMessage: payload["lastMessage"] as? String,
       group: payload["group"] as? String,
       pane: tmux?["pane"] as? String,
+      space: focus?["space"] as? Int,
       pid: extensionBlock?["pid"] as? Int)
   }
 }
@@ -396,12 +400,15 @@ final class GroupDigest {
 final class ChipView: NSView {
   private let toast: Toast
   private let theme: Theme
+  private let attend: (String) -> Void
   private let dismiss: (String) -> Void
 
   init(toast: Toast, theme: Theme, held: Bool,
+       attend: @escaping (String) -> Void,
        dismiss: @escaping (String) -> Void) {
     self.toast = toast
     self.theme = theme
+    self.attend = attend
     self.dismiss = dismiss
     super.init(frame: .zero)
     wantsLayer = true
@@ -467,7 +474,9 @@ final class ChipView: NSView {
   }
 
   override func mouseDown(with event: NSEvent) {
-    // left-click eaten but unrouted — reserved
+    // left-click = attend via the operator hook; eaten when no hook is installed
+    if case .look = toast.kind { return }
+    attend(toast.id)
   }
 
   override func otherMouseDown(with event: NSEvent) {
@@ -779,6 +788,47 @@ final class Tabard: NSObject, NSApplicationDelegate {
     dismissChip(id)
   }
 
+  func userAttend(_ id: String) {
+    let pane: String?
+    let space: Int?
+    let group: String?
+    let digestPrefixes = ["digest:done:", "digest:waiting:"]
+    if let prefix = digestPrefixes.first(where: { id.hasPrefix($0) }) {
+      let digestGroup = String(id.dropFirst(prefix.count))
+      pane = groups[digestGroup]?.pane
+      space = nil
+      group = digestGroup
+    } else {
+      let entry = previous?[id]
+      pane = entry?.pane
+      space = entry?.space
+      group = entry?.group
+    }
+
+    guard FileManager.default.isExecutableFile(atPath: Config.attendHook)
+    else {
+      if env("TABARD_DEBUG") != nil { log("attend ignored (no hook) \(id)") }
+      return
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: Config.attendHook)
+    process.arguments = [id]
+    var environment = ProcessInfo.processInfo.environment
+    environment["TABARD_PANE"] = pane
+    environment["TABARD_SPACE"] = space.map(String.init)
+    environment["TABARD_GROUP"] = group
+    process.environment = environment
+    process.terminationHandler = { _ in }
+    do {
+      try process.run()
+      if env("TABARD_DEBUG") != nil { log("attended \(id)") }
+      dismissChip(id)
+    } catch {
+      if env("TABARD_DEBUG") != nil { log("attend launch failed \(id)") }
+    }
+  }
+
   // a wave's state retires once nothing references it and the rolling
   // window has passed — the next swarm starts its counts fresh
   func sweepGroups() {
@@ -903,9 +953,10 @@ final class Tabard: NSObject, NSApplicationDelegate {
 
     let held = dwellHeld()
     var chips: [NSView] = visible.map { toast in
-      ChipView(toast: toast, theme: theme, held: held) { [weak self] id in
-        self?.userDismiss(id)
-      }
+      ChipView(
+        toast: toast, theme: theme, held: held,
+        attend: { [weak self] id in self?.userAttend(id) },
+        dismiss: { [weak self] id in self?.userDismiss(id) })
     }
     if !queue.isEmpty {
       chips.append(OverflowChip(count: queue.count, theme: theme))
