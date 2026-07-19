@@ -398,7 +398,8 @@ final class ChipView: NSView {
   private let theme: Theme
   private let dismiss: (String) -> Void
 
-  init(toast: Toast, theme: Theme, dismiss: @escaping (String) -> Void) {
+  init(toast: Toast, theme: Theme, held: Bool,
+       dismiss: @escaping (String) -> Void) {
     self.toast = toast
     self.theme = theme
     self.dismiss = dismiss
@@ -406,6 +407,7 @@ final class ChipView: NSView {
     wantsLayer = true
     layer?.backgroundColor = theme.chipBG.cgColor
     layer?.cornerRadius = 10
+    layer?.masksToBounds = true            // keeps the bar inside the corners
 
     let glyph = NSTextField(labelWithString: toast.glyph)
     glyph.font = theme.font(family: theme.uiFamily, size: 13)
@@ -442,15 +444,26 @@ final class ChipView: NSView {
     body.frame = NSRect(x: textX, y: padding,
                         width: textWidth, height: bodyHeight)
     addSubview(glyph); addSubview(heading); addSubview(body)
-  }
 
-  override func draw(_ dirtyRect: NSRect) {
-    super.draw(dirtyRect)
-    NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10).addClip()
-    theme.chipAccent.withAlphaComponent(0.45).setFill()
-    let fraction = max(0, toast.remaining / toast.dwell)
-    NSRect(x: bounds.minX, y: bounds.minY,
-           width: bounds.width * fraction, height: 2).fill()
+    // countdown bar: Core Animation drains it linearly so the sweep is
+    // smooth between dwell ticks; a held chip gets a static bar instead
+    let bar = CALayer()
+    bar.backgroundColor = theme.chipAccent.withAlphaComponent(0.45).cgColor
+    bar.anchorPoint = .zero
+    bar.position = .zero
+    let fraction = max(0, min(1, toast.remaining / toast.dwell))
+    bar.bounds = CGRect(x: 0, y: 0,
+                        width: Config.chipWidth * fraction, height: 2)
+    layer?.addSublayer(bar)
+    if !held, toast.remaining > 0 {
+      let drain = CABasicAnimation(keyPath: "bounds.size.width")
+      drain.fromValue = Config.chipWidth * fraction
+      drain.toValue = 0
+      drain.duration = toast.remaining
+      drain.timingFunction = CAMediaTimingFunction(name: .linear)
+      bar.bounds.size.width = 0
+      bar.add(drain, forKey: "drain")
+    }
   }
 
   override func mouseDown(with event: NSEvent) {
@@ -494,7 +507,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
   var queue: [Toast] = []                 // expiry paused until shown
   var lookBaseline: String?
   var dwellTimer: Timer?
-  var hoverHeld = false
+  var heldLast = false
   var groups: [String: GroupDigest] = [:]
   var reapCandidates: [String: Date] = [:]
   var tasksWatch: DispatchSourceFileSystemObject?
@@ -831,18 +844,18 @@ final class Tabard: NSObject, NSApplicationDelegate {
       dwellTimer?.invalidate(); dwellTimer = nil
       return
     }
-    // countdown runs only while the user is active (GNOME's rule):
-    // a toast fired while away waits for the return.
-    guard idleSeconds() < Config.idleThreshold else { return }
-    let hovering = panel.isVisible
-      && panel.frame.contains(NSEvent.mouseLocation)
-    if hovering != hoverHeld {
-      hoverHeld = hovering
+    // countdown holds while the user is away (GNOME's rule) or hovering
+    // (the survey interlock); a transition re-renders so the bars freeze
+    // and restart in step with the dwell.
+    let held = dwellHeld()
+    if held != heldLast {
+      heldLast = held
       if env("TABARD_DEBUG") != nil {
-        log(hovering ? "dwell hover-paused" : "dwell resumed")
+        log(held ? "dwell held" : "dwell resumed")
       }
+      render()
     }
-    guard !hovering else { return }
+    guard !held else { return }
     var changed = false
     for toast in visible { toast.remaining -= 0.5 }
     while let index = visible.firstIndex(where: { $0.remaining <= 0 }) {
@@ -853,7 +866,12 @@ final class Tabard: NSObject, NSApplicationDelegate {
       visible.append(queue.removeFirst())  // expiry was paused while queued
       changed = true
     }
-    if changed || !visible.isEmpty { render() }
+    if changed { render() }
+  }
+
+  func dwellHeld() -> Bool {
+    idleSeconds() >= Config.idleThreshold
+      || (panel.isVisible && panel.frame.contains(NSEvent.mouseLocation))
   }
 
   // active display = the pointer's screen; NSScreen.main resolves to the
@@ -883,8 +901,9 @@ final class Tabard: NSObject, NSApplicationDelegate {
       return
     }
 
+    let held = dwellHeld()
     var chips: [NSView] = visible.map { toast in
-      ChipView(toast: toast, theme: theme) { [weak self] id in
+      ChipView(toast: toast, theme: theme, held: held) { [weak self] id in
         self?.userDismiss(id)
       }
     }
