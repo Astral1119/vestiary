@@ -6,8 +6,9 @@
 //
 // Verbs: run (default) | pause | resume | status | install-agent |
 // uninstall-agent. Env: TABARD_HERALD_ROOT, LIVERY_RUNTIME (contract
-// §2.1 reserved override), TABARD_REAPER_GRACE / TABARD_REAPER_INTERVAL
-// (seconds; testing).
+// §2.1 reserved override), TABARD_REAPER_GRACE / TABARD_REAPER_INTERVAL /
+// TABARD_DIGEST_COLLECT / TABARD_DIGEST_RETOAST / TABARD_DWELL_DONE /
+// TABARD_DWELL_WAITING / TABARD_IDLE_THRESHOLD (seconds; testing).
 //
 // The notifyd doorbell is deliberately not subscribed: the directory
 // watcher already delivers sub-100ms latency on the same host, and the
@@ -32,10 +33,15 @@ enum Config {
   static let label = "local.vestiary.tabard"
   static var plistPath: String { home + "/Library/LaunchAgents/\(label).plist" }
 
-  static let dwellDone: Double = 5
-  static let dwellWaiting: Double = 10
+  static let dwellDone = Double(env("TABARD_DWELL_DONE") ?? "") ?? 5
+  static let dwellWaiting = Double(env("TABARD_DWELL_WAITING") ?? "") ?? 10
+  // grouped-burst digesting (TABARD-DESIGN §12; constants are the
+  // Alertmanager group_wait / group_interval defaults)
+  static let digestCollect = Double(env("TABARD_DIGEST_COLLECT") ?? "") ?? 30
+  static let digestReToast = Double(env("TABARD_DIGEST_RETOAST") ?? "") ?? 300
   static let maxVisible = 3
-  static let idleThreshold: Double = 30     // countdown holds while user away
+  // countdown holds while user away
+  static let idleThreshold = Double(env("TABARD_IDLE_THRESHOLD") ?? "") ?? 30
   static let debounce: Double = 0.08        // herald S5: 50-100ms
   static let reconcileInterval: Double = 30 // belt for missed events
   static let reaperGrace = Double(env("TABARD_REAPER_GRACE") ?? "") ?? 60
@@ -111,6 +117,7 @@ struct TaskEntry {
   var outcome: String?
   var attention: String?
   var lastMessage: String?
+  var group: String?
   var pane: String?
   var pid: Int?
 
@@ -132,6 +139,7 @@ struct TaskEntry {
       outcome: payload["outcome"] as? String,
       attention: payload["attention"] as? String,
       lastMessage: payload["lastMessage"] as? String,
+      group: payload["group"] as? String,
       pane: tmux?["pane"] as? String,
       pid: extensionBlock?["pid"] as? Int)
   }
@@ -236,6 +244,43 @@ final class Toast {
           heading: name.isEmpty ? "look" : name, body: "look applied",
           dwell: Config.dwellDone)
   }
+
+  // digest toasts (TABARD-DESIGN §12): one chip per group per tier;
+  // outcome counts never disappear into the total.
+  static func doneDigest(group: String, counts: [String: Int]) -> Toast {
+    let total = counts.values.reduce(0, +)
+    let failed = counts["failure"] ?? 0
+    let stopped = counts["stopped"] ?? 0
+    var body = "\(total) finished"
+    if failed > 0 { body += " · \(failed) failed" }
+    if stopped > 0 { body += " · \(stopped) stopped" }
+    return Toast(id: "digest:done:" + group, kind: .done,
+                 glyph: failed > 0 ? "✕" : "✓",
+                 heading: group, body: body, dwell: Config.dwellDone)
+  }
+
+  static func waitingDigest(group: String, count: Int,
+                            reason: String?) -> Toast {
+    var body = count == 1 ? "1 blocked" : "\(count) blocked"
+    if let reason { body += " · " + reason }
+    return Toast(id: "digest:waiting:" + group, kind: .waiting, glyph: "✳",
+                 heading: group, body: body, dwell: Config.dwellWaiting)
+  }
+}
+
+// Per-group digest state. Done completions collect before the first
+// annunciation and re-annunciate at most every digestReToast afterwards
+// (the Alertmanager group_wait/group_interval shape); waiting is
+// annunciated immediately and only ever merges in place.
+final class GroupDigest {
+  var doneCounts: [String: Int] = [:]
+  var collectTimer: Timer?
+  var retoastTimer: Timer?
+  var lastToastAt: Date?
+  var lastEventAt = Date()
+  var waitingIds: Set<String> = []
+  var lastWaitingReason: String?
+  var pane: String?          // last seen member pane, for suppression
 }
 
 // MARK: - chip rendering
@@ -311,6 +356,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
   var queue: [Toast] = []                 // expiry paused until shown
   var lookBaseline: String?
   var dwellTimer: Timer?
+  var groups: [String: GroupDigest] = [:]
   var reapCandidates: [String: Date] = [:]
   var tasksWatch: DispatchSourceFileSystemObject?
   var liveryWatch: DispatchSourceFileSystemObject?
@@ -328,6 +374,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
       self?.reconcile()
       self?.checkLook()
       self?.armWatch()                     // re-arm if dirs appeared/moved
+      self?.sweepGroups()
     }
     reap()
     Timer.scheduledTimer(withTimeInterval: Config.reaperInterval,
@@ -407,7 +454,10 @@ final class Tabard: NSObject, NSApplicationDelegate {
       log("reconcile merged=\(merged.count) baseline=\(previous == nil)")
     }
     defer { previous = merged }
-    guard let previous else { return }     // baseline established, no news
+    guard let previous else {              // baseline established, no news
+      seedGroupBaseline(merged)
+      return
+    }
 
     let paused = FileManager.default.fileExists(atPath: Config.pauseFlag)
     let focused = focusedPanes()
@@ -415,6 +465,13 @@ final class Tabard: NSObject, NSApplicationDelegate {
       let oldState = previous[id]?.state
       guard entry.state != oldState else { continue }  // seq alone never toasts
       guard entry.state == "waiting" || entry.state == "done" else { continue }
+      if let group = entry.group {
+        // grouped transitions ride the digest path (§12): done collects,
+        // waiting is reconciled set-wise below. Pause/suppression are
+        // checked at annunciation time, not per arrival.
+        if entry.state == "done" { groupedDone(group: group, entry: entry) }
+        continue
+      }
       if paused {                          // dropped, not queued — bar has it
         if env("TABARD_DEBUG") != nil { log("dropped (paused) \(id) → \(entry.state)") }
         continue
@@ -424,6 +481,145 @@ final class Tabard: NSObject, NSApplicationDelegate {
         continue
       }
       show(entry.state == "waiting" ? Toast.waiting(entry) : Toast.done(entry))
+    }
+    reconcileGroupWaiting(merged, paused: paused, focused: focused)
+  }
+
+  // MARK: grouped-burst digesting (TABARD-DESIGN §12)
+
+  func digest(for group: String) -> GroupDigest {
+    if let existing = groups[group] { return existing }
+    let fresh = GroupDigest()
+    groups[group] = fresh
+    return fresh
+  }
+
+  func seedGroupBaseline(_ merged: [String: TaskEntry]) {
+    for entry in merged.values {
+      guard let group = entry.group, entry.state == "waiting" else { continue }
+      let state = digest(for: group)
+      state.waitingIds.insert(entry.id)
+      if let pane = entry.pane { state.pane = pane }
+      if let reason = entry.attention { state.lastWaitingReason = reason }
+    }
+  }
+
+  func groupedDone(group: String, entry: TaskEntry) {
+    let state = digest(for: group)
+    state.doneCounts[entry.outcome ?? "finished", default: 0] += 1
+    state.lastEventAt = Date()
+    if let pane = entry.pane { state.pane = pane }
+    if chipShowing("digest:done:" + group) {
+      // visible chip updates in place; the rolling window re-anchors
+      state.lastToastAt = Date()
+      show(Toast.doneDigest(group: group, counts: state.doneCounts))
+    } else if let last = state.lastToastAt {
+      // already annunciated this wave: at most one re-toast per interval
+      if state.retoastTimer == nil {
+        let delay = max(0.5,
+          Config.digestReToast - Date().timeIntervalSince(last))
+        state.retoastTimer = Timer.scheduledTimer(
+          withTimeInterval: delay, repeats: false) { [weak self] _ in
+          self?.fireDoneDigest(group)
+        }
+      }
+    } else if state.collectTimer == nil {
+      // first arrivals collect so a burst annunciates once
+      state.collectTimer = Timer.scheduledTimer(
+        withTimeInterval: Config.digestCollect, repeats: false) { [weak self] _ in
+        self?.fireDoneDigest(group)
+      }
+    }
+  }
+
+  func fireDoneDigest(_ group: String) {
+    guard let state = groups[group] else { return }
+    state.collectTimer?.invalidate(); state.collectTimer = nil
+    state.retoastTimer?.invalidate(); state.retoastTimer = nil
+    state.lastToastAt = Date()
+    if FileManager.default.fileExists(atPath: Config.pauseFlag) {
+      if env("TABARD_DEBUG") != nil { log("dropped (paused) digest done \(group)") }
+      return
+    }
+    if let pane = state.pane, focusedPanes().contains(pane) {
+      if env("TABARD_DEBUG") != nil { log("suppressed (pane focused) digest done \(group)") }
+      return
+    }
+    show(Toast.doneDigest(group: group, counts: state.doneCounts))
+  }
+
+  // Waiting digests are reconciled against the merged set, not per
+  // transition: rows join AND leave (attended, finished) and the chip
+  // must track both directions. Waiting never sits in a collector —
+  // the first member annunciates immediately, later ones merge in
+  // place; tiers never share a chip.
+  func reconcileGroupWaiting(_ merged: [String: TaskEntry],
+                             paused: Bool, focused: Set<String>) {
+    var current: [String: Set<String>] = [:]
+    for entry in merged.values {
+      guard let group = entry.group, entry.state == "waiting" else { continue }
+      current[group, default: []].insert(entry.id)
+      let state = digest(for: group)
+      if let reason = entry.attention { state.lastWaitingReason = reason }
+      if let pane = entry.pane { state.pane = pane }
+    }
+    for (group, ids) in current {
+      let state = digest(for: group)
+      let added = !ids.subtracting(state.waitingIds).isEmpty
+      let changed = ids != state.waitingIds
+      state.waitingIds = ids
+      state.lastEventAt = Date()
+      let chipId = "digest:waiting:" + group
+      if chipShowing(chipId) {
+        if changed {
+          show(Toast.waitingDigest(group: group, count: ids.count,
+                                   reason: state.lastWaitingReason))
+        }
+      } else if added {
+        if paused {
+          if env("TABARD_DEBUG") != nil { log("dropped (paused) digest waiting \(group)") }
+        } else if let pane = state.pane, focused.contains(pane) {
+          if env("TABARD_DEBUG") != nil { log("suppressed (pane focused) digest waiting \(group)") }
+        } else {
+          show(Toast.waitingDigest(group: group, count: ids.count,
+                                   reason: state.lastWaitingReason))
+        }
+      }
+    }
+    for (group, state) in groups
+    where current[group] == nil && !state.waitingIds.isEmpty {
+      state.waitingIds = []
+      dismissChip("digest:waiting:" + group)
+    }
+  }
+
+  func chipShowing(_ id: String) -> Bool {
+    visible.contains { $0.id == id } || queue.contains { $0.id == id }
+  }
+
+  func dismissChip(_ id: String) {
+    var changed = false
+    if let index = visible.firstIndex(where: { $0.id == id }) {
+      visible.remove(at: index); changed = true
+    }
+    if let index = queue.firstIndex(where: { $0.id == id }) {
+      queue.remove(at: index); changed = true
+    }
+    if changed { render() }
+  }
+
+  // a wave's state retires once nothing references it and the rolling
+  // window has passed — the next swarm starts its counts fresh
+  func sweepGroups() {
+    let now = Date()
+    for (group, state) in groups {
+      guard state.collectTimer == nil, state.retoastTimer == nil,
+            state.waitingIds.isEmpty,
+            !chipShowing("digest:done:" + group),
+            !chipShowing("digest:waiting:" + group),
+            now.timeIntervalSince(state.lastEventAt) > Config.digestReToast
+      else { continue }
+      groups.removeValue(forKey: group)
     }
   }
 
