@@ -6,6 +6,9 @@ tasks reshape, and live publisher verification).
 alone never evicts — no shipped consumer ever implemented pid-eviction);
 the worked kind example is now non-agent, and kind documentation moved
 out to the publishers that own it (ship boundary, §8).
+**v1.2 — 2026-07-19**: §5 gains reaping — the amendment reserved in v1.1's
+liveness wording, signed off with the tabard (OSD) design. A designated
+reaper may unlink evictable entries under a two-observation grace rule.
 Sibling to contract/SPEC.md (the theme contract); this is the *state* contract.
 Prior-art validation done (15-source survey: maildir, git lockfiles, pywal,
 Hyprland/i3bar/waybar/eww/MPRIS/SketchyBar transports, FSEvents/kqueue/libuv
@@ -166,6 +169,20 @@ kinds and filename-safe: file is `tasks.d/<id>.json` with `:` → `-`).
   ignored; pane absent ⇒ pid is the best signal available. Kinds MAY define
   stricter liveness in their own documentation. Pane eviction remains the
   safety net for every pane-anchored kind whose publisher crashes.
+- **Reaping** (v1.2): file removal is normally the publisher's job, but
+  publishers without end hooks leave orphans. A single designated reaper
+  per host MAY unlink a task file that is *evictable* under the rules
+  above — focus.tmux pane present but dead, or no pane identity and a
+  dead extension-block pid — provided the entry has been evictable across
+  two observations at least 60 seconds apart (grace against races; an
+  unlink concurrent with an atomic replace removes only the old inode,
+  and a live publisher's next write recreates the file whole). Entries
+  with neither pane identity nor a pid are exempt — the reaper MUST NOT
+  age things out by time alone. Consumers already hide evictable entries;
+  reaping changes disk state, not rendered state. The designated reaper
+  is whichever resident consumer the operator runs (tabard, when
+  present); running two reapers is harmless in effect (unlink of an
+  absent file is a no-op) but unsupported.
 
 **A worked kind example (build):** a make wrapper publishes
 `tasks.d/build-<name>.json` — working on start, done + outcome on exit,
