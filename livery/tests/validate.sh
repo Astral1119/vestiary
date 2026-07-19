@@ -21,7 +21,8 @@ sh -n \
   "$ROOT/generate-palettes" \
   "$ROOT/generate-themes" \
   "$ROOT/run" \
-  "$ROOT/lvry"
+  "$ROOT/lvry" \
+  "$ROOT/../tabard/tabard"
 python3 -m py_compile "$ROOT/../fresco/fresco"
 plutil -lint "$ROOT/../fresco/HostInfo.plist" >/dev/null
 swiftc \
@@ -36,6 +37,11 @@ swiftc \
   "$ROOT/../fresco/Fresco.swift" \
   -o "$TMP/fresco-worker"
 "$TMP/fresco-worker" --self-test-agent-counts >/dev/null
+swiftc \
+  -warnings-as-errors \
+  -framework AppKit \
+  "$ROOT/../tabard/Tabard.swift" \
+  -o "$TMP/tabard"
 swiftc \
   -parse-as-library \
   -warnings-as-errors \
