@@ -50,6 +50,8 @@ enum Config {
   static let reconcileInterval =
     Double(env("TABARD_RECONCILE_INTERVAL") ?? "") ?? 30
   static let reaperGrace = Double(env("TABARD_REAPER_GRACE") ?? "") ?? 60
+  // done + dead/absent pid ages out after this even in a live pane (v1.6)
+  static let doneReapGrace = Double(env("TABARD_DONE_REAP_GRACE") ?? "") ?? 86400
   static let reaperInterval = Double(env("TABARD_REAPER_INTERVAL") ?? "") ?? 300
   // events log (the host's designated recorder)
   static let heraldLogRoot = env("TABARD_HERALD_LOG_ROOT")
@@ -153,6 +155,7 @@ struct TaskEntry {
   var pane: String?
   var space: Int?
   var pid: Int?
+  var updatedAt: Date?
 
   // Envelope per herald SPEC §6; generic core only per the ship
   // boundary — the kind block is read solely for the advisory pid.
@@ -175,7 +178,9 @@ struct TaskEntry {
       group: payload["group"] as? String,
       pane: tmux?["pane"] as? String,
       space: focus?["space"] as? Int,
-      pid: extensionBlock?["pid"] as? Int)
+      pid: extensionBlock?["pid"] as? Int,
+      updatedAt: (root["updatedAt"] as? String)
+        .flatMap { Recorder.formatter.date(from: $0) })
   }
 }
 
@@ -1106,7 +1111,18 @@ final class Tabard: NSObject, NSApplicationDelegate {
       } else if let pid = entry.pid {
         if !pidAlive(pid) { evictable[item.path] = entry }
       }
-      // neither pane nor pid: exempt — never aged out by time alone
+      // done age-out (SPEC v1.6): a finished record with a dead or absent
+      // pid reaps after a day even in a live pane — fanout workers inherit
+      // the dispatcher's pane, which would shield them forever. A false
+      // reap self-heals: the publisher's next event re-snapshots the file.
+      if evictable[item.path] == nil, entry.state == "done",
+         entry.pid.map({ !pidAlive($0) }) ?? true,
+         let updated = entry.updatedAt,
+         Date().timeIntervalSince(updated) >= Config.doneReapGrace {
+        evictable[item.path] = entry
+      }
+      // waiting/working with neither pane nor pid: exempt — never aged
+      // out by time alone
     }
     let now = Date()
     for (path, entry) in evictable {
