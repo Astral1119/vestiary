@@ -9,6 +9,10 @@ out to the publishers that own it (ship boundary, §8).
 **v1.2 — 2026-07-19**: §5 gains reaping — the amendment reserved in v1.1's
 liveness wording, signed off with the tabard (OSD) design. A designated
 reaper may unlink evictable entries under a two-observation grace rule.
+**v1.3 — 2026-07-19**: §5 tasks core gains optional `group` — a
+publisher-stamped correlation id for tasks dispatched as one batch.
+Signed off with the tabard grouping/anti-fatigue design (TABARD-DESIGN
+§12); additive, consumers that ignore it are unaffected.
 Sibling to contract/SPEC.md (the theme contract); this is the *state* contract.
 Prior-art validation done (15-source survey: maildir, git lockfiles, pywal,
 Hyprland/i3bar/waybar/eww/MPRIS/SketchyBar transports, FSEvents/kqueue/libuv
@@ -124,6 +128,7 @@ per-turn granularity).
     "attention": "permission" | "input" | "sandbox" | "dialog" | "idle_prompt",
     "urgent": true,
     "lastMessage": "3 of 214 tests failing",
+    "group": "lattice-audit-swarm",
     "startedAt": "2026-07-17T21:40:02Z",
     "since": "2026-07-17T21:58:11Z",
     "focus": { "space": 4, "tmux": { "pane": "%12", "window": "@3", "session": "cockpit" } },
@@ -155,6 +160,14 @@ kinds and filename-safe: file is `tasks.d/<id>.json` with `:` → `-`).
   optional; jump-to-task consumers use what's present.
 - `lastMessage` (~120 chars): task line for pickers/quiet-screen with zero
   further derivation.
+- `group` (v1.3, optional): opaque correlation string stamped by the
+  publisher on tasks dispatched as one batch (an agent swarm, a test
+  matrix). Publishers SHOULD pick short human-readable slugs — the value
+  may surface verbatim in UIs. Consumers MAY aggregate same-group entries
+  (digest toasts, collapsed rows) and MUST treat entries without the
+  field as ungrouped; the field never affects liveness, eviction, or
+  reaping. Grouping semantics beyond membership (windows, tiers) are
+  consumer policy, not bus contract.
 - **Liveness/eviction** (amended v1.1 — the v1.0 wording made a dead pid
   alone sufficient, which no shipped consumer implements): pane-liveness is
   the eviction primary — consumers evict entries whose focus.tmux pane is
