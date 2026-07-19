@@ -213,6 +213,15 @@ final class Recorder {
     append("reaped", ["id": entry.id, "kind": entry.kind])
   }
 
+  func dismissed(chip id: String) {
+    // digest chips carry group identity; every other chip carries its id
+    for prefix in ["digest:done:", "digest:waiting:"] where id.hasPrefix(prefix) {
+      append("dismissed", ["group": String(id.dropFirst(prefix.count))])
+      return
+    }
+    append("dismissed", ["id": id])
+  }
+
   private func context(_ entry: TaskEntry) -> [String: Any] {
     var fields: [String: Any] = ["id": entry.id, "kind": entry.kind,
                                  "title": entry.title]
@@ -308,12 +317,14 @@ final class Toast {
   var glyph: String
   var heading: String
   var body: String
+  let dwell: Double
   var remaining: Double
 
   init(id: String, kind: ToastKind, glyph: String, heading: String,
        body: String, dwell: Double) {
     self.id = id; self.kind = kind; self.glyph = glyph
-    self.heading = heading; self.body = body; self.remaining = dwell
+    self.heading = heading; self.body = body; self.dwell = dwell
+    self.remaining = dwell
   }
 
   static func waiting(_ entry: TaskEntry) -> Toast {
@@ -383,7 +394,14 @@ final class GroupDigest {
 // MARK: - chip rendering
 
 final class ChipView: NSView {
-  init(toast: Toast, theme: Theme) {
+  private let toast: Toast
+  private let theme: Theme
+  private let dismiss: (String) -> Void
+
+  init(toast: Toast, theme: Theme, dismiss: @escaping (String) -> Void) {
+    self.toast = toast
+    self.theme = theme
+    self.dismiss = dismiss
     super.init(frame: .zero)
     wantsLayer = true
     layer?.backgroundColor = theme.chipBG.cgColor
@@ -426,6 +444,23 @@ final class ChipView: NSView {
     addSubview(glyph); addSubview(heading); addSubview(body)
   }
 
+  override func draw(_ dirtyRect: NSRect) {
+    super.draw(dirtyRect)
+    NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10).addClip()
+    theme.chipAccent.withAlphaComponent(0.45).setFill()
+    let fraction = max(0, toast.remaining / toast.dwell)
+    NSRect(x: bounds.minX, y: bounds.minY,
+           width: bounds.width * fraction, height: 2).fill()
+  }
+
+  override func mouseDown(with event: NSEvent) {
+    // left-click eaten but unrouted — reserved
+  }
+
+  override func otherMouseDown(with event: NSEvent) {
+    if event.buttonNumber == 2 { dismiss(toast.id) }
+  }
+
   required init?(coder: NSCoder) { fatalError() }
 }
 
@@ -440,6 +475,11 @@ final class OverflowChip: NSView {
     label.frame = NSRect(x: 0, y: 2, width: Config.chipWidth - 6, height: 16)
     addSubview(label)
   }
+
+  override func mouseDown(with event: NSEvent) {}
+  override func rightMouseDown(with event: NSEvent) {}
+  override func otherMouseDown(with event: NSEvent) {}
+
   required init?(coder: NSCoder) { fatalError() }
 }
 
@@ -454,6 +494,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
   var queue: [Toast] = []                 // expiry paused until shown
   var lookBaseline: String?
   var dwellTimer: Timer?
+  var hoverHeld = false
   var groups: [String: GroupDigest] = [:]
   var reapCandidates: [String: Date] = [:]
   var tasksWatch: DispatchSourceFileSystemObject?
@@ -487,7 +528,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
     panel.level = .statusBar               // above windows, below repose
     panel.collectionBehavior = [.canJoinAllSpaces, .stationary,
                                 .fullScreenAuxiliary, .ignoresCycle]
-    panel.ignoresMouseEvents = true
+    panel.ignoresMouseEvents = false
     panel.isOpaque = false
     panel.backgroundColor = .clear
     panel.hasShadow = true
@@ -719,6 +760,12 @@ final class Tabard: NSObject, NSApplicationDelegate {
     if changed { render() }
   }
 
+  func userDismiss(_ id: String) {
+    if env("TABARD_DEBUG") != nil { log("dismissed (middle-click) \(id)") }
+    recorder.dismissed(chip: id)
+    dismissChip(id)
+  }
+
   // a wave's state retires once nothing references it and the rolling
   // window has passed — the next swarm starts its counts fresh
   func sweepGroups() {
@@ -787,6 +834,15 @@ final class Tabard: NSObject, NSApplicationDelegate {
     // countdown runs only while the user is active (GNOME's rule):
     // a toast fired while away waits for the return.
     guard idleSeconds() < Config.idleThreshold else { return }
+    let hovering = panel.isVisible
+      && panel.frame.contains(NSEvent.mouseLocation)
+    if hovering != hoverHeld {
+      hoverHeld = hovering
+      if env("TABARD_DEBUG") != nil {
+        log(hovering ? "dwell hover-paused" : "dwell resumed")
+      }
+    }
+    guard !hovering else { return }
     var changed = false
     for toast in visible { toast.remaining -= 0.5 }
     while let index = visible.firstIndex(where: { $0.remaining <= 0 }) {
@@ -797,7 +853,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
       visible.append(queue.removeFirst())  // expiry was paused while queued
       changed = true
     }
-    if changed { render() }
+    if changed || !visible.isEmpty { render() }
   }
 
   // active display = the pointer's screen; NSScreen.main resolves to the
@@ -827,7 +883,11 @@ final class Tabard: NSObject, NSApplicationDelegate {
       return
     }
 
-    var chips: [NSView] = visible.map { ChipView(toast: $0, theme: theme) }
+    var chips: [NSView] = visible.map { toast in
+      ChipView(toast: toast, theme: theme) { [weak self] id in
+        self?.userDismiss(id)
+      }
+    }
     if !queue.isEmpty {
       chips.append(OverflowChip(count: queue.count, theme: theme))
     }
