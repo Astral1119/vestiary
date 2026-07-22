@@ -2,6 +2,97 @@
 set -eu
 
 REPO_ROOT=$(cd "$(dirname "$0")" && pwd)
+. "$REPO_ROOT/setup/receipt.sh"
+. "$REPO_ROOT/setup/plan.sh"
+USER_CONFIG_ROOT=${VESTIARY_USER_CONFIG_ROOT:-"$HOME/.config"}
+
+WIRE=ask
+VSCODE=ask
+DETECTED_TARGETS=ask
+MODE=install
+SELECTION_PATH=
+LEGACY_CHOICE_FLAGS=no
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --wire) WIRE=yes; LEGACY_CHOICE_FLAGS=yes ;;
+    --no-wire) WIRE=no; LEGACY_CHOICE_FLAGS=yes ;;
+    --with)
+      [ "${2:-}" = vscode ] || {
+        echo "install: --with currently accepts only 'vscode'" >&2
+        exit 2
+      }
+      VSCODE=yes
+      LEGACY_CHOICE_FLAGS=yes
+      shift
+      ;;
+    --without)
+      [ "${2:-}" = vscode ] || {
+        echo "install: --without currently accepts only 'vscode'" >&2
+        exit 2
+      }
+      VSCODE=no
+      LEGACY_CHOICE_FLAGS=yes
+      shift
+      ;;
+    --enable-detected) DETECTED_TARGETS=yes; LEGACY_CHOICE_FLAGS=yes ;;
+    --disable-detected) DETECTED_TARGETS=no; LEGACY_CHOICE_FLAGS=yes ;;
+    --plan)
+      [ "$MODE" = install ] || {
+        echo "install: choose exactly one of --plan or --apply" >&2
+        exit 2
+      }
+      MODE=plan
+      ;;
+    --apply)
+      [ -n "${2:-}" ] || {
+        echo "install: --apply requires a plan or selection file" >&2
+        exit 2
+      }
+      [ "$MODE" = install ] || {
+        echo "install: choose exactly one of --plan or --apply" >&2
+        exit 2
+      }
+      MODE=apply
+      SELECTION_PATH=$2
+      shift
+      ;;
+    --help)
+      cat <<'EOF'
+usage: ./install --plan
+       ./install --apply <plan-or-selection.json>
+       ./install [--wire|--no-wire] [--enable-detected|--disable-detected]
+                 [--with vscode|--without vscode]
+
+Detected loader wiring and the Visual Studio Code integration are offered in
+interactive installs. CSS output is always enabled. The flags make the other
+choices explicit.
+EOF
+      exit 0
+      ;;
+    *)
+      echo "install: unknown option: $1" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+if [ "$MODE" != install ] && [ "$LEGACY_CHOICE_FLAGS" = yes ]; then
+  echo "install: --plan and --apply cannot be combined with interactive choice flags" >&2
+  exit 2
+fi
+
+TARGETS_CONFIG=${LIVERY_TARGETS_CONFIG:-"${LIVERY_CONFIG_ROOT:-$HOME/.config}/vestiary/targets.json"}
+LIVERY_RUNTIME=${LIVERY_RUNTIME_ROOT:-"${LIVERY_CONFIG_ROOT:-$HOME/.config}/livery"}
+FRESH_INSTALL=no
+if [ ! -e "$VESTIARY_RECEIPT_PATH" ] && [ ! -e "$LIVERY_RUNTIME" ]; then
+  FRESH_INSTALL=yes
+fi
+
+if [ "$MODE" = plan ]; then
+  emit_setup_plan "$TARGETS_CONFIG" "$LIVERY_RUNTIME" "$VESTIARY_RECEIPT_PATH"
+  exit
+fi
 
 required_missing=0
 
@@ -51,6 +142,12 @@ if [ "$required_missing" -ne 0 ]; then
   exit 1
 fi
 
+if [ "$MODE" = apply ]; then
+  apply_setup_selection "$SELECTION_PATH" "$TARGETS_CONFIG"
+else
+  receipt_init
+fi
+
 # fonts (contract §2.4.3): the map names every family the shipped surfaces
 # need. Font casks install per-user, so this check is per-account. Missing
 # fonts never fail the install — surfaces fall back per §2.4.1.
@@ -95,7 +192,7 @@ FONTS
 
   # families the user chose in ~/.config/livery/fonts.json that the map
   # doesn't know: report-only, no cask to offer.
-  user_fonts="$HOME/.config/livery/fonts.json"
+  user_fonts="$USER_CONFIG_ROOT/livery/fonts.json"
   if [ -r "$user_fonts" ]; then
     while IFS= read -r family; do
       [ -n "$family" ] || continue
@@ -112,13 +209,14 @@ FONTS
   if [ -n "$missing_casks" ]; then
     if command -v brew >/dev/null 2>&1; then
       want=n
-      if [ -t 0 ]; then
+      if [ "$MODE" != apply ] && [ -t 0 ]; then
         printf '  install the missing casks via brew?%s [y/N] ' "$missing_casks"
         read -r want || want=n
       fi
       case $want in
         y|Y)
-          # shellcheck disable=SC2086 — cask names are unquoted by design
+          # Cask names are unquoted by design.
+          # shellcheck disable=SC2086
           brew install --cask $missing_casks || echo "  brew install had errors; fonts above stay missing"
           ;;
       esac
@@ -150,7 +248,83 @@ for shim in \
   fi
 done
 
-SHIM_DIR="$HOME/.local/bin"
+configure_fresh_targets() {
+  [ "$FRESH_INSTALL" = yes ] || return 0
+  [ ! -e "$TARGETS_CONFIG" ] || return 0
+
+  enabled_tmp=$(mktemp "${TMPDIR:-/tmp}/vestiary-targets-enabled.XXXXXX")
+  disabled_tmp=$(mktemp "${TMPDIR:-/tmp}/vestiary-targets-disabled.XXXXXX")
+
+  echo ""
+  echo "target selection"
+  while IFS="$(printf '\t')" read -r id adapter_path metadata; do
+    [ -n "$id" ] || continue
+    if [ -r "$metadata" ]; then
+      label=$(jq -r '.displayName' "$metadata")
+      command_name=$(jq -r '.detect.command // empty' "$metadata")
+      application=$(jq -r '.detect.application // empty' "$metadata")
+    else
+      label=$id
+      command_name=
+      application=
+    fi
+
+    if [ "$id" = css ]; then
+      printf '%s\n' "$id" >> "$enabled_tmp"
+      echo "  $label: enabled (portable artifact)"
+      continue
+    fi
+
+    detected=no
+    if [ -n "$command_name" ] && command -v "$command_name" >/dev/null 2>&1; then
+      detected=yes
+    elif [ -n "$application" ] \
+      && { [ -d "/Applications/$application" ] || [ -d "$HOME/Applications/$application" ]; }; then
+      detected=yes
+    fi
+
+    want=n
+    if [ "$detected" = yes ]; then
+      if [ "$DETECTED_TARGETS" = yes ]; then
+        want=y
+      elif [ "$DETECTED_TARGETS" = ask ] && [ -t 0 ]; then
+        printf '  %s detected; enable its Vestiary adapter? [y/N] ' "$label"
+        read -r want || want=n
+      fi
+    fi
+    case $want in
+      y|Y)
+        printf '%s\n' "$id" >> "$enabled_tmp"
+        echo "  $label: enabled"
+        ;;
+      *)
+        printf '%s\n' "$id" >> "$disabled_tmp"
+        if [ "$detected" = yes ]; then
+          echo "  $label: disabled"
+        else
+          echo "  $label: disabled (not detected)"
+        fi
+        ;;
+    esac
+  done <<EOF
+$(setup_discovered_adapters)
+EOF
+
+  mkdir -p "$(dirname "$TARGETS_CONFIG")"
+  targets_tmp=$(mktemp "${TMPDIR:-/tmp}/vestiary-targets.XXXXXX")
+  jq -n --rawfile enabled "$enabled_tmp" --rawfile disabled "$disabled_tmp" '
+    {schemaVersion: 1,
+     enabled: ($enabled | split("\n") | map(select(length > 0))),
+     disabled: ($disabled | split("\n") | map(select(length > 0)))}
+  ' > "$targets_tmp"
+  mv "$targets_tmp" "$TARGETS_CONFIG"
+  rm -f "$enabled_tmp" "$disabled_tmp"
+  echo "  selection recorded at $TARGETS_CONFIG"
+}
+
+configure_fresh_targets
+
+SHIM_DIR=${VESTIARY_SHIM_DIR:-"$HOME/.local/bin"}
 mkdir -p "$SHIM_DIR"
 expected_shim=$(mktemp "${TMPDIR:-/tmp}/vestiary-install.XXXXXX")
 trap 'rm -f "$expected_shim"' 0
@@ -170,11 +344,31 @@ for shim in \
   if [ -e "$shim_path" ] || [ -L "$shim_path" ]; then
     if cmp -s "$expected_shim" "$shim_path"; then
       chmod +x "$shim_path"
+      receipt_record "$(jq -n --arg id "$name" --arg path "$shim_path" \
+        --arg digest "$(file_digest "$shim_path")" \
+        '{kind: "shim", id: $id, path: $path, digest: $digest}')"
       echo "  $name: ok"
       continue
     fi
 
     existing_target=$(sed -n 's/^exec "\([^"]*\)" "\$@"$/\1/p' "$shim_path" 2>/dev/null || true)
+    # This matches the literal prefix emitted by the pre-receipt installer.
+    # shellcheck disable=SC2016
+    legacy_home_prefix='$HOME/'
+    case $existing_target in
+      "$legacy_home_prefix"*)
+        legacy_target="$HOME/${existing_target#"$legacy_home_prefix"}"
+        if [ "$legacy_target" = "$REPO_ROOT/$target" ]; then
+          cp "$expected_shim" "$shim_path"
+          chmod +x "$shim_path"
+          receipt_record "$(jq -n --arg id "$name" --arg path "$shim_path" \
+            --arg digest "$(file_digest "$shim_path")" \
+            '{kind: "shim", id: $id, path: $path, digest: $digest}')"
+          echo "  $name: upgraded legacy shim -> $REPO_ROOT/$target"
+          continue
+        fi
+        ;;
+    esac
     if [ -z "$existing_target" ]; then
       existing_target="unrecognized content at $shim_path"
     fi
@@ -185,6 +379,9 @@ for shim in \
 
   cp "$expected_shim" "$shim_path"
   chmod +x "$shim_path"
+  receipt_record "$(jq -n --arg id "$name" --arg path "$shim_path" \
+    --arg digest "$(file_digest "$shim_path")" \
+    '{kind: "shim", id: $id, path: $path, digest: $digest}')"
   echo "  $name: installed -> $REPO_ROOT/$target"
 done
 
@@ -197,35 +394,90 @@ esac
 # contract's verb set is frozen, and editing user configs is installer
 # policy, not adapter mechanism. Wiring only runs when asked (a TTY yes,
 # or --wire); the report alone stays the non-interactive behavior.
-backup_once() {
-  [ -f "$1" ] && [ ! -e "$1.pre-livery" ] && cp "$1" "$1.pre-livery" || true
-}
-
 append_line() {
   target=$1
   line=$2
+  id=$3
+  if [ -f "$target" ] && grep -Fxq "$line" "$target"; then
+    echo "  $id: loader line already present; left user-owned"
+    return
+  fi
   mkdir -p "$(dirname "$target")"
-  backup_once "$target"
   [ -f "$target" ] && [ -n "$(tail -c 1 "$target" 2>/dev/null)" ] && printf '\n' >> "$target"
   printf '%s\n' "$line" >> "$target"
+  receipt_record "$(jq -n --arg id "$id" --arg path "$target" --arg line "$line" \
+    '{kind: "loader-line", id: $id, path: $path, line: $line}')"
+}
+
+install_managed_file() {
+  target=$1
+  id=$2
+  source=$3
+  backup_json=null
+  backup_digest_json=null
+  owned_before=no
+  had_file=no
+
+  if receipt_owns_path managed-file "$target"; then
+    owned_before=yes
+  fi
+  if [ -f "$target" ]; then
+    had_file=yes
+  fi
+
+  if [ "$owned_before" = yes ] && [ "$had_file" = yes ]; then
+    owned_digest=$(jq -r --arg path "$target" '
+      [.resources[] | select(.kind == "managed-file" and .path == $path)][0].digest
+    ' "$VESTIARY_RECEIPT_PATH")
+    if [ "$(file_digest "$target")" != "$owned_digest" ]; then
+      echo "  $id: kept modified file at $target"
+      return 1
+    fi
+  fi
+
+  mkdir -p "$(dirname "$target")"
+  if [ "$had_file" = yes ] && [ "$owned_before" = no ]; then
+    mkdir -p "$VESTIARY_BACKUP_DIR"
+    prior_digest=$(file_digest "$target")
+    backup="$VESTIARY_BACKUP_DIR/$id.$prior_digest"
+    if [ ! -e "$backup" ]; then
+      cp "$target" "$backup"
+    fi
+    backup_json=$(jq -Rn --arg value "$backup" '$value')
+    backup_digest_json=$(jq -Rn --arg value "$prior_digest" '$value')
+  fi
+
+  cp "$source" "$target"
+  if [ "$owned_before" = no ] && [ "$had_file" = yes ]; then
+    receipt_record "$(jq -n --arg id "$id" --arg path "$target" \
+      --arg digest "$(file_digest "$target")" \
+      --argjson backup "$backup_json" --argjson backupDigest "$backup_digest_json" \
+      '{kind: "managed-file", id: $id, path: $path, digest: $digest,
+        backup: $backup, backupDigest: $backupDigest}')"
+  else
+    receipt_record "$(jq -n --arg id "$id" --arg path "$target" \
+      --arg digest "$(file_digest "$target")" \
+      '{kind: "managed-file", id: $id, path: $path, digest: $digest}')"
+  fi
 }
 
 wire_loader() {
   case $1 in
     tmux)
-      append_line "$HOME/.config/tmux/tmux.conf" \
-        'source-file -q ~/.config/livery/current/tmux/livery.conf' ;;
+      append_line "$USER_CONFIG_ROOT/tmux/tmux.conf" \
+        'source-file -q ~/.config/livery/current/tmux/livery.conf' tmux ;;
     ghostty)
-      append_line "$HOME/.config/ghostty/config" \
-        'config-file = ?../livery/current/ghostty/livery.conf' ;;
+      append_line "$USER_CONFIG_ROOT/ghostty/config" \
+        'config-file = ?../livery/current/ghostty/livery.conf' ghostty ;;
     borders)
-      append_line "$HOME/.config/yabai/yabairc" \
-        'source "$HOME/.config/livery/current/borders/borders.args"' ;;
+      # The generated yabairc must expand HOME when yabai reads it.
+      # shellcheck disable=SC2016
+      append_line "$USER_CONFIG_ROOT/yabai/yabairc" \
+        'source "$HOME/.config/livery/current/borders/borders.args"' borders ;;
     sketchybar)
-      shim="$HOME/.config/sketchybar/colors.lua"
-      mkdir -p "$(dirname "$shim")"
-      backup_once "$shim"
-      cat > "$shim" <<'LUA'
+      shim="$USER_CONFIG_ROOT/sketchybar/colors.lua"
+      managed_tmp=$(mktemp "${TMPDIR:-/tmp}/vestiary-loader.XXXXXX")
+      cat > "$managed_tmp" <<'LUA'
 local root = os.getenv("HOME") .. "/.config/livery"
 local current = root .. "/current/sketchybar/colors.lua"
 local fallback = root .. "/default/sketchybar/colors.lua"
@@ -235,14 +487,20 @@ if ok then return colors end
 
 return dofile(fallback)
 LUA
+      if ! install_managed_file "$shim" sketchybar-colors "$managed_tmp"; then
+        rm -f "$managed_tmp"
+        return 1
+      fi
+      rm -f "$managed_tmp"
       ;;
     nvim)
-      plugins="$HOME/.config/nvim/lua/plugins"
+      plugins="$USER_CONFIG_ROOT/nvim/lua/plugins"
       if [ ! -d "$plugins" ]; then
         echo "  nvim: no lazy.nvim plugins dir at $plugins — wire it by hand"
         return 1
       fi
-      cat > "$plugins/livery.lua" <<LUA
+      managed_tmp=$(mktemp "${TMPDIR:-/tmp}/vestiary-loader.XXXXXX")
+      cat > "$managed_tmp" <<LUA
 return {
   {
     dir = "$REPO_ROOT/livery.nvim",
@@ -255,22 +513,22 @@ return {
   },
 }
 LUA
+      if ! install_managed_file "$plugins/livery.lua" nvim-plugin "$managed_tmp"; then
+        rm -f "$managed_tmp"
+        return 1
+      fi
+      rm -f "$managed_tmp"
       ;;
     *) return 1 ;;
   esac
 }
 
-WIRE=ask
-case "${1:-}" in
-  --wire) WIRE=yes ;;
-  --no-wire) WIRE=no ;;
-esac
-
 echo ""
 echo "loader wiring"
-for adapter in "$REPO_ROOT"/adapters/*; do
-  [ -x "$adapter" ] || continue
-  name=$(basename "$adapter")
+enabled_targets=$("$REPO_ROOT/livery/liveryctl" targets | awk '$2 == "enabled" {print $1}')
+while IFS="$(printf '\t')" read -r name adapter metadata; do
+  [ -n "$name" ] || continue
+  printf '%s\n' "$enabled_targets" | grep -Fxq "$name" || continue
   printf '\n%s:\n' "$name"
   # loader failures are guidance, not installer failures.
   if "$adapter" loader-check; then
@@ -280,7 +538,7 @@ for adapter in "$REPO_ROOT"/adapters/*; do
   if [ "$WIRE" = yes ]; then
     want=y
   elif [ "$WIRE" = ask ] && [ -t 0 ]; then
-    printf '  wire it now (existing file kept at *.pre-livery)? [y/N] '
+    printf '  wire it now? [y/N] '
     read -r want || want=n
   fi
   case $want in
@@ -290,7 +548,62 @@ for adapter in "$REPO_ROOT"/adapters/*; do
       fi
       ;;
   esac
-done
+done <<EOF
+$(setup_discovered_adapters)
+EOF
+
+echo ""
+echo "integrations"
+if ! command -v code >/dev/null 2>&1; then
+  echo "  vscode: not detected"
+elif code --list-extensions 2>/dev/null | grep -Fxiq 'vestiary.vestiary-vscode'; then
+  if receipt_owns_extension code vestiary.vestiary-vscode; then
+    echo "  vscode: managed extension already installed"
+  elif [ "$VSCODE" = yes ]; then
+    vscode_version=$(code --list-extensions --show-versions 2>/dev/null \
+      | sed -n 's/^vestiary\.vestiary-vscode@//Ip' | head -1)
+    [ -n "$vscode_version" ] \
+      || vscode_version=$(jq -r '.version' "$REPO_ROOT/integrations/vscode/package.json")
+    receipt_record "$(jq -n --arg id vestiary.vestiary-vscode --arg host code \
+      --arg version "$vscode_version" \
+      '{kind:"editor-extension", id:$id, host:$host, version:$version,
+        installedByVestiary:false, origin:"explicit-adoption"}')"
+    echo "  vscode: existing extension accepted as managed"
+  else
+    echo "  vscode: extension already installed; left user-owned"
+  fi
+else
+  want=n
+  if [ "$VSCODE" = yes ]; then
+    want=y
+  elif [ "$VSCODE" = ask ] && [ -t 0 ]; then
+    printf '  install the Vestiary extension for Visual Studio Code? [y/N] '
+    read -r want || want=n
+  fi
+  case $want in
+    y|Y)
+      if ! command -v npm >/dev/null 2>&1; then
+        echo "  vscode: npm is required to package the development extension" >&2
+      else
+        vscode_version=$(jq -r '.version' "$REPO_ROOT/integrations/vscode/package.json")
+        vscode_vsix="$REPO_ROOT/integrations/vscode/vestiary-vscode-$vscode_version.vsix"
+      fi
+      if command -v npm >/dev/null 2>&1 \
+        && (cd "$REPO_ROOT/integrations/vscode" && npm run package) \
+        && code --install-extension \
+          "$vscode_vsix"; then
+        receipt_record "$(jq -n --arg id vestiary.vestiary-vscode --arg host code \
+          --arg version "$vscode_version" \
+          '{kind: "editor-extension", id: $id, host: $host,
+            version: $version, installedByVestiary: true}')"
+        echo "  vscode: installed and recorded"
+      elif command -v npm >/dev/null 2>&1; then
+        echo "  vscode: extension install failed" >&2
+      fi
+      ;;
+    *) echo "  vscode: available; rerun with --with vscode to install" ;;
+  esac
+fi
 
 # permissions command -v can't see: TCC grants and yabai's own setup.
 cat <<'EOF'

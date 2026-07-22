@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "css",
+  "displayName": "CSS custom properties",
+  "kind": "adapter",
+  "consumes": [
+    "ui",
+    "signals",
+    "terminal",
+    "effects",
+    "variant",
+    "fonts"
+  ],
+  "detect": {}
+}

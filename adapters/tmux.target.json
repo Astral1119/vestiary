@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "tmux",
+  "displayName": "tmux",
+  "kind": "adapter",
+  "consumes": ["ui", "signals"],
+  "detect": {
+    "command": "tmux"
+  }
+}

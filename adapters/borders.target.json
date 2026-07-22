@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "borders",
+  "displayName": "JankyBorders",
+  "kind": "adapter",
+  "consumes": ["ui", "effects"],
+  "detect": {
+    "command": "borders"
+  }
+}

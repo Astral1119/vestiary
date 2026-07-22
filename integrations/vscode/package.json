@@ -1,0 +1,52 @@
+{
+  "name": "vestiary-vscode",
+  "displayName": "Vestiary",
+  "description": "Apply the current Vestiary Look to Visual Studio Code.",
+  "version": "0.1.0",
+  "publisher": "vestiary",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Astral1119/vestiary.git",
+    "directory": "integrations/vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "extensionKind": [
+    "ui"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vestiary.reconnect",
+        "title": "Vestiary: Reconnect"
+      },
+      {
+        "command": "vestiary.detach",
+        "title": "Vestiary: Detach and Restore Colors"
+      }
+    ],
+    "configuration": {
+      "title": "Vestiary",
+      "properties": {
+        "vestiary.runtimeRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Livery runtime directory. Empty uses ~/.config/livery."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "npx @vscode/vsce@3.9.2 package",
+    "test": "node test/extension.test.js"
+  }
+}

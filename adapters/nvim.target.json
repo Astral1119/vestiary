@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "nvim",
+  "displayName": "Neovim",
+  "kind": "adapter",
+  "consumes": ["ui", "signals", "terminal", "variant"],
+  "detect": {
+    "command": "nvim"
+  }
+}

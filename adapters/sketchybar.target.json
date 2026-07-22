@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "sketchybar",
+  "displayName": "SketchyBar",
+  "kind": "adapter",
+  "consumes": ["ui", "signals", "effects", "fonts"],
+  "detect": {
+    "command": "sketchybar"
+  }
+}

@@ -1,0 +1,292 @@
+#!/bin/sh
+set -eu
+
+REPO_ROOT=$(cd "$(dirname "$0")" && pwd)
+. "$REPO_ROOT/setup/receipt.sh"
+. "$REPO_ROOT/setup/uninstall-plan.sh"
+
+KEEP_INTEGRATIONS=no
+PURGE=no
+MODE=apply
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --keep-integrations) KEEP_INTEGRATIONS=yes ;;
+    --purge) PURGE=yes ;;
+    --plan) MODE=plan ;;
+    --help)
+      cat <<'EOF'
+usage: ./uninstall --plan [--keep-integrations] [--purge]
+       ./uninstall [--keep-integrations] [--purge]
+
+The default removes resources recorded by the Vestiary installer. It preserves
+Looks, imported wallpapers, history, target selection, and other runtime data.
+--keep-integrations preserves loader wiring and editor extensions. --purge also
+removes Vestiary runtime and configuration data.
+EOF
+      exit 0
+      ;;
+    *)
+      echo "uninstall: unknown option: $1" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
+
+if [ "$MODE" = plan ]; then
+  emit_uninstall_plan "$KEEP_INTEGRATIONS" "$PURGE" \
+    "$VESTIARY_RECEIPT_PATH" "$VESTIARY_CONFIG_ROOT"
+  exit
+fi
+
+drop_resource() {
+  resource=$1
+  receipt_tmp=$(mktemp "${TMPDIR:-/tmp}/vestiary-receipt.XXXXXX")
+  jq --argjson resource "$resource" '
+    def same($a; $b):
+      $a.kind == $b.kind and
+      (if $b.kind == "loader-line" then
+         $a.path? == $b.path? and $a.line? == $b.line?
+       elif ($b.path? != null) then $a.path? == $b.path
+       else $a.host? == $b.host? and $a.id? == $b.id? end);
+    .resources = [.resources[] | select(same(.; $resource) | not)]
+  ' "$VESTIARY_RECEIPT_PATH" > "$receipt_tmp"
+  mv "$receipt_tmp" "$VESTIARY_RECEIPT_PATH"
+}
+
+remove_loader_line() {
+  target=$1
+  line=$2
+  edit_tmp=$(mktemp "${TMPDIR:-/tmp}/vestiary-loader.XXXXXX")
+  awk -v line="$line" '
+    !removed && $0 == line { removed = 1; next }
+    { print }
+  ' "$target" > "$edit_tmp"
+  dd if="$edit_tmp" of="$target" 2>/dev/null
+  rm -f "$edit_tmp"
+}
+
+remove_recorded_resource() {
+  resource=$1
+  kind=$(printf '%s' "$resource" | jq -r '.kind')
+  id=$(printf '%s' "$resource" | jq -r '.id // .path // "resource"')
+
+  case $kind in
+    shim)
+      path=$(printf '%s' "$resource" | jq -r '.path')
+      expected=$(printf '%s' "$resource" | jq -r '.digest')
+      if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+        echo "  $id: already absent"
+      elif [ -f "$path" ] && [ "$(file_digest "$path")" = "$expected" ]; then
+        rm -f "$path"
+        echo "  $id: removed"
+      else
+        echo "  $id: kept modified file at $path"
+        return
+      fi
+      ;;
+    loader-line)
+      [ "$KEEP_INTEGRATIONS" = no ] || return 0
+      path=$(printf '%s' "$resource" | jq -r '.path')
+      line=$(printf '%s' "$resource" | jq -r '.line')
+      if [ -f "$path" ] && grep -Fxq "$line" "$path"; then
+        remove_loader_line "$path" "$line"
+        echo "  $id: removed loader line"
+      else
+        echo "  $id: loader line already absent"
+      fi
+      ;;
+    managed-file)
+      [ "$KEEP_INTEGRATIONS" = no ] || return 0
+      path=$(printf '%s' "$resource" | jq -r '.path')
+      expected=$(printf '%s' "$resource" | jq -r '.digest')
+      backup=$(printf '%s' "$resource" | jq -r '.backup // empty')
+      backup_digest=$(printf '%s' "$resource" | jq -r '.backupDigest // empty')
+      if [ ! -e "$path" ]; then
+        echo "  $id: already absent"
+      elif [ ! -f "$path" ] || [ "$(file_digest "$path")" != "$expected" ]; then
+        echo "  $id: kept modified file at $path"
+        return
+      elif [ -n "$backup" ]; then
+        if [ ! -f "$backup" ] || [ "$(file_digest "$backup")" != "$backup_digest" ]; then
+          echo "  $id: kept file because its original backup is unavailable"
+          return
+        fi
+        cp "$backup" "$path"
+        rm -f "$backup"
+        echo "  $id: restored original file"
+      else
+        rm -f "$path"
+        echo "  $id: removed"
+      fi
+      ;;
+    editor-extension)
+      [ "$KEEP_INTEGRATIONS" = no ] || return 0
+      host=$(printf '%s' "$resource" | jq -r '.host')
+      extension=$(printf '%s' "$resource" | jq -r '.id')
+      if [ "$extension" = vestiary.vestiary-vscode ]; then
+        vscode_state=${VESTIARY_VSCODE_STATE:-"$VESTIARY_CONFIG_ROOT/integrations/vscode.json"}
+        if [ ! -r "$vscode_state" ] \
+          || ! jq -e '.schemaVersion == 1
+            and (.attached | type == "boolean")
+            and (.ownsColors | type == "boolean")
+            and ((.attached == false) or (.ownsColors == false))' \
+            "$vscode_state" >/dev/null 2>&1; then
+          echo "  $extension: kept because color detachment is not confirmed"
+          echo "    run 'Vestiary: Detach and Restore Colors' in VS Code, then uninstall again"
+          return
+        fi
+      fi
+      if ! command -v "$host" >/dev/null 2>&1; then
+        echo "  $extension: kept because the $host command is unavailable"
+        return
+      fi
+      if "$host" --list-extensions 2>/dev/null | grep -Fxiq "$extension"; then
+        "$host" --uninstall-extension "$extension" || return
+        echo "  $extension: removed from $host"
+      else
+        echo "  $extension: already absent from $host"
+      fi
+      ;;
+    *)
+      echo "  $id: kept unknown receipt resource kind '$kind'"
+      return
+      ;;
+  esac
+
+  drop_resource "$resource"
+}
+
+echo "installed resources"
+RECEIPT_VALID=no
+if [ -f "$VESTIARY_RECEIPT_PATH" ] \
+  && jq -e '.schemaVersion == 1 and (.resources | type == "array")' \
+    "$VESTIARY_RECEIPT_PATH" >/dev/null 2>&1; then
+  RECEIPT_VALID=yes
+  resource_snapshot=$(mktemp "${TMPDIR:-/tmp}/vestiary-resources.XXXXXX")
+  trap 'rm -f "$resource_snapshot"' 0
+  jq -c '.resources[]' "$VESTIARY_RECEIPT_PATH" > "$resource_snapshot"
+  while IFS= read -r resource; do
+    remove_recorded_resource "$resource"
+  done < "$resource_snapshot"
+else
+  echo "  no valid install receipt at $VESTIARY_RECEIPT_PATH"
+fi
+
+echo ""
+echo "fresco"
+if [ "${VESTIARY_SKIP_FRESCO:-no}" = yes ]; then
+  echo "  skipped by environment"
+elif [ -x "$REPO_ROOT/fresco/fresco" ]; then
+  "$REPO_ROOT/fresco/fresco" stop >/dev/null 2>&1 || true
+  "$REPO_ROOT/fresco/fresco" uninstall-agent >/dev/null 2>&1 || true
+fi
+
+FRESCO_APP=${VESTIARY_FRESCO_APP:-"$HOME/Applications/Fresco.app"}
+if [ -d "$FRESCO_APP" ]; then
+  bundle_id=$(plutil -extract CFBundleIdentifier raw -o - \
+    "$FRESCO_APP/Contents/Info.plist" 2>/dev/null || true)
+  if [ "$bundle_id" = local.vestiary.fresco ] \
+    && codesign --verify --strict "$FRESCO_APP" >/dev/null 2>&1; then
+    rm -rf "$FRESCO_APP"
+    echo "  removed $FRESCO_APP"
+  else
+    echo "  kept unrecognized application at $FRESCO_APP"
+  fi
+else
+  echo "  application already absent"
+fi
+
+if [ "$RECEIPT_VALID" = yes ] && [ -f "$VESTIARY_RECEIPT_PATH" ] \
+  && [ "$(jq '.resources | length' "$VESTIARY_RECEIPT_PATH")" -eq 0 ]; then
+  rm -f "$VESTIARY_RECEIPT_PATH"
+fi
+
+safe_purge_dir() {
+  target=$1
+  label=$2
+  while [ "${target%/}" != "$target" ]; do
+    target=${target%/}
+  done
+  case $target in
+    ''|/*/../*|*/..|/*/./*|*/.|'.'|'..'|"$HOME"|"$HOME/.config"|"$REPO_ROOT")
+      echo "uninstall: refused unsafe purge target for $label: $target" >&2
+      return 1
+      ;;
+    /*) ;;
+    *)
+      echo "uninstall: refused non-absolute purge target for $label: $target" >&2
+      return 1
+      ;;
+  esac
+
+  target_parent=$(dirname "$target")
+  [ -d "$target_parent" ] || return 0
+  canonical_target=$(cd "$target_parent" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$target")")
+  purge_tmp_root=${TMPDIR:-/tmp}
+  while [ "${purge_tmp_root%/}" != "$purge_tmp_root" ]; do
+    purge_tmp_root=${purge_tmp_root%/}
+  done
+  if [ -d "$purge_tmp_root" ]; then
+    purge_tmp_root=$(cd "$purge_tmp_root" && pwd -P)
+  fi
+  case $purge_tmp_root in
+    ''|'/'|"$HOME"|"$REPO_ROOT") purge_tmp_root=/__vestiary_no_temp_root__ ;;
+  esac
+  case "$HOME/" in
+    "$purge_tmp_root/"*) purge_tmp_root=/__vestiary_no_temp_root__ ;;
+  esac
+  case "$REPO_ROOT/" in
+    "$purge_tmp_root/"*) purge_tmp_root=/__vestiary_no_temp_root__ ;;
+  esac
+  case $canonical_target in
+    "$HOME/.config/"*|"$purge_tmp_root/"*) ;;
+    *)
+      echo "uninstall: refused purge target outside managed configuration roots for $label: $canonical_target" >&2
+      return 1
+      ;;
+  esac
+  case "$HOME/" in
+    "$canonical_target/"*)
+      echo "uninstall: refused purge target containing the home directory: $canonical_target" >&2
+      return 1
+      ;;
+  esac
+  case "$REPO_ROOT/" in
+    "$canonical_target/"*)
+      echo "uninstall: refused purge target containing the repository: $canonical_target" >&2
+      return 1
+      ;;
+  esac
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    rm -rf "$target"
+    echo "  removed $label: $target"
+  fi
+}
+
+if [ "$PURGE" = yes ]; then
+  echo ""
+  echo "runtime data"
+  safe_purge_dir "${LIVERY_RUNTIME_ROOT:-${LIVERY_CONFIG_ROOT:-$HOME/.config}/livery}" "Livery data"
+  safe_purge_dir "${FRESCO_STATE_DIR:-$HOME/.config/fresco}" "Fresco data"
+  safe_purge_dir "${FRESCO_COMPAT_DIR:-$HOME/.config/wallpaper-runtime}" "Fresco compatibility path"
+  if [ -e "$VESTIARY_RECEIPT_PATH" ] && [ "$RECEIPT_VALID" != yes ]; then
+    echo "  kept Vestiary configuration because the install receipt is invalid"
+  elif [ -f "$VESTIARY_RECEIPT_PATH" ] \
+    && [ "$(jq '.resources | length' "$VESTIARY_RECEIPT_PATH")" -gt 0 ]; then
+    echo "  kept Vestiary configuration because the receipt has unresolved resources"
+  else
+    safe_purge_dir "$VESTIARY_CONFIG_ROOT" "Vestiary configuration"
+  fi
+else
+  cat <<EOF
+
+runtime data preserved
+  $HOME/.config/livery
+  $HOME/.config/fresco
+  $VESTIARY_CONFIG_ROOT
+
+Run ./uninstall --purge to remove Looks, imported wallpapers, history, and
+target selection too.
+EOF
+fi
