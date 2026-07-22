@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "workload": "static-no-media",
+  "assignment": "harness-static-no-media",
+  "logicalWidth": 320,
+  "logicalHeight": 180,
+  "fpsCeiling": 60,
+  "policyRevision": 1,
+  "reasonTokens": [
+    "harness:static-no-media"
+  ],
+  "settleMilliseconds": 100,
+  "quiescenceMilliseconds": 300,
+  "propertyInvalidation": {
+    "fixture": {
+      "value": true
+    }
+  }
+}

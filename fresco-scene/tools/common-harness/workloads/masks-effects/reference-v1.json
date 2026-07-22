@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "workload": "masks-effects",
+  "semantics": [
+    "exact-noncommutative-pass-order",
+    "exact-backend-pixel-output",
+    "translucent-final-composition",
+    "bounded-pass-evidence",
+    "physical-intermediate-lifecycle",
+    "reload-isolation",
+    "global-stop-live-zero",
+    "conservative-full-frame-damage",
+    "unknown-effect-fail-live",
+    "deterministic-puppet-generation",
+    "bounded-mdlv0023-structure",
+    "stencil-mask-execution",
+    "masked-unmasked-pixel-oracle"
+  ],
+  "backendNeutral": false,
+  "limitations": [
+    "the trace explicitly binds ANGLE/Metal to the byte-identical native OpenGL pixel oracle observed for these deterministic fixtures",
+    "effect damage is conservatively expanded to the full frame",
+    "effects and puppets remain fail-live and continuously scheduled",
+    "the puppet fixture intentionally omits animation, simulation, attachments, morphs, constraints, and extended bind metadata"
+  ]
+}

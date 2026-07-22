@@ -1,0 +1,31 @@
+{
+  "camera": {
+    "center": "0 0 -1",
+    "eye": "0 0 0",
+    "up": "0 1 0"
+  },
+  "general": {
+    "ambientcolor": "0.3 0.3 0.3",
+    "clearcolor": "0.1 0.2 0.3",
+    "clearenabled": true,
+    "farz": 10000.0,
+    "nearz": 0.01,
+    "orthogonalprojection": {
+      "height": 180,
+      "width": 320
+    }
+  },
+  "objects": [
+    {
+      "angles": "0 0 0",
+      "castshadow": false,
+      "clampuvs": true,
+      "id": 84,
+      "image": "models/video.json",
+      "name": "Generated video",
+      "origin": "160 90 0",
+      "size": "320 180"
+    }
+  ],
+  "version": 4
+}

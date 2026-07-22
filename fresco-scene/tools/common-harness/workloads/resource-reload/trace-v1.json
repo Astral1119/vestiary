@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "workload": "resource-reload",
+  "assignment": "harness-resource-reload",
+  "logicalWidth": 320,
+  "logicalHeight": 180,
+  "fpsCeiling": 5,
+  "policyRevision": 1,
+  "reasonTokens": ["harness:resource-reload"],
+  "pixelProbes": [{"identity": "center", "xMilli": 500, "yMilli": 500}],
+  "pixelRegions": [{"identity": "center-region", "leftMilli": 450, "bottomMilli": 450, "rightMilli": 550, "topMilli": 550}],
+  "equivalentOutputBackends": {"angle-metal": "native-opengl"},
+  "expectedFailureEvidence": {
+    "native-opengl": {"shaderCompileFailures": 0, "programRollbacks": 1},
+    "angle-metal": {"shaderCompileFailures": 1, "programRollbacks": 0}
+  },
+  "expectedOutputs": {
+    "native-opengl": {
+      "a": {"pixelRGBAHash": 6423138637018365467, "varyingPixels": 4356, "pixelProbes": [{"identity": "center", "normalized": [500, 500], "pixel": [320, 180], "rgba": [108, 177, 123, 0]}], "pixelRegions": [{"identity": "center-region", "normalized": [450, 450, 550, 550], "pixels": [288, 162, 352, 198], "pixelCount": 2304, "varyingPixels": 2232, "pixelRGBTotal": 933840, "pixelRGBAHash": 13348467752093860867}]},
+      "b": {"pixelRGBAHash": 5639477290515245851, "varyingPixels": 4356, "pixelProbes": [{"identity": "center", "normalized": [500, 500], "pixel": [320, 180], "rgba": [184, 110, 170, 0]}], "pixelRegions": [{"identity": "center-region", "normalized": [450, 450, 550, 550], "pixels": [288, 162, 352, 198], "pixelCount": 2304, "varyingPixels": 2232, "pixelRGBTotal": 1061784, "pixelRGBAHash": 4342270343249504899}]},
+      "partial": {"pixelRGBAHash": 7047110694911951747, "varyingPixels": 0, "pixelProbes": [{"identity": "center", "normalized": [500, 500], "pixel": [320, 180], "rgba": [10, 20, 31, 255]}], "pixelRegions": [{"identity": "center-region", "normalized": [450, 450, 550, 550], "pixels": [288, 162, 352, 198], "pixelCount": 2304, "varyingPixels": 0, "pixelRGBTotal": 140544, "pixelRGBAHash": 18096549202534175619}]}
+    }
+  }
+}

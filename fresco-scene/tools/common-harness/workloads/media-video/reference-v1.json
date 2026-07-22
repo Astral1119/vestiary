@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "workload": "media-video",
+  "semantics": [
+    "decoded-frame-readiness",
+    "presentation-time-scheduling",
+    "seek-semantic-content",
+    "terminal-stall-quiescence",
+    "reload-isolation",
+    "exact-player-teardown",
+    "derived-container-provenance"
+  ],
+  "backendNeutral": true,
+  "limitations": [
+    "generated AVAssetWriter container bytes are not reproducible",
+    "decoded semantic hashes bind content without claiming stable container bytes",
+    "correctness evidence does not claim pixel-reference equivalence"
+  ]
+}

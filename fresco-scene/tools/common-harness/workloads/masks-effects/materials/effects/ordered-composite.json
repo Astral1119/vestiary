@@ -1,0 +1,1 @@
+{"passes":[{"blending":"translucent","combos":{},"cullmode":"nocull","depthtest":"disabled","depthwrite":"disabled","shader":"effects/fresco_ordered_composite","textures":["util/white","util/white"]}]}

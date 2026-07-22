@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "identity": "resource-lifecycle-control-calibration-verification-addendum-v3",
+  "purpose": "post-campaign-control-only-verification",
+  "campaign": {
+    "identity": "resource-lifecycle-control-calibration-v3-attempt-2",
+    "sha256": "b01890aaed4d92eeaca9d8effaa005368bd5bbaef0ebfccebfb63e94e14ca471",
+    "bytes": 6153169
+  },
+  "ledgerPrefix": {
+    "sha256": "3af1c8da158cff305343ba6cba7e83b9859dc00fd75ce7088b3d6d468f1e1f05",
+    "bytes": 1760
+  },
+  "verification": {
+    "validatorSha256": "99fb7195019db1e2573fc9b6f474c8d49d1fec63ea6234fc1d5782ff6c0a374c",
+    "validatorBytes": 15015,
+    "testsSha256": "b790297a6a1578cba4eb38a27f11428763ffa1822b075258751feafa6e4dfc2f",
+    "testsBytes": 4216
+  },
+  "archive": {
+    "path": "/Users/astral/personal/vestiary/.fresco-evidence/lifecycle-v3-calibration-attempt2/evidence.tar.gz",
+    "sha256": "8c55dbf13fb177f995941779a025dc266e075cd9c4367156e62ea7208c7b3549",
+    "bytes": 6521240,
+    "entryCount": 168
+  },
+  "verdict": {
+    "accepted": true,
+    "slotCount": 40,
+    "receiptCount": 40,
+    "invalidRuns": [],
+    "unknownGroups": 0,
+    "forbiddenAttributionGroups": 0,
+    "subjectDataPresent": false
+  },
+  "derivedTable": {
+    "populationCount": 40,
+    "maximumTotalRootGroupCount": 2,
+    "maximumTotalRootInstances": 3,
+    "perSignatureMaxima": {
+      "AppIntents": {"groupCount": 0, "instanceCount": 0},
+      "LinkServices": {"groupCount": 0, "instanceCount": 0},
+      "NSXPCConnection": {"groupCount": 2, "instanceCount": 3}
+    },
+    "maximumRawLeakObjects": 288,
+    "maximumRawLeakBytes": 18816
+  }
+}

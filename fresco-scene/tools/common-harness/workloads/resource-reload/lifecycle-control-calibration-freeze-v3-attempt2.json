@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "identity": "resource-lifecycle-control-calibration-freeze-v3-attempt-2",
+  "campaignIdentity": "resource-lifecycle-control-calibration-v3-attempt-2",
+  "attempt": 2,
+  "orderSeed": 2026072202,
+  "scheduledSlots": 40,
+  "noRetryResumeReplacement": true,
+  "runner": {"sha256": "2f73c7d5959932660d243337ae80bae0343cd4bdcea98a0db8cf832c07d13b83", "bytes": 14798},
+  "plan": {"sha256": "e2fc3b80ddc7b79f44ac3b9d674efb7e80457f761385892f26c3b4b180c447e0", "bytes": 2145},
+  "schema": {"sha256": "9bcf483e29db50923f75ac97fdc2a85ae56753b35580c4b3ac1be0660cb71d56", "bytes": 986},
+  "derivationPolicy": "derive maxima only after 40 valid slot CAS readback receipts and attribution gates"
+}

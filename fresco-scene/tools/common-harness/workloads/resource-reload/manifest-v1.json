@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "workload": {"identity": "resource-reload", "version": 1, "classification": "primary"},
+  "criteriaVersion": "resource-reload-semantics-v1",
+  "assets": [
+    {"identity": "project-json", "sha256": "aad360896c583f4a57833f4010136dd960ecec576b1bdbf222d7baf91e7f344d", "bytes": 207},
+    {"identity": "scene-json", "sha256": "f39fc6258ded303e0b31c1fa6290bea4ce2e334386a07a4c69553caf0debfc2a", "bytes": 542},
+    {"identity": "effect-model-json", "sha256": "9eaba22dfd040def1516aef299057a917c857c6df3d7b44bcb651308357131e5", "bytes": 78},
+    {"identity": "effect-base-material-json", "sha256": "226855de887f5b758e84b310bf8475376c36a5724bb50507d48072306dd92a6f", "bytes": 170},
+    {"identity": "effect-graph-json", "sha256": "d1d447feb4bfbdcab04db9b87ad12128ab4ef028d576fda61739a5ebd6fb9be1", "bytes": 990},
+    {"identity": "effect-pass-a-material-json", "sha256": "4cd58b97692fee0d520fd480ee46a715f1168b45f1795bbb023e25ac53986b33", "bytes": 176},
+    {"identity": "effect-pass-b-material-json", "sha256": "8ee34e64f771dcf9c2a2901a71edf37e828c4760744cbee01d14a317553b7313", "bytes": 176},
+    {"identity": "effect-composite-material-json", "sha256": "ca2de6a622841c1a1e5364666fafe49daf3a19c1f6980104a82e377d9fd76c46", "bytes": 202},
+    {"identity": "effect-pass-a-vertex-shader", "sha256": "265914d97393924ef6d1cc66046c09eea2ad2825628b4fe717ec45ecd32f1e7b", "bytes": 232},
+    {"identity": "effect-pass-b-vertex-shader", "sha256": "265914d97393924ef6d1cc66046c09eea2ad2825628b4fe717ec45ecd32f1e7b", "bytes": 232},
+    {"identity": "effect-composite-vertex-shader", "sha256": "265914d97393924ef6d1cc66046c09eea2ad2825628b4fe717ec45ecd32f1e7b", "bytes": 232},
+    {"identity": "effect-pass-a-fragment-shader", "sha256": "7f014a035835a6f18f721ea13094a360009c12581985a7c5068e79692b8294a2", "bytes": 84},
+    {"identity": "effect-pass-b-fragment-shader", "sha256": "609cf9519149a6e8db7d9f579d3f80ba62d85df0d0126a7e3ed3e2ae64cb45d4", "bytes": 201},
+    {"identity": "effect-composite-fragment-shader", "sha256": "fce078a8783ce42c4cf086cabdb21918fc3803a829d0d85cc5de9ad0d2686c44", "bytes": 304},
+    {"identity": "invalid-fragment-shader", "sha256": "aa276c8647eb93479966481f3bd0aa41dfbde4643e0355a22bca5dd440e62946", "bytes": 83}
+  ],
+  "inputs": [{"identity": "trace-v1", "sha256": "c999faac169fe5616137640763e17217ac4f8accf407021519a1e8ed94cae5a5", "bytes": 1977}],
+  "reference": {"identity": "semantic-reference-v1", "sha256": "09850c1497f67ea5d5d8038b9a69efc759b901431951b139f4ae42ee5faae4ec", "bytes": 1084},
+  "seed": 0,
+  "checkpoints": [
+    {"identity": "partial-shader-failure", "atNanoseconds": 0, "invariants": ["real-invalid-shader-partial-compatibility", "failed-shader-rollback", "completion-before-retirement"]},
+    {"identity": "same-source-reload", "atNanoseconds": 200000000, "invariants": ["monotonic-generation-isolation", "same-source-recompile-after-reload"]},
+    {"identity": "changed-source-reload", "atNanoseconds": 400000000, "invariants": ["changed-source-pixel-oracle"]},
+    {"identity": "stop", "atNanoseconds": 600000000, "invariants": ["global-stop-live-zero"]}
+  ],
+  "invariants": [
+    {"identity": "failed-shader-rollback", "description": "Shader compile and post-create program failures delete owned GL handles without publishing a cache entry."},
+    {"identity": "real-invalid-shader-partial-compatibility", "description": "A manifest-bound syntactically invalid shader remains an accepted partial candidate while its failed shader or program is absent from the generation-local cache."},
+    {"identity": "monotonic-generation-isolation", "description": "Every assignment receives a strictly increasing generation independent of RenderContext address reuse."},
+    {"identity": "same-source-recompile-after-reload", "description": "Reloading identical sources creates four programs in the new generation instead of reusing stale programs."},
+    {"identity": "changed-source-pixel-oracle", "description": "A changed fragment resource produces its distinct exact backend-bound output and four generation-local cache entries."},
+    {"identity": "completion-before-retirement", "description": "Every retired generation records exactly one successful synchronous completion barrier before release."},
+    {"identity": "global-stop-live-zero", "description": "Stop leaves zero live generations with created and retired totals equal and no failed completion barrier."}
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 2,
+  "identity": "sdl3-presentation-scheduling-evidence-addendum-v2",
+  "purpose": "archive-native-correctness-verification",
+  "archive": {
+    "path": "/Users/astral/personal/vestiary/.fresco-evidence/sdl3-presentation-scheduling-v2/evidence.tar.gz",
+    "sha256": "32ab97dc379f9fc4182774839f6dfcaa09b70f8a04f25244895edeba0bdca8c6",
+    "bytes": 1150069
+  },
+  "record": {
+    "sha256": "a095f81fa46ec551d873645617f1ee3c3c36c7fdcc758a2c115c375eba8c3744",
+    "bytes": 44398
+  },
+  "sourceManifest": {
+    "sha256": "f18f8ee3fe71a0e8fb129f63d1bbd9d622d7e0e1d66bd7fe18b5886399c4e9ec",
+    "bytes": 3539
+  },
+  "lineage": {
+    "foundation": {
+      "relationship": "foundation",
+      "path": "/Users/astral/personal/vestiary/.fresco-evidence/sdl3-gpu-static-render-foundation-v2/evidence.tar.gz",
+      "sha256": "96cdc7de24e86949524519f4ab210fd4b08ca41110799472a421cdd1b5357707",
+      "bytes": 1132663
+    },
+    "presentationPredecessor": {
+      "relationship": "supersedes",
+      "path": "/Users/astral/personal/vestiary/.fresco-evidence/sdl3-presentation-scheduling-v1/evidence.tar.gz",
+      "sha256": "e7e0c57a3370f1750dc9f4d6c0021049ddf2ee35569d0e376685ce4dd748f967",
+      "bytes": 1135454
+    }
+  },
+  "verdict": {
+    "accepted": true,
+    "archiveOnly": true,
+    "stagingRequired": false,
+    "oracles": 7,
+    "staticDecisions": 3,
+    "continuousDecisions": 78,
+    "performance": "not-measured"
+  }
+}

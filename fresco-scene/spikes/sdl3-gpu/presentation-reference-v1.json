@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "identity": "sdl3-gpu-metal-presentation-scheduling-v1",
+  "workloadBindings": [
+    {
+      "identity": "static-no-media",
+      "criteriaVersion": "static-baseline-v1",
+      "manifest": {"sha256": "91354e76da8e3b9197d85eaaeee9db3d72775dd6f2029987027a84482c37fcb9", "bytes": 2027},
+      "trace": {"sha256": "fb10a452974113940c592e0f7fb3a9f366d5eb06cc7bba040abdd46a3a8765cd", "bytes": 384},
+      "reference": {"sha256": "0c89a4373c1d6c7f5757a1a338d9531decbd2fca105b60481448731cc47497d9", "bytes": 308}
+    },
+    {
+      "identity": "continuous-animation",
+      "criteriaVersion": "continuous-cadence-v1",
+      "manifest": {"sha256": "3bb8ebc8c32dd9ebb31be9f640f57c5eb6b75a861b75409387c26309d3db76f3", "bytes": 2546},
+      "trace": {"sha256": "cd8647ee10605e1979f393693d312e717bd8b2fe529b8c72999866a072cd29cd", "bytes": 639},
+      "reference": {"sha256": "b74b2efe649196053b9ea2304e8ffe14d2d85553b78d4e7e5271fced1805e59e", "bytes": 452}
+    }
+  ],
+  "window": {
+    "driver": "metal",
+    "createdHidden": true,
+    "resizable": true,
+    "highPixelDensity": true,
+    "initialLogicalWidth": 320,
+    "initialLogicalHeight": 180,
+    "initialPixelWidth": 640,
+    "initialPixelHeight": 360,
+    "support": {"sdr": true, "vsync": true, "immediate": true, "mailbox": false},
+    "selectedComposition": "sdr",
+    "selectedPresentMode": "vsync",
+    "swapchainFormat": "bgra8unorm"
+  },
+  "outputs": [
+    {"identity": "static-constructor", "width": 640, "height": 360, "bytes": 921600, "sha256": "d4b467f79e5222921f54f091fa43bd2663cd79e18a162c9abda2a4811a5d8882", "bgra8": "4d331aff"},
+    {"identity": "static-property", "width": 640, "height": 360, "bytes": 921600, "sha256": "854d25d87d1ed7ef828cfa7983597a9f801d21e709a9259a5dcb2bd586c1e36b", "bgra8": "1a334dff"},
+    {"identity": "static-resize", "width": 960, "height": 540, "bytes": 2073600, "sha256": "68c139d2c9c05202b1e43c9c55b8489d564dc81b227b06c9867352902a40f572", "bgra8": "1a334dff"},
+    {"identity": "continuous-fps-15", "width": 640, "height": 360, "bytes": 921600, "sha256": "d4b467f79e5222921f54f091fa43bd2663cd79e18a162c9abda2a4811a5d8882", "bgra8": "4d331aff"},
+    {"identity": "continuous-fps-30", "width": 640, "height": 360, "bytes": 921600, "sha256": "d4b467f79e5222921f54f091fa43bd2663cd79e18a162c9abda2a4811a5d8882", "bgra8": "4d331aff"},
+    {"identity": "continuous-fps-60", "width": 640, "height": 360, "bytes": 921600, "sha256": "d4b467f79e5222921f54f091fa43bd2663cd79e18a162c9abda2a4811a5d8882", "bgra8": "4d331aff"},
+    {"identity": "continuous-resume", "width": 640, "height": 360, "bytes": 921600, "sha256": "d4b467f79e5222921f54f091fa43bd2663cd79e18a162c9abda2a4811a5d8882", "bgra8": "4d331aff"}
+  ]
+}

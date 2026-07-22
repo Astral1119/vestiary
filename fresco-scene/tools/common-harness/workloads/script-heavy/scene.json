@@ -1,0 +1,42 @@
+{
+  "camera": {
+    "center": "0 0 0",
+    "eye": "0 0 1",
+    "up": "0 1 0"
+  },
+  "general": {
+    "ambientcolor": "0.3 0.3 0.3",
+    "clearcolor": "0.1 0.2 0.3",
+    "clearenabled": true,
+    "farz": 10000.0,
+    "nearz": 0.01,
+    "orthogonalprojection": {
+      "height": 180,
+      "width": 320
+    }
+  },
+  "objects": [
+    {
+      "alpha": {
+        "script": "export function update(value) { return engine.userProperties.character ? 1.0 : 0.5; }",
+        "value": 0.5
+      },
+      "color": {
+        "script": "export function update(value) { fetch('https://invalid.example'); return value; }",
+        "value": "1 1 1"
+      },
+      "font": "Arial",
+      "id": 1,
+      "name": "Script fixture",
+      "origin": "160 90 0",
+      "pointsize": 32,
+      "size": "240 80",
+      "text": "Fresco",
+      "visible": {
+        "script": "let toggled = false; export function cursorDown(event) { toggled = !toggled; } export function update(value) { return toggled; }",
+        "value": false
+      }
+    }
+  ],
+  "version": 4
+}

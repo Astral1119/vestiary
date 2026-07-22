@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "workload": "minimal-3d",
+  "profile": "sdl3-depth-frozen",
+  "seed": 0,
+  "depthFormatResolution": {
+    "status": "resolved",
+    "acceptableFormats": ["depth32float", "depth24unorm-stencil8"],
+    "requiredBefore": "pixel-reference-freeze",
+    "selectionRule": "one format supported by every advancing candidate",
+    "selectedFormat": "depth32float",
+    "evidence": {
+      "candidate": "sdl3-gpu-metal",
+      "sdlVersion": "3.4.10",
+      "driver": "metal",
+      "query": "SDL_GPUTextureSupportsFormat",
+      "usage": "depth-stencil-target",
+      "support": {
+        "depth32float": true,
+        "depth24unorm-stencil8": false,
+        "depth16unorm": true
+      }
+    }
+  },
+  "drawContract": {
+    "clipDepthRange": [0, 1],
+    "ndcYDirection": "up",
+    "framebufferOrigin": "top-left",
+    "frontFaceCoordinateSpace": "framebuffer-after-viewport",
+    "frontFace": "counter-clockwise",
+    "topology": "triangle-list",
+    "depth": {"clear": 1, "compare": "less", "writeEnabled": true},
+    "colorAttachment": {"format": "bgra8unorm-srgb", "load": "clear", "store": "store"},
+    "depthAttachment": {"format": "depth32float", "load": "clear", "store": "discard"},
+    "vertexLayout": "fixture-v1",
+    "indexFormat": "uint16",
+    "textureBinding": {"stage": "fragment", "textureSlot": 0, "samplerSlot": 0},
+    "logicalConstantBinding": {"stage": "vertex", "slot": 0, "byteLength": 64}
+  },
+  "checkpoints": [
+    {
+      "identity": "cull-none-landscape-t0",
+      "atNanoseconds": 0,
+      "extent": {"pixelWidth": 640, "pixelHeight": 360},
+      "transform": "landscape-t0",
+      "rasterCullMode": "none",
+      "geometryState": "landscape-t0-shared-indexed-geometry",
+      "issuedDrawEvidence": {"indexed": true, "drawCount": 1, "indexCount": 57, "indexSha256": "4a66849037abd4dcae0239506c3ebb395fb940c9ff887f7af209c9c697da6e3d"},
+      "assertions": ["nonsequential-shared-indices", "cull-none-diagnostic", "texture-orientation"]
+    },
+    {
+      "identity": "cull-back-landscape-t0",
+      "atNanoseconds": 1,
+      "extent": {"pixelWidth": 640, "pixelHeight": 360},
+      "transform": "landscape-t0",
+      "rasterCullMode": "back",
+      "geometryState": "landscape-t0-shared-indexed-geometry",
+      "issuedDrawEvidence": {"indexed": true, "drawCount": 1, "indexCount": 57, "indexSha256": "4a66849037abd4dcae0239506c3ebb395fb940c9ff887f7af209c9c697da6e3d"},
+      "assertions": ["nonsequential-shared-indices", "depth-order-independent", "far-geometry-issued", "back-face-culling", "perspective-foreshortening", "texture-orientation"]
+    },
+    {
+      "identity": "cull-back-landscape-t1",
+      "atNanoseconds": 250000000,
+      "extent": {"pixelWidth": 640, "pixelHeight": 360},
+      "transform": "landscape-t1",
+      "rasterCullMode": "back",
+      "geometryState": "landscape-t1-shared-indexed-geometry",
+      "issuedDrawEvidence": {"indexed": true, "drawCount": 1, "indexCount": 57, "indexSha256": "4a66849037abd4dcae0239506c3ebb395fb940c9ff887f7af209c9c697da6e3d"},
+      "assertions": ["logical-transform-update", "stable-geometry-resources", "perspective-foreshortening"]
+    },
+    {
+      "identity": "cull-back-portrait-t1",
+      "atNanoseconds": 250000001,
+      "extent": {"pixelWidth": 360, "pixelHeight": 640},
+      "transform": "portrait-t1",
+      "rasterCullMode": "back",
+      "geometryState": "portrait-t1-shared-indexed-geometry",
+      "issuedDrawEvidence": {"indexed": true, "drawCount": 1, "indexCount": 57, "indexSha256": "4a66849037abd4dcae0239506c3ebb395fb940c9ff887f7af209c9c697da6e3d"},
+      "assertions": ["resize-extent-atomicity", "resize-depth-lifecycle", "aspect-correct-projection", "stable-geometry-resources"]
+    }
+  ],
+  "resizeTransition": {
+    "fromCheckpoint": "cull-back-landscape-t1",
+    "toCheckpoint": "cull-back-portrait-t1",
+    "requires": ["new-presentation-extent", "new-depth-attachment", "new-resolved-transform", "completion-before-old-depth-retirement", "no-stale-old-extent-output"]
+  },
+  "teardown": {
+    "requires": ["completion-before-retirement", "zero-live-logical-resources", "zero-live-extent-dependent-attachments"]
+  }
+}

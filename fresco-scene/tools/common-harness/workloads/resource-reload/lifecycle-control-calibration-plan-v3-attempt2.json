@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 3,
+  "identity": "resource-lifecycle-control-calibration-v3-attempt-2",
+  "purpose": "control-only-calibration",
+  "attempt": 2,
+  "orderSeed": 2026072202,
+  "attemptsPerBackend": 20,
+  "frozenOrder": [
+    "angle-metal", "native-opengl", "angle-metal", "native-opengl",
+    "angle-metal", "native-opengl", "angle-metal", "native-opengl",
+    "angle-metal", "native-opengl", "angle-metal", "native-opengl",
+    "angle-metal", "native-opengl", "angle-metal", "native-opengl",
+    "angle-metal", "native-opengl", "angle-metal", "native-opengl",
+    "angle-metal", "native-opengl", "angle-metal", "native-opengl",
+    "angle-metal", "native-opengl", "angle-metal", "native-opengl",
+    "angle-metal", "native-opengl", "angle-metal", "native-opengl",
+    "angle-metal", "native-opengl", "angle-metal", "native-opengl",
+    "angle-metal", "native-opengl", "angle-metal", "native-opengl"
+  ],
+  "protocol": {
+    "version": 1,
+    "eventTypes": ["hello", "ready", "stopped"],
+    "loads": 1,
+    "project": "static-no-media-minimal-appkit-window"
+  },
+  "environment": {
+    "FRESCO_SCENE_AUDIO_DISABLED": "1",
+    "FRESCO_SCENE_SOUND_EXPERIMENTAL": "0"
+  },
+  "allowedRootIdentities": [
+    {"identity": "AppIntents", "headingToken": "AppIntents"},
+    {"identity": "LinkServices", "headingToken": "LinkServices"},
+    {"identity": "NSXPCConnection", "headingToken": "NSXPCConnection"}
+  ],
+  "forbiddenFrameTokens": [
+    "FrescoScene", "fresco-scene", "WallpaperEngine", "OpenGL",
+    "libGLES", "libEGL", "ANGLE", "Metal.framework", "AGXMetal", "MTL"
+  ],
+  "groupBoundary": "STACK OF heading through the next ==== delimiter",
+  "classificationRule": "exactly one allowed heading token per STACK OF group",
+  "completenessPolicy": "exactly 40 fresh slots; one attempt each; no retry, resume, or replacement",
+  "derivation": {
+    "population": "all 40 valid scheduled controls with durable receipts",
+    "aggregate": "maximum-across-controls",
+    "metrics": [
+      "totalRootGroupCount", "totalRootInstances",
+      "perSignatureGroupCount", "perSignatureInstanceCount",
+      "rawLeakObjects", "rawLeakBytes"
+    ]
+  }
+}

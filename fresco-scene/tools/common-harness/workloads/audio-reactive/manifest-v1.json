@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "workload": {
+    "identity": "audio-reactive",
+    "version": 1,
+    "classification": "primary"
+  },
+  "criteriaVersion": "audio-reactive-semantics-v1",
+  "assets": [
+    {
+      "identity": "project-json",
+      "sha256": "f55e8b5ec8d2a5f50553906b24c6cd68c7b6bc45079046128eca30579bf1608c",
+      "bytes": 128
+    },
+    {
+      "identity": "scene-json",
+      "sha256": "5e5a62581fa23e8541431be5e7e7e6f13152dabef4dc03967568dee407bea329",
+      "bytes": 1139
+    },
+    {
+      "identity": "unknown-audio-scene-json",
+      "sha256": "07c1dcaefde19c3f7f616596ffe428dc24ff06b1f33be5c0f6efcd74ad70985c",
+      "bytes": 1268
+    },
+    {
+      "identity": "near-match-audio-scene-json",
+      "sha256": "13e454f8fd015f807339f86a3eff153e7bba54bb02154b82cdfd1ea2dae5eb1a",
+      "bytes": 1176
+    },
+    {
+      "identity": "audio-model-json",
+      "sha256": "09590946a80bbaf7618011331342fb4cc2ad2840abad4da73121f8d808159c49",
+      "bytes": 76
+    },
+    {
+      "identity": "audio-material-json",
+      "sha256": "226855de887f5b758e84b310bf8475376c36a5724bb50507d48072306dd92a6f",
+      "bytes": 170
+    }
+  ],
+  "inputs": [
+    {
+      "identity": "trace-v1",
+      "sha256": "21225bc086eac87b9a494d4dac4678760b23f1719fca73dd92fe2efd91ee25a3",
+      "bytes": 1788
+    }
+  ],
+  "reference": {
+    "identity": "semantic-reference-v1",
+    "sha256": "280a2cb5f049792cc9197cf0c3fa0f41a1a5af1bc4c7a8b9072c2acf06b630e8",
+    "bytes": 780
+  },
+  "seed": 0,
+  "checkpoints": [
+    {
+      "identity": "recorded-input",
+      "atNanoseconds": 500000000,
+      "invariants": [
+        "recorded-stereo-spectrum-ingestion",
+        "pre-render-input-burst",
+        "output-mute-input-independence",
+        "unknown-audio-fail-live",
+        "generic-near-match-fail-live"
+      ]
+    },
+    {
+      "identity": "causal-envelope",
+      "atNanoseconds": 1500000000,
+      "invariants": [
+        "audio-ready-causal-presentation",
+        "deterministic-envelope-settling",
+        "one-shot-deadline-quiescence"
+      ]
+    },
+    {
+      "identity": "silence-and-reload",
+      "atNanoseconds": 3000000000,
+      "invariants": [
+        "authored-silence-quiescence",
+        "reload-isolation"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "identity": "recorded-stereo-spectrum-ingestion",
+      "description": "Each manifest-bound 128-bin stereo sample is acknowledged with its exact float-bit spectrum hash, real 16-bin downsample hash, average, and cumulative input counters."
+    },
+    {
+      "identity": "pre-render-input-burst",
+      "description": "Three ordered manifest-bound spectrum inputs complete inside one 200 millisecond render interval while paused, creating three typed invalidations and no render evaluations or presentations before resume."
+    },
+    {
+      "identity": "output-mute-input-independence",
+      "description": "Output mute remains enabled with no player or sound-control construction while external spectrum input continues to change the authored visual transform."
+    },
+    {
+      "identity": "audio-ready-causal-presentation",
+      "description": "The latest queued typed audio-ready revision is acknowledged by the accepting presentation and records its exact coordinator decision sequence."
+    },
+    {
+      "identity": "deterministic-envelope-settling",
+      "description": "The real authored transform uses smoothing 60 at 5 FPS, making clamp(dt*smoothing) exactly one; the coalesced latest input and each subsequently observed envelope transition produce one changed tick followed by one unchanged tick."
+    },
+    {
+      "identity": "one-shot-deadline-quiescence",
+      "description": "Natural due consumption records schedule to inactive without release or replacement, while an explicit pre-due pause records one distinct release."
+    },
+    {
+      "identity": "authored-silence-quiescence",
+      "description": "The manifest-bound all-zero spectrum clears prior nonzero state, changes the authored transform once, settles on the next unchanged tick, and produces no later render wake."
+    },
+    {
+      "identity": "reload-isolation",
+      "description": "A fresh exact fixture load resets spectrum input, spectrum change, audio-ready invalidation, and causal presentation counters."
+    },
+    {
+      "identity": "unknown-audio-fail-live",
+      "description": "An otherwise exact audio consumer mixed with an additional object fails the exact lifecycle classifier and retains conservative continuous scheduling."
+    },
+    {
+      "identity": "generic-near-match-fail-live",
+      "description": "A source-level near match remains a functioning generic audio-vector transform but does not qualify for tracked lifecycle scheduling."
+    }
+  ]
+}

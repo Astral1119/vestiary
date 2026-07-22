@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "workload": "minimal-3d",
+  "profile": "sdl3-depth-frozen",
+  "pixelOracle": {
+    "status": "ready",
+    "selectedDepthFormat": "depth32float",
+    "referenceSet": "spikes/sdl3-gpu/reference-v1.json"
+  },
+  "probes": [
+    {"identity": "depth-overlap-near", "normalizedMilliRect": [490, 490, 20, 20], "expectedRoles": {"cull-back-landscape-t0": "cube-near"}},
+    {"identity": "far-nonoverlap-visible", "normalizedMilliRect": [620, 490, 20, 20], "expectedRoles": {"cull-back-landscape-t0": "far-overlap"}},
+    {"identity": "cull-diagnostic", "normalizedMilliRect": [312, 650, 10, 10], "expectedRoles": {"cull-none-landscape-t0": "cull-diagnostic", "cull-back-landscape-t0": "clear"}},
+    {"identity": "perspective-near-extent", "normalizedMilliRect": [305, 315, 15, 15], "expectedRoles": {"cull-back-landscape-t0": "perspective-near"}},
+    {"identity": "perspective-far-extent", "normalizedMilliRect": [612, 375, 15, 15], "expectedRoles": {"cull-back-landscape-t0": "perspective-far"}},
+    {"identity": "texture-top-left", "normalizedMilliRect": [450, 420, 10, 10], "expectedRoles": {"cull-back-landscape-t0": "cube-near"}},
+    {"identity": "texture-bottom-right", "normalizedMilliRect": [540, 570, 10, 10], "expectedRoles": {"cull-back-landscape-t0": "cube-near"}}
+  ],
+  "perspectiveBounds": {
+    "checkpoint": "cull-back-landscape-t0",
+    "equalObjectSize": [0.4, 0.4],
+    "nearCameraZ": 4,
+    "farCameraZ": 6,
+    "nearNormalizedMilliBounds": [292.96580404, 283.49365294, 341.679732502, 370.096191764],
+    "farNormalizedMilliBounds": [605.546844999, 355.662435293, 638.022797306, 413.397461176],
+    "requiredInequality": "near-width-and-height-greater-than-far"
+  },
+  "indexSensitivity": {
+    "indexSha256": "4a66849037abd4dcae0239506c3ebb395fb940c9ff887f7af209c9c697da6e3d",
+    "nonsequential": true,
+    "sharedVertices": true,
+    "mutations": [
+      {"identity": "cube-texture-coverage", "indexOrdinal": 3, "replacement": 1, "targetProbe": "texture-top-left", "preservedProbe": "depth-overlap-near"},
+      {"identity": "far-only-coverage", "indexOrdinal": 36, "replacement": 1, "targetProbe": "far-nonoverlap-visible", "preservedProbe": "depth-overlap-near"}
+    ]
+  },
+  "assertions": [
+    {"identity": "nonsequential-shared-indices", "evidence": ["exact-index-bytes", "issued-indexed-draw", "analytically-proven-index-mutations"]},
+    {"identity": "depth-order-independent", "evidence": ["depth-overlap-near", "near-indices-issued-before-far-indices", "analytic-less-depth-winner"]},
+    {"identity": "far-geometry-issued", "evidence": ["far-nonoverlap-visible", "issued-indexed-draw", "far-only-analytic-coverage"]},
+    {"identity": "cull-none-diagnostic", "evidence": ["cull-none-landscape-t0", "cull-diagnostic-visible"]},
+    {"identity": "back-face-culling", "evidence": ["cull-back-landscape-t0", "cull-diagnostic-clear", "paired-identical-geometry-and-transform", "issued-indexed-draw"]},
+    {"identity": "perspective-foreshortening", "evidence": ["equal-object-size", "spatially-isolated-near-far", "frozen-projected-bounds", "near-projected-extent-greater-than-far"]},
+    {"identity": "texture-orientation", "evidence": ["texture-top-left", "texture-bottom-right", "top-left-image-edge-origin"]},
+    {"identity": "logical-transform-update", "evidence": ["landscape-t0-resolved-bytes", "landscape-t1-resolved-bytes", "one-logical-constant-update"]},
+    {"identity": "stable-geometry-resources", "evidence": ["vertex-hash-stable", "index-hash-stable", "texture-hash-stable", "pipeline-state-stable"]},
+    {"identity": "resize-extent-atomicity", "evidence": ["new-presentation-extent", "new-depth-attachment", "new-resolved-transform", "no-stale-old-extent-output"]},
+    {"identity": "resize-depth-lifecycle", "evidence": ["completion-before-old-depth-retirement", "zero-live-extent-dependent-attachments"]},
+    {"identity": "aspect-correct-projection", "evidence": ["portrait-t1-resolved-bytes", "pixel-width-divided-by-height-aspect"]}
+  ],
+  "exclusions": [
+    "lighting", "material-system", "model-loader", "scene-graph", "camera-object",
+    "animation-system", "frustum-culling", "occlusion-culling", "visibility-algorithms",
+    "shadows", "instancing", "indirect-draws", "wallpaper-engine-3d-integration"
+  ]
+}

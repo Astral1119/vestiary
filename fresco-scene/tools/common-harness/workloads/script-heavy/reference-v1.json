@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "workload": "script-heavy",
+  "semantics": [
+    "authored-timer-deadline",
+    "continuous-script-time",
+    "cursor-invalidation",
+    "property-invalidation",
+    "unknown-producer-fail-live"
+  ],
+  "backendNeutral": true,
+  "limitations": [
+    "semantic evidence does not claim pixel-reference correctness",
+    "unclassified authored scripts remain fail-live and unevaluated"
+  ]
+}

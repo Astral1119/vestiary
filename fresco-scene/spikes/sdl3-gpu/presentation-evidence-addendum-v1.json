@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "identity": "sdl3-presentation-scheduling-evidence-addendum-v1",
+  "purpose": "archive-native-correctness-verification",
+  "archive": {
+    "path": "/Users/astral/personal/vestiary/.fresco-evidence/sdl3-presentation-scheduling-v1/evidence.tar.gz",
+    "sha256": "e7e0c57a3370f1750dc9f4d6c0021049ddf2ee35569d0e376685ce4dd748f967",
+    "bytes": 1135454
+  },
+  "record": {
+    "sha256": "8423c2efc5db334189b14032d4bb0fb98eedaaa6cdb8a14076d80406d8c57413",
+    "bytes": 31561
+  },
+  "sourceManifest": {
+    "sha256": "9385078192d47991a1e69e7124875ceaab6807bf876093ae38c088ddf36221c3",
+    "bytes": 3242
+  },
+  "verdict": {
+    "accepted": true,
+    "archiveOnly": true,
+    "stagingRequired": false,
+    "frames": 7,
+    "staticPresents": 3,
+    "continuousPresents": 78
+  }
+}

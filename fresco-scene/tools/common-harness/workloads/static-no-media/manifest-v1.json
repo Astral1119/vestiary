@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "workload": {
+    "identity": "static-no-media",
+    "version": 1,
+    "classification": "primary"
+  },
+  "criteriaVersion": "static-baseline-v1",
+  "assets": [
+    {
+      "identity": "project-json",
+      "sha256": "3231d7a400a14e9a0df025dbd8858d19a29a9bc094cc3f01735531c51087aa6b",
+      "bytes": 149
+    },
+    {
+      "identity": "scene-json",
+      "sha256": "e2846b6baa05b813e6ef125a3512cf8057a5d922bf3b132812c80dfeb7cba834",
+      "bytes": 346
+    }
+  ],
+  "inputs": [
+    {
+      "identity": "trace-v1",
+      "sha256": "fb10a452974113940c592e0f7fb3a9f366d5eb06cc7bba040abdd46a3a8765cd",
+      "bytes": 384
+    }
+  ],
+  "reference": {
+    "identity": "semantic-reference-v1",
+    "sha256": "0c89a4373c1d6c7f5757a1a338d9531decbd2fca105b60481448731cc47497d9",
+    "bytes": 308
+  },
+  "seed": 0,
+  "checkpoints": [
+    {
+      "identity": "constructor",
+      "atNanoseconds": 0,
+      "invariants": [
+        "constructor-presentation"
+      ]
+    },
+    {
+      "identity": "initial-quiescence",
+      "atNanoseconds": 400000000,
+      "invariants": [
+        "zero-quiescent-churn"
+      ]
+    },
+    {
+      "identity": "property-invalidation",
+      "atNanoseconds": 400000001,
+      "invariants": [
+        "exactly-one-property-wake"
+      ]
+    },
+    {
+      "identity": "property-requiescence",
+      "atNanoseconds": 700000001,
+      "invariants": [
+        "property-requiescence"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "identity": "constructor-presentation",
+      "description": "Construction produces completed presentation evidence."
+    },
+    {
+      "identity": "zero-quiescent-churn",
+      "description": "An active static scene performs no work after quiescence."
+    },
+    {
+      "identity": "exactly-one-property-wake",
+      "description": "One property invalidation causes exactly one evaluation and presentation."
+    },
+    {
+      "identity": "property-requiescence",
+      "description": "The property wake returns to zero scheduler churn."
+    }
+  ]
+}

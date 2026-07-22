@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "workload": {"identity": "minimal-3d", "version": 1, "classification": "primary"},
+  "criteriaVersion": "minimal-3d-sdl3-depth-v1",
+  "assets": [
+    {"identity": "fixture-v1", "sha256": "5dc8be677bdf4b5db6eacbb93e126fc118075d53016e280fee203b91dad078b3", "bytes": 5851}
+  ],
+  "inputs": [
+    {"identity": "trace-v1", "sha256": "5bfa4127e323d337e2f91610851dcb2cac0039d14c21786d54abd1e40874b930", "bytes": 4156}
+  ],
+  "reference": {"identity": "reference-v1", "sha256": "e231eafc903ee50544f3d5cd75e18377158cf4b519f835cb46567271501d2876", "bytes": 4289},
+  "seed": 0,
+  "checkpoints": [
+    {"identity": "cull-none-landscape-t0", "atNanoseconds": 0, "invariants": ["nonsequential-shared-indices", "cull-none-diagnostic", "texture-orientation"]},
+    {"identity": "cull-back-landscape-t0", "atNanoseconds": 1, "invariants": ["nonsequential-shared-indices", "depth-order-independent", "far-geometry-issued", "back-face-culling", "perspective-foreshortening", "texture-orientation"]},
+    {"identity": "cull-back-landscape-t1", "atNanoseconds": 250000000, "invariants": ["logical-transform-update", "stable-geometry-resources", "perspective-foreshortening"]},
+    {"identity": "cull-back-portrait-t1", "atNanoseconds": 250000001, "invariants": ["resize-extent-atomicity", "resize-depth-lifecycle", "aspect-correct-projection", "stable-geometry-resources"]}
+  ],
+  "invariants": [
+    {"identity": "nonsequential-shared-indices", "description": "Exact nonsequential uint16 indices reuse vertices and remain pixel-sensitive."},
+    {"identity": "depth-order-independent", "description": "Near geometry remains visible in the overlap after farther indices are issued."},
+    {"identity": "far-geometry-issued", "description": "A nonoverlap probe independently proves that the farther geometry was issued."},
+    {"identity": "cull-none-diagnostic", "description": "The isolated reverse-winding diagnostic is visible when raster culling is disabled."},
+    {"identity": "back-face-culling", "description": "The same issued geometry and transform remove only the reverse-winding diagnostic under back-face culling."},
+    {"identity": "perspective-foreshortening", "description": "Disjoint probes establish that near projected extent exceeds far projected extent."},
+    {"identity": "texture-orientation", "description": "Texture probes bind top-left image-edge UV orientation and sampling."},
+    {"identity": "logical-transform-update", "description": "Animation changes one 64-byte logical vertex-stage constant without prescribing its backend storage."},
+    {"identity": "stable-geometry-resources", "description": "Vertex, index, texture, and pipeline identities remain stable across transform and resize checkpoints."},
+    {"identity": "resize-extent-atomicity", "description": "Presentation extent, depth attachment, resolved transform, and output advance atomically."},
+    {"identity": "resize-depth-lifecycle", "description": "The old depth attachment retires after completion and no extent-dependent attachment remains live at teardown."},
+    {"identity": "aspect-correct-projection", "description": "The portrait resolved transform uses the new pixel-width divided by pixel-height aspect."}
+  ]
+}

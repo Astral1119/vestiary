@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "workload": {"identity": "resource-reload", "version": 1, "classification": "primary"},
+  "criteriaVersion": "resource-lifecycle-v1",
+  "assets": [
+    {"identity": "project-json", "sha256": "aad360896c583f4a57833f4010136dd960ecec576b1bdbf222d7baf91e7f344d", "bytes": 207},
+    {"identity": "scene-json", "sha256": "f39fc6258ded303e0b31c1fa6290bea4ce2e334386a07a4c69553caf0debfc2a", "bytes": 542},
+    {"identity": "effect-model-json", "sha256": "9eaba22dfd040def1516aef299057a917c857c6df3d7b44bcb651308357131e5", "bytes": 78},
+    {"identity": "effect-base-material-json", "sha256": "226855de887f5b758e84b310bf8475376c36a5724bb50507d48072306dd92a6f", "bytes": 170},
+    {"identity": "effect-graph-json", "sha256": "d1d447feb4bfbdcab04db9b87ad12128ab4ef028d576fda61739a5ebd6fb9be1", "bytes": 990},
+    {"identity": "effect-pass-a-material-json", "sha256": "4cd58b97692fee0d520fd480ee46a715f1168b45f1795bbb023e25ac53986b33", "bytes": 176},
+    {"identity": "effect-pass-b-material-json", "sha256": "8ee34e64f771dcf9c2a2901a71edf37e828c4760744cbee01d14a317553b7313", "bytes": 176},
+    {"identity": "effect-composite-material-json", "sha256": "ca2de6a622841c1a1e5364666fafe49daf3a19c1f6980104a82e377d9fd76c46", "bytes": 202},
+    {"identity": "effect-pass-a-vertex-shader", "sha256": "265914d97393924ef6d1cc66046c09eea2ad2825628b4fe717ec45ecd32f1e7b", "bytes": 232},
+    {"identity": "effect-pass-b-vertex-shader", "sha256": "265914d97393924ef6d1cc66046c09eea2ad2825628b4fe717ec45ecd32f1e7b", "bytes": 232},
+    {"identity": "effect-composite-vertex-shader", "sha256": "265914d97393924ef6d1cc66046c09eea2ad2825628b4fe717ec45ecd32f1e7b", "bytes": 232},
+    {"identity": "effect-pass-a-fragment-shader", "sha256": "7f014a035835a6f18f721ea13094a360009c12581985a7c5068e79692b8294a2", "bytes": 84},
+    {"identity": "effect-pass-b-fragment-shader", "sha256": "609cf9519149a6e8db7d9f579d3f80ba62d85df0d0126a7e3ed3e2ae64cb45d4", "bytes": 201},
+    {"identity": "effect-composite-fragment-shader", "sha256": "fce078a8783ce42c4cf086cabdb21918fc3803a829d0d85cc5de9ad0d2686c44", "bytes": 304}
+  ],
+  "inputs": [
+    {"identity": "lifecycle-trace-v1", "sha256": "a762547ca5de563a85388870348552cffab902777fd66e83e8bc26f36b4170d7", "bytes": 727}
+  ],
+  "reference": {"identity": "lifecycle-reference-v1", "sha256": "b44727344b43fcd64397943619ecff2c87ac1a28051970096fcf7432d7b1a79f", "bytes": 1433},
+  "seed": 0,
+  "checkpoints": [
+    {"identity": "create-reload-destroy", "atNanoseconds": 0, "invariants": ["owned-process-retirement", "renderer-resource-retirement"]},
+    {"identity": "loss-capability", "atNanoseconds": 1, "invariants": ["explicit-loss-availability"]}
+  ],
+  "invariants": [
+    {"identity": "owned-process-retirement", "description": "Each candidate and observed child process is run-owned and absent after stop."},
+    {"identity": "renderer-resource-retirement", "description": "Every generation completes before retirement and tracked renderer programs and allocations return to zero."},
+    {"identity": "explicit-loss-availability", "description": "Device-loss recovery is exercised when supported and otherwise records a stable unavailable reason."}
+  ]
+}

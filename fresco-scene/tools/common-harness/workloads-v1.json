@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "workloads": [
+    {
+      "identity": "static-no-media",
+      "classification": "primary",
+      "implementation": "adapter-baseline"
+    },
+    {
+      "identity": "continuous-animation",
+      "classification": "primary",
+      "implementation": "adapter-baseline"
+    },
+    {
+      "identity": "script-heavy",
+      "classification": "primary",
+      "implementation": "adapter-baseline"
+    },
+    {
+      "identity": "particle-heavy",
+      "classification": "primary",
+      "implementation": "adapter-baseline"
+    },
+    {
+      "identity": "media-video",
+      "classification": "primary",
+      "implementation": "adapter-baseline"
+    },
+    {
+      "identity": "audio-reactive",
+      "classification": "primary",
+      "implementation": "adapter-baseline"
+    },
+    {
+      "identity": "masks-effects",
+      "classification": "primary",
+      "implementation": "adapter-baseline"
+    },
+    {
+      "identity": "resource-reload",
+      "classification": "primary",
+      "implementation": "adapter-baseline"
+    },
+    {
+      "identity": "minimal-3d",
+      "classification": "primary",
+      "implementation": "contract-only"
+    },
+    {
+      "identity": "reduced-splat-shader",
+      "classification": "deferred",
+      "implementation": "contract-only"
+    },
+    {
+      "identity": "field",
+      "classification": "deferred",
+      "implementation": "contract-only"
+    },
+    {
+      "identity": "large-2d",
+      "classification": "deferred",
+      "implementation": "contract-only"
+    }
+  ]
+}

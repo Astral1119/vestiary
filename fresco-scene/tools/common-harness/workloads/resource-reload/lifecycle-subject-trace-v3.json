@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 3,
+  "identity": "resource-lifecycle-subject-trace-v3",
+  "backendOrder": ["native-opengl", "angle-metal"],
+  "slotOrder": ["control", "subject", "subject", "control", "control", "subject", "subject", "control", "control", "subject"],
+  "controlProject": "static-no-media",
+  "subjectLoads": ["resource-reload-a", "resource-reload-b"],
+  "protocol": {"version": 1, "width": 320, "height": 180, "fps": 5, "visible": true, "muted": true, "evidenceFrames": 1},
+  "environment": {"FRESCO_SCENE_AUDIO_DISABLED": "1", "FRESCO_SCENE_SOUND_EXPERIMENTAL": "0"}
+}

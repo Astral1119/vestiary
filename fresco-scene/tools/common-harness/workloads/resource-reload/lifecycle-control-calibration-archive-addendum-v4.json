@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "identity": "resource-lifecycle-control-calibration-archive-addendum-v4",
+  "purpose": "archive-native-post-campaign-verification",
+  "predecessorAddendum": {"sha256": "5fc22a625092183576816ee1ec8195ec4788d28db9dd4561c328ff9c412cf5b8", "bytes": 1610},
+  "archive": {
+    "path": "/Users/astral/personal/vestiary/.fresco-evidence/lifecycle-v3-calibration-attempt2/evidence.tar.gz",
+    "sha256": "8c55dbf13fb177f995941779a025dc266e075cd9c4367156e62ea7208c7b3549",
+    "bytes": 6521240,
+    "fileCount": 127
+  },
+  "verification": {
+    "verifier": {"sha256": "a9c5745de01448c44d0295ab9d3f8f3186b9dfa2d561a6f0eced2ed69f10cf73", "bytes": 9418},
+    "tests": {"sha256": "bc09f16df2483b5680c42d4e11cbc8ceadb623e7ccb6ca1ebc25fe5190cee3d8", "bytes": 3032}
+  },
+  "verdict": {
+    "accepted": true,
+    "archiveOnly": true,
+    "stagingRequired": false,
+    "slotCount": 40,
+    "receiptCount": 40,
+    "invalidRuns": [],
+    "subjectDataPresent": false
+  },
+  "derivedTable": {
+    "populationCount": 40,
+    "maximumTotalRootGroupCount": 2,
+    "maximumTotalRootInstances": 3,
+    "perSignatureMaxima": {
+      "AppIntents": {"groupCount": 0, "instanceCount": 0},
+      "LinkServices": {"groupCount": 0, "instanceCount": 0},
+      "NSXPCConnection": {"groupCount": 2, "instanceCount": 3}
+    },
+    "maximumRawLeakObjects": 288,
+    "maximumRawLeakBytes": 18816
+  }
+}

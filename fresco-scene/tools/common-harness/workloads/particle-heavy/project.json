@@ -1,0 +1,9 @@
+{
+  "file": "scene.json",
+  "general": {
+    "properties": {}
+  },
+  "title": "Fresco finite particle lifecycle baseline",
+  "type": "scene",
+  "version": 0
+}

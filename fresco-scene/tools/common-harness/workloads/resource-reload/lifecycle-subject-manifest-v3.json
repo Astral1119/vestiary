@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 3,
+  "identity": "resource-lifecycle-subject-manifest-v3",
+  "criteriaVersion": "absolute-calibrated-lifecycle-v3",
+  "reference": "lifecycle-subject-reference-v3.json",
+  "trace": "lifecycle-subject-trace-v3.json",
+  "fixtureManifest": {"sha256": "8a4624dff4a53fbc140665361d7c4f2c040c0de6b6667ea08083dee73a2c465d", "bytes": 3586},
+  "publication": "durable per-slot WAL, content-addressed store, readback receipt, and complete archive",
+  "verdict": "all ten fixed one-shot slots pass the same absolute caps and exact role endpoint"
+}

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "workload": "particle-heavy",
+  "assignment": "harness-particle-heavy",
+  "logicalWidth": 320,
+  "logicalHeight": 180,
+  "fpsCeiling": 30,
+  "catchUpFpsCeiling": 1,
+  "initialPolicyRevision": 1,
+  "catchUpPolicyRevision": 2,
+  "resumePolicyRevision": 3,
+  "catchUpReasonToken": "harness:particle-heavy:catch-up",
+  "resumeReasonToken": "harness:particle-heavy:resume",
+  "authoredSeed": 42,
+  "evidenceFrames": 2,
+  "catchUpObservationMilliseconds": 1150,
+  "quiescenceTimeoutMilliseconds": 2000,
+  "quiescenceObservationMilliseconds": 180,
+  "maximumSimulatedMilliseconds": 100,
+  "minimumDroppedMilliseconds": 700,
+  "catchUpArithmeticToleranceMilliseconds": 0.01
+}

@@ -1,0 +1,7 @@
+{
+  "height": 40,
+  "material": "materials/puppet.json",
+  "nopadding": true,
+  "puppet": "models/unmasked.mdl",
+  "width": 96
+}

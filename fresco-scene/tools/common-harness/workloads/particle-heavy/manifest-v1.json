@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "workload": {
+    "identity": "particle-heavy",
+    "version": 1,
+    "classification": "primary"
+  },
+  "criteriaVersion": "particle-semantics-v1",
+  "assets": [
+    {
+      "identity": "project-json",
+      "sha256": "c470f0c96adf9aacdcf516b4a8d0b933411884d1e66258729388d6351347928f",
+      "bytes": 159
+    },
+    {
+      "identity": "scene-json",
+      "sha256": "aefe07159731304b96e9ebb87d5b40788a4d8be8fe409f72d5c8282f1a1ed19b",
+      "bytes": 559
+    },
+    {
+      "identity": "particle-definition-json",
+      "sha256": "63d4bd068e12c0195dce54e350ff83fc76ad4d0643d022c09cafcf63452da1c6",
+      "bytes": 1092
+    },
+    {
+      "identity": "particle-material-json",
+      "sha256": "5aae346007603272f8e0e6501f0e50de9a39c7e4b7f00bcf7a5de3779f9c6ef7",
+      "bytes": 242
+    },
+    {
+      "identity": "unknown-particle-scene-json",
+      "sha256": "4d7204e4eade913a20f771551b4bec3e0761f8a124e865d27e5cc5fef328030f",
+      "bytes": 568
+    },
+    {
+      "identity": "unknown-particle-definition-json",
+      "sha256": "a341368565432e8abc9c8d4c41565fef5593715a81c497e6879c1ff021ff2339",
+      "bytes": 893
+    }
+  ],
+  "inputs": [
+    {
+      "identity": "trace-v1",
+      "sha256": "66d92a3f0fdca6fd2e382b95741e62ef186857610a9e58bbdb9b6f0d04984ce9",
+      "bytes": 694
+    }
+  ],
+  "reference": {
+    "identity": "semantic-reference-v1",
+    "sha256": "a753d4e78849a10e9f8bbd835fa8517d98a87c6048a78a8787ca4071ce040b45",
+    "bytes": 545
+  },
+  "seed": 42,
+  "checkpoints": [
+    {
+      "identity": "seeded-initial-state",
+      "atNanoseconds": 100000000,
+      "invariants": [
+        "authored-seed-determinism",
+        "particle-resource-reuse",
+        "unknown-particle-fail-live"
+      ]
+    },
+    {
+      "identity": "bounded-catch-up",
+      "atNanoseconds": 1500000000,
+      "invariants": [
+        "bounded-catch-up"
+      ]
+    },
+    {
+      "identity": "finite-quiescence",
+      "atNanoseconds": 3500000000,
+      "invariants": [
+        "finite-emitter-quiescence",
+        "typed-continuous-lease-release"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "identity": "authored-seed-determinism",
+      "description": "Two fresh loads of the same authored particle identifier produce the same nonzero initial simulation state hash and lifecycle counters."
+    },
+    {
+      "identity": "bounded-catch-up",
+      "description": "A production scheduling-policy transition requests a long interval while simulation remains capped at 100 milliseconds and reports the dropped excess."
+    },
+    {
+      "identity": "particle-resource-reuse",
+      "description": "Program, render-allocation, particle-pool, and particle-initialization evidence remains unchanged across active frames and quiescence."
+    },
+    {
+      "identity": "finite-emitter-quiescence",
+      "description": "A fully recognized instantaneous finite emitter reaches an empty live set and produces no further frames."
+    },
+    {
+      "identity": "typed-continuous-lease-release",
+      "description": "The real finite particle lifecycle acquires and releases exactly one typed continuous coordinator lease."
+    },
+    {
+      "identity": "unknown-particle-fail-live",
+      "description": "An authored particle definition outside the finite-lifecycle classifier emits a deterministic warning and retains conservative continuous scheduling."
+    }
+  ]
+}

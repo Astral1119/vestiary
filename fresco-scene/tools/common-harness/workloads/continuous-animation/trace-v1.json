@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "workload": "continuous-animation",
+  "assignment": "harness-continuous-animation",
+  "logicalWidth": 320,
+  "logicalHeight": 180,
+  "initialPolicyRevision": 1,
+  "reasonToken": "harness:continuous-animation",
+  "frameSlack": 3,
+  "minimumRateMilli": 650,
+  "minimumLivenessFrames": 2,
+  "phases": [
+    {
+      "fpsCeiling": 15,
+      "durationMilliseconds": 800
+    },
+    {
+      "fpsCeiling": 30,
+      "durationMilliseconds": 600
+    },
+    {
+      "fpsCeiling": 60,
+      "durationMilliseconds": 450
+    }
+  ],
+  "controlTimeoutMilliseconds": 2000,
+  "pauseMilliseconds": 300,
+  "resumeMilliseconds": 350
+}

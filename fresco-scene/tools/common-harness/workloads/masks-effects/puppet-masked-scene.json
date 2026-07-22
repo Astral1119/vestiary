@@ -1,0 +1,21 @@
+{
+  "camera": {"center": "0 0 0", "eye": "0 0 1", "up": "0 1 0"},
+  "general": {
+    "ambientcolor": "0 0 0",
+    "clearcolor": "0.04 0.08 0.12",
+    "clearenabled": true,
+    "farz": 10000.0,
+    "nearz": 0.01,
+    "orthogonalprojection": {"height": 180, "width": 320}
+  },
+  "objects": [
+    {
+      "id": 301,
+      "image": "models/puppet-masked.json",
+      "name": "Masked puppet fixture",
+      "origin": "160 90 0",
+      "size": "96 40"
+    }
+  ],
+  "version": 4
+}

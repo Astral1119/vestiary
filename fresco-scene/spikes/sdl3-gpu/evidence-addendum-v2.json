@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "identity": "sdl3-gpu-static-render-foundation-evidence-addendum-v2",
+  "purpose": "archive-native-correctness-verification",
+  "archive": {
+    "path": "/Users/astral/personal/vestiary/.fresco-evidence/sdl3-gpu-static-render-foundation-v2/evidence.tar.gz",
+    "sha256": "96cdc7de24e86949524519f4ab210fd4b08ca41110799472a421cdd1b5357707",
+    "bytes": 1132663
+  },
+  "record": {
+    "sha256": "b03adb7550f74e19f02ebd316aba198fccdada129a9a521d298d68b25dd2d052",
+    "bytes": 12096
+  },
+  "sourceManifest": {
+    "sha256": "a58a471e69d8bf151b62be75666de687a1c90442b70f6169a0e3dbdd55ffe13d",
+    "bytes": 2761
+  },
+  "verdict": {
+    "accepted": true,
+    "archiveOnly": true,
+    "stagingRequired": false,
+    "frames": 5,
+    "semanticProbes": 8
+  }
+}

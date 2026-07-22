@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "workload": "resource-reload",
+  "profile": "lifecycle",
+  "createDestroyIterations": 3,
+  "reloadIterations": 3,
+  "logicalWidth": 320,
+  "logicalHeight": 180,
+  "fpsCeiling": 5,
+  "policyRevision": 1,
+  "reasonTokens": ["harness:lifecycle-resource-reload"],
+  "assetIdentities": [
+    "effect-model-json",
+    "effect-base-material-json",
+    "effect-graph-json",
+    "effect-pass-a-material-json",
+    "effect-pass-b-material-json",
+    "effect-composite-material-json",
+    "effect-pass-a-vertex-shader",
+    "effect-pass-b-vertex-shader",
+    "effect-composite-vertex-shader",
+    "effect-pass-a-fragment-shader",
+    "effect-pass-b-fragment-shader",
+    "effect-composite-fragment-shader"
+  ]
+}

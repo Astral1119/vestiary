@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "workload": "script-heavy",
+  "assignment": "harness-script-heavy",
+  "logicalWidth": 320,
+  "logicalHeight": 180,
+  "fpsCeiling": 30,
+  "policyRevision": 1,
+  "timerReasonToken": "harness:script-heavy:timer",
+  "scriptReasonToken": "harness:script-heavy:scripts",
+  "timerDelayMilliseconds": 50,
+  "timerObservationMilliseconds": 120,
+  "timerHarnessTimeoutMilliseconds": 2000,
+  "timerMinimumMilliseconds": 30,
+  "timerMaximumMilliseconds": 300,
+  "continuousObservationMilliseconds": 180
+}

@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "workload": "minimal-3d",
+  "coordinateConvention": {
+    "world": {"handedness": "left", "positiveZ": "forward"},
+    "clip": {"ndcYDirection": "up", "minimumZ": 0, "maximumZ": 1},
+    "framebuffer": {"origin": "top-left", "positiveX": "right", "positiveY": "down"},
+    "texture": {"origin": "top-left-image-edge", "positiveU": "right", "positiveV": "down"}
+  },
+  "camera": {
+    "verticalFieldOfViewDegrees": 60,
+    "nearZ": 0.1,
+    "farZ": 100,
+    "viewMatrixColumnMajor": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+  },
+  "vertexLayout": {
+    "strideBytes": 20,
+    "stepMode": "vertex",
+    "attributes": [
+      {"identity": "position", "location": 0, "format": "float32x3", "offsetBytes": 0},
+      {"identity": "texture-coordinate", "location": 1, "format": "float32x2", "offsetBytes": 12}
+    ]
+  },
+  "geometry": {
+    "vertexEncoding": "little-endian-interleaved-float32",
+    "vertices": [[-0.5, -0.5, -0.5, 0, 1], [0.5, -0.5, -0.5, 1, 1], [0.5, 0.5, -0.5, 1, 0], [-0.5, 0.5, -0.5, 0, 0], [0.5, -0.5, 0.5, 0, 1], [-0.5, -0.5, 0.5, 1, 1], [-0.5, 0.5, 0.5, 1, 0], [0.5, 0.5, 0.5, 0, 0], [-0.5, -0.5, 0.5, 0, 1], [-0.5, -0.5, -0.5, 1, 1], [-0.5, 0.5, -0.5, 1, 0], [-0.5, 0.5, 0.5, 0, 0], [0.5, -0.5, -0.5, 0, 1], [0.5, -0.5, 0.5, 1, 1], [0.5, 0.5, 0.5, 1, 0], [0.5, 0.5, -0.5, 0, 0], [-0.5, 0.5, -0.5, 0, 1], [0.5, 0.5, -0.5, 1, 1], [0.5, 0.5, 0.5, 1, 0], [-0.5, 0.5, 0.5, 0, 0], [-0.5, -0.5, 0.5, 0, 1], [0.5, -0.5, 0.5, 1, 1], [0.5, -0.5, -0.5, 1, 0], [-0.5, -0.5, -0.5, 0, 0], [-0.25, -0.15, 1, 0, 1], [1.75, -0.15, 1, 1, 1], [1.75, 0.15, 1, 1, 0], [-0.25, 0.15, 1, 0, 0], [-1.7, 0.6, 0, 0, 1], [-1.3, 0.6, 0, 1, 1], [-1.3, 1, 0, 1, 0], [-1.7, 1, 0, 0, 0], [1.3, 0.6, 2, 0, 1], [1.7, 0.6, 2, 1, 1], [1.7, 1, 2, 1, 0], [1.3, 1, 2, 0, 0], [-1.75, -1, 0, 0, 1], [-1.25, -1, 0, 1, 1], [-1.5, -0.5, 0, 0.5, 0]],
+    "vertexBytes": 780,
+    "vertexSha256": "1d847e65cb829f79bec1905db10a2cc7adde6d0d210d520e891bee4159f6e58f",
+    "indexEncoding": "little-endian-uint16",
+    "indices": [0, 2, 1, 0, 3, 2, 4, 6, 5, 4, 7, 6, 8, 10, 9, 8, 11, 10, 12, 14, 13, 12, 15, 14, 16, 18, 17, 16, 19, 18, 20, 22, 21, 20, 23, 22, 24, 26, 25, 24, 27, 26, 28, 30, 29, 28, 31, 30, 32, 34, 33, 32, 35, 34, 36, 37, 38],
+    "indexBytesHex": "00000200010000000300020004000600050004000700060008000a00090008000b000a000c000e000d000c000f000e0010001200110010001300120014001600150014001700160018001a00190018001b001a001c001e001d001c001f001e00200022002100200023002200240025002600",
+    "indexSha256": "4a66849037abd4dcae0239506c3ebb395fb940c9ff887f7af209c9c697da6e3d",
+    "parts": [
+      {"identity": "cube", "firstIndex": 0, "indexCount": 36},
+      {"identity": "far-overlap", "firstIndex": 36, "indexCount": 6},
+      {"identity": "perspective-near", "firstIndex": 42, "indexCount": 6},
+      {"identity": "perspective-far", "firstIndex": 48, "indexCount": 6},
+      {"identity": "cull-diagnostic", "firstIndex": 54, "indexCount": 3}
+    ]
+  },
+  "texture": {
+    "width": 2,
+    "height": 2,
+    "format": "rgba8unorm",
+    "filter": "nearest",
+    "addressMode": "clamp-to-edge",
+    "rgbaBytesHex": "ff0000ff00ff00ff0000ffffffff00ff",
+    "sha256": "5b48123a1babb9efe5965cb75028f1dbd7083cfbc848cd2abb380cbc809f9d73"
+  },
+  "logicalConstantBinding": {
+    "identity": "resolved-transform",
+    "stage": "vertex",
+    "slot": 0,
+    "byteLength": 64,
+    "semantic": "resolved-mvp-float32x4x4"
+  },
+  "transforms": [
+    {
+      "identity": "landscape-t0",
+      "extent": {"pixelWidth": 640, "pixelHeight": 360},
+      "modelMatrixColumnMajor": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 4, 1],
+      "projectionMatrixColumnMajor": [0.9742785692214966, 0, 0, 0, 0, 1.7320507764816284, 0, 0, 0, 0, 1.001001000404358, 1, 0, 0, -0.10010010004043579, 0],
+      "resolvedFloat32ColumnMajor": [0.9742785692214966, 0, 0, 0, 0, 1.7320507764816284, 0, 0, 0, 0, 1.001001000404358, 1, 0, 0, 3.9039039611816406, 4],
+      "resolvedBytesHex": "526a793f00000000000000000000000000000000d7b3dd3f00000000000000000000000000000000cd20803f0000803f000000000000000090d9794000008040",
+      "resolvedSha256": "16666868b93a016207ccab36ecf89d2718ee836c0b54eb5f308e2bc8e0dfc017"
+    },
+    {
+      "identity": "landscape-t1",
+      "extent": {"pixelWidth": 640, "pixelHeight": 360},
+      "modelMatrixColumnMajor": [0.8660253882408142, 0, -0.5, 0, 0, 1, 0, 0, 0.5, 0, 0.8660253882408142, 0, 0, 0, 4, 1],
+      "projectionMatrixColumnMajor": [0.9742785692214966, 0, 0, 0, 0, 1.7320507764816284, 0, 0, 0, 0, 1.001001000404358, 1, 0, 0, -0.10010010004043579, 0],
+      "resolvedFloat32ColumnMajor": [0.84375, 0, -0.500500500202179, -0.5, 0, 1.7320507764816284, 0, 0, 0.4871392846107483, 0, 0.8668922781944275, 0.8660253882408142, 0, 0, 3.9039039611816406, 4],
+      "resolvedBytesHex": "0000583f00000000cd2000bf000000bf00000000d7b3dd3f0000000000000000526af93e00000000a7ec5d3fd7b35d3f000000000000000090d9794000008040",
+      "resolvedSha256": "5e4d8c0fde6a35eb25710e23d9d808e9462f723df51e4fdb5104749ad1cb0143"
+    },
+    {
+      "identity": "portrait-t1",
+      "extent": {"pixelWidth": 360, "pixelHeight": 640},
+      "modelMatrixColumnMajor": [0.8660253882408142, 0, -0.5, 0, 0, 1, 0, 0, 0.5, 0, 0.8660253882408142, 0, 0, 0, 4, 1],
+      "projectionMatrixColumnMajor": [3.0792014598846436, 0, 0, 0, 0, 1.7320507764816284, 0, 0, 0, 0, 1.001001000404358, 1, 0, 0, -0.10010010004043579, 0],
+      "resolvedFloat32ColumnMajor": [2.6666667461395264, 0, -0.500500500202179, -0.5, 0, 1.7320507764816284, 0, 0, 1.5396007299423218, 0, 0.8668922781944275, 0.8660253882408142, 0, 0, 3.9039039611816406, 4],
+      "resolvedBytesHex": "abaa2a4000000000cd2000bf000000bf00000000d7b3dd3f0000000000000000a311c53f00000000a7ec5d3fd7b35d3f000000000000000090d9794000008040",
+      "resolvedSha256": "ce003e7219942c0592ba371d44e5d3ca6afa4e5e039b59f5f8836e7d8e26059e"
+    }
+  ]
+}

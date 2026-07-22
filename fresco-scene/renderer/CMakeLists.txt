@@ -1,0 +1,6 @@
+include(cmake/Dependencies.cmake)
+include(cmake/GeneratedPatches.cmake)
+include(cmake/Targets.cmake)
+include(cmake/Provenance.cmake)
+include(cmake/Checks.cmake)
+include(cmake/Tests.cmake)

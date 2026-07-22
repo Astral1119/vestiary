@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "workload": {
+    "identity": "masks-effects",
+    "version": 1,
+    "classification": "primary"
+  },
+  "criteriaVersion": "masks-effects-semantics-v1",
+  "assets": [
+    {"identity": "project-json", "sha256": "aad360896c583f4a57833f4010136dd960ecec576b1bdbf222d7baf91e7f344d", "bytes": 207},
+    {"identity": "scene-json", "sha256": "f39fc6258ded303e0b31c1fa6290bea4ce2e334386a07a4c69553caf0debfc2a", "bytes": 542},
+    {"identity": "effect-model-json", "sha256": "9eaba22dfd040def1516aef299057a917c857c6df3d7b44bcb651308357131e5", "bytes": 78},
+    {"identity": "effect-base-material-json", "sha256": "226855de887f5b758e84b310bf8475376c36a5724bb50507d48072306dd92a6f", "bytes": 170},
+    {"identity": "effect-graph-json", "sha256": "d1d447feb4bfbdcab04db9b87ad12128ab4ef028d576fda61739a5ebd6fb9be1", "bytes": 990},
+    {"identity": "effect-pass-a-material-json", "sha256": "4cd58b97692fee0d520fd480ee46a715f1168b45f1795bbb023e25ac53986b33", "bytes": 176},
+    {"identity": "effect-pass-b-material-json", "sha256": "8ee34e64f771dcf9c2a2901a71edf37e828c4760744cbee01d14a317553b7313", "bytes": 176},
+    {"identity": "effect-composite-material-json", "sha256": "ca2de6a622841c1a1e5364666fafe49daf3a19c1f6980104a82e377d9fd76c46", "bytes": 202},
+    {"identity": "effect-pass-a-vertex-shader", "sha256": "265914d97393924ef6d1cc66046c09eea2ad2825628b4fe717ec45ecd32f1e7b", "bytes": 232},
+    {"identity": "effect-pass-b-vertex-shader", "sha256": "265914d97393924ef6d1cc66046c09eea2ad2825628b4fe717ec45ecd32f1e7b", "bytes": 232},
+    {"identity": "effect-composite-vertex-shader", "sha256": "265914d97393924ef6d1cc66046c09eea2ad2825628b4fe717ec45ecd32f1e7b", "bytes": 232},
+    {"identity": "effect-pass-a-fragment-shader", "sha256": "7f014a035835a6f18f721ea13094a360009c12581985a7c5068e79692b8294a2", "bytes": 84},
+    {"identity": "effect-pass-b-fragment-shader", "sha256": "609cf9519149a6e8db7d9f579d3f80ba62d85df0d0126a7e3ed3e2ae64cb45d4", "bytes": 201},
+    {"identity": "effect-composite-fragment-shader", "sha256": "fce078a8783ce42c4cf086cabdb21918fc3803a829d0d85cc5de9ad0d2686c44", "bytes": 304},
+    {"identity": "puppet-generator-source", "sha256": "fa05cbd41352945b02997f92bbc649acd8a5f2ac5f55542b7aaf8586b7122020", "bytes": 7495},
+    {"identity": "puppet-masked-scene-json", "sha256": "3aec691bdef0b7a3b6bb8d44c4cb3bf4eb9aec9fdcf41940462cd1c3e715550d", "bytes": 474},
+    {"identity": "puppet-unmasked-scene-json", "sha256": "87d848db9d6a9b61e7c9e706c744862a4b158fb6ae58749885a366dab1326aa3", "bytes": 481},
+    {"identity": "puppet-masked-model-json", "sha256": "90d1aa4c0a96895c1bda3b28701ba58cab38f1b844c0dcd7bfbfea82e9889ad6", "bytes": 127},
+    {"identity": "puppet-unmasked-model-json", "sha256": "bc7266477e41963284b9fcb846548994302a3a131bba455179b4dc5be20bb787", "bytes": 129},
+    {"identity": "puppet-material-json", "sha256": "5c2d5ad56ac11fafb348260309ba7b9f909ae4fb0d80e41c0dbfe4203c932e08", "bytes": 238},
+    {"identity": "puppet-masked-model-output", "sha256": "06558398a570f7af7a58d89a3830fdc9f9fbbf47bbcc2cabd6d11d543f35af03", "bytes": 702},
+    {"identity": "puppet-unmasked-model-output", "sha256": "2f31635540b948169877f9b06863ede4f51708e67ff8d539488a6551294516af", "bytes": 663},
+    {"identity": "puppet-base-texture-output", "sha256": "03768e7cb08d5e837469109f04923ed0a31a2998ca2cd27bb0cb4cc595ee3948", "bytes": 83},
+    {"identity": "puppet-mask-texture-output", "sha256": "ac2142b32d0b9d0f121000424f004b44b121b2378de1761811a3c924a2bafc90", "bytes": 79}
+  ],
+  "inputs": [
+    {"identity": "trace-v1", "sha256": "ef56aef236f11aadd116dfb9e4289c44a6f95b346bfa4999f60bd544b1cb20c7", "bytes": 6107},
+    {"identity": "puppet-generator-parameters-v1", "sha256": "d67c281872be3c794db342c89bfaa96210435802460ee1d45a98482531dbb52b", "bytes": 411}
+  ],
+  "reference": {
+    "identity": "semantic-reference-v1",
+    "sha256": "1d92c1d919f2e38034866c7a16a3e51b506344efaed2112ce5bb0e85609e4ff9",
+    "bytes": 971
+  },
+  "seed": 0,
+  "checkpoints": [
+    {
+      "identity": "ordered-composition",
+      "atNanoseconds": 0,
+      "invariants": [
+        "exact-noncommutative-pass-order",
+        "exact-backend-pixel-output",
+        "translucent-final-composition",
+        "bounded-pass-evidence",
+        "physical-intermediate-lifecycle",
+        "unknown-effect-fail-live"
+      ]
+    },
+    {
+      "identity": "property-damage",
+      "atNanoseconds": 200000000,
+      "invariants": [
+        "conservative-full-frame-damage"
+      ]
+    },
+    {
+      "identity": "reload-and-stop",
+      "atNanoseconds": 400000000,
+      "invariants": [
+        "reload-isolation",
+        "global-stop-live-zero"
+      ]
+    },
+    {
+      "identity": "synthetic-stencil-composition",
+      "atNanoseconds": 600000000,
+      "invariants": [
+        "deterministic-puppet-generation",
+        "bounded-mdlv0023-structure",
+        "stencil-mask-execution",
+        "masked-unmasked-pixel-oracle"
+      ]
+    }
+  ],
+  "invariants": [
+    {"identity": "exact-noncommutative-pass-order", "description": "The production renderer executes the image layer, two target passes, and final composite in exact authored order; swapping the noncommutative target passes changes the accepted pixels."},
+    {"identity": "exact-backend-pixel-output", "description": "Full-frame hashes, a normalized center probe, and a normalized center region match the exact backend-specific reference before and after reload."},
+    {"identity": "translucent-final-composition", "description": "The final full-frame pass uses effective translucent blending while the image layer and intermediate target passes use effective normal blending."},
+    {"identity": "bounded-pass-evidence", "description": "Ordered pass evidence is complete, has no truncated passes or tokens, and identifies authored targets, actual draw targets, inputs, previous-input use, and effective blending."},
+    {"identity": "physical-intermediate-lifecycle", "description": "Exactly two effect-owned framebuffer and texture objects remain live during a session without per-frame churn."},
+    {"identity": "reload-isolation", "description": "Reload releases both old effect intermediates, creates two new intermediates, and reproduces the exact pass graph and pixels without stale reuse."},
+    {"identity": "global-stop-live-zero", "description": "After renderer teardown, global effect framebuffer and texture live counts are zero and cumulative allocations equal deallocations."},
+    {"identity": "conservative-full-frame-damage", "description": "A property change with unknown affected objects is explicitly represented as conservative unknown damage expanded to the full frame."},
+    {"identity": "unknown-effect-fail-live", "description": "The effect scene remains conservatively classified as legacy continuous rather than claiming an unsupported bounded lifecycle."},
+    {"identity": "deterministic-puppet-generation", "description": "A manifest-bound generator and parameter file reproduce byte-exact masked and unmasked MDLV0023 models plus base and mask TEXV0005 textures before each adapter run."},
+    {"identity": "bounded-mdlv0023-structure", "description": "Generation validates one mesh, eight normalized root-weighted vertices, bounded 16-bit indices, exact source and target parts, one optional mask, and one MDLS0004 root bone before rendering."},
+    {"identity": "stencil-mask-execution", "description": "The masked fixture loads one mask and executes exactly one stencil mask pass per draw while the byte-equivalent unmasked comparison executes none."},
+    {"identity": "masked-unmasked-pixel-oracle", "description": "Backend-specific full hashes, source and target probes, and source and target regions keep the source identical while proving that the target is excluded only by stencil composition; masked reload reproduces the exact output."}
+  ]
+}

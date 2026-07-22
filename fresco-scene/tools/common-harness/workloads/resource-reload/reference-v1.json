@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "workload": "resource-reload",
+  "semantics": [
+    "failed-shader-rollback",
+    "real-invalid-shader-partial-compatibility",
+    "post-create-program-rollback",
+    "failed-program-never-published-or-cached",
+    "monotonic-generation-isolation",
+    "same-source-recompile-after-reload",
+    "changed-source-pixel-oracle",
+    "completion-before-retirement",
+    "global-stop-live-zero"
+  ],
+  "backendNeutral": false,
+  "limitations": [
+    "retirement uses a synchronous completion barrier and intentionally does not provide a deferred fence queue",
+    "the deterministic fixture covers GL shader programs and session-owned render resources, not arbitrary future resource classes",
+    "the manifest-bound invalid shader remains a partial candidate; it reaches a program-link rollback on native OpenGL and a shader-compile rollback on ANGLE/Metal",
+    "translation, GL compile, link rollback, and post-link setup failures have separate production counters",
+    "ANGLE/Metal is bound to the byte-identical native OpenGL oracle for this fixture"
+  ]
+}

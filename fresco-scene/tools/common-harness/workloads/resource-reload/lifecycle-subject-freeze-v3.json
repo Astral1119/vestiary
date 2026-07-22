@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 3,
+  "identity": "resource-lifecycle-subject-freeze-v3",
+  "manifest": {"sha256": "5a36283d0f5c2cb150312b4be893266b04ba18051eda7ac82b0cecabd13ee18c", "bytes": 557},
+  "reference": {"sha256": "254d9ce9b99aabce57b4117fdc0f9abb6ca166370fd74bb819f5018c7c84b2c9", "bytes": 1910},
+  "trace": {"sha256": "7ab5db03b3cbb11ab8d48e747888c95980b4b1831da9e63cd6009b7f52629a11", "bytes": 575},
+  "runner": {"sha256": "6a2456c5ee2c137d29cf672d8846c13e0b73d75b3706565cd86e038373e0a466", "bytes": 16199},
+  "childPolicy": "native-opengl exactly once, then angle-metal exactly once if and only if native accepts; no retry, resume, replacement, or discarded result"
+}

@@ -1,0 +1,233 @@
+{
+  "schemaVersion": 1,
+  "workload": "masks-effects",
+  "assignment": "harness-masks-effects",
+  "logicalWidth": 320,
+  "logicalHeight": 180,
+  "fpsCeiling": 5,
+  "policyRevision": 1,
+  "reasonTokens": [
+    "harness:masks-effects"
+  ],
+  "pollMilliseconds": 10,
+  "damageTimeoutMilliseconds": 1000,
+  "equivalentOutputBackends": {
+    "angle-metal": "native-opengl"
+  },
+  "pixelProbes": [
+    {
+      "identity": "center",
+      "xMilli": 500,
+      "yMilli": 500
+    }
+  ],
+  "pixelRegions": [
+    {
+      "identity": "center-region",
+      "leftMilli": 450,
+      "bottomMilli": 450,
+      "rightMilli": 550,
+      "topMilli": 550
+    }
+  ],
+  "hideProperty": {
+    "fixture": {
+      "value": false
+    }
+  },
+  "orderedPasses": [
+    {
+      "objectID": 101,
+      "shader": "genericimage4",
+      "authoredTarget": "<none>",
+      "drawTarget": "_rt_imageLayerComposite_101_a",
+      "input": "<texture>",
+      "previousInput": false,
+      "blendingMode": 1,
+      "truncatedTokens": 0
+    },
+    {
+      "objectID": 101,
+      "shader": "effects/fresco_ordered_a",
+      "authoredTarget": "_rt_fresco_order_a",
+      "drawTarget": "_rt_fresco_order_a",
+      "input": "_rt_imageLayerComposite_101_a",
+      "previousInput": true,
+      "blendingMode": 1,
+      "truncatedTokens": 0
+    },
+    {
+      "objectID": 101,
+      "shader": "effects/fresco_ordered_b",
+      "authoredTarget": "_rt_fresco_order_b",
+      "drawTarget": "_rt_fresco_order_b",
+      "input": "_rt_fresco_order_a",
+      "previousInput": true,
+      "blendingMode": 1,
+      "truncatedTokens": 0
+    },
+    {
+      "objectID": 101,
+      "shader": "effects/fresco_ordered_composite",
+      "authoredTarget": "<none>",
+      "drawTarget": "_rt_FullFrameBuffer",
+      "input": "_rt_fresco_order_b",
+      "previousInput": true,
+      "blendingMode": 2,
+      "truncatedTokens": 0
+    }
+  ],
+  "expectedOutputs": {
+    "native-opengl": {
+      "visible": {
+        "pixelRGBAHash": 6423138637018365467,
+        "varyingPixels": 4356,
+        "pixelProbes": [
+          {
+            "identity": "center",
+            "normalized": [500, 500],
+            "pixel": [320, 180],
+            "rgba": [108, 177, 123, 0]
+          }
+        ],
+        "pixelRegions": [
+          {
+            "identity": "center-region",
+            "normalized": [450, 450, 550, 550],
+            "pixels": [288, 162, 352, 198],
+            "pixelCount": 2304,
+            "varyingPixels": 2232,
+            "pixelRGBTotal": 933840,
+            "pixelRGBAHash": 13348467752093860867
+          }
+        ]
+      },
+      "hidden": {
+        "pixelRGBAHash": 11913877822352892803,
+        "varyingPixels": 0,
+        "pixelProbes": [
+          {
+            "identity": "center",
+            "normalized": [500, 500],
+            "pixel": [320, 180],
+            "rgba": [10, 20, 31, 0]
+          }
+        ],
+        "pixelRegions": [
+          {
+            "identity": "center-region",
+            "normalized": [450, 450, 550, 550],
+            "pixels": [288, 162, 352, 198],
+            "pixelCount": 2304,
+            "varyingPixels": 0,
+            "pixelRGBTotal": 140544,
+            "pixelRGBAHash": 6020669535967767427
+          }
+        ]
+      },
+      "changedPixels": 4356
+    }
+  },
+  "puppetPixelProbes": [
+    {"identity": "source", "xMilli": 400, "yMilli": 500},
+    {"identity": "target", "xMilli": 575, "yMilli": 500}
+  ],
+  "puppetPixelRegions": [
+    {
+      "identity": "source-region",
+      "leftMilli": 380,
+      "bottomMilli": 450,
+      "rightMilli": 420,
+      "topMilli": 550
+    },
+    {
+      "identity": "target-region",
+      "leftMilli": 550,
+      "bottomMilli": 450,
+      "rightMilli": 600,
+      "topMilli": 550
+    }
+  ],
+  "expectedPuppetOutputs": {
+    "native-opengl": {
+      "masked": {
+        "pixelRGBAHash": 16300020904919580163,
+        "pixelRGBTotal": 15889920,
+        "varyingPixels": 8036,
+        "pixelProbes": [
+          {
+            "identity": "source",
+            "normalized": [400, 500],
+            "pixel": [256, 180],
+            "rgba": [220, 40, 40, 0]
+          },
+          {
+            "identity": "target",
+            "normalized": [575, 500],
+            "pixel": [367, 180],
+            "rgba": [10, 20, 31, 0]
+          }
+        ],
+        "pixelRegions": [
+          {
+            "identity": "source-region",
+            "normalized": [380, 450, 420, 550],
+            "pixels": [243, 162, 269, 198],
+            "pixelCount": 936,
+            "varyingPixels": 0,
+            "pixelRGBTotal": 280800,
+            "pixelRGBAHash": 7263521872091169731
+          },
+          {
+            "identity": "target-region",
+            "normalized": [550, 450, 600, 550],
+            "pixels": [352, 162, 384, 198],
+            "pixelCount": 1152,
+            "varyingPixels": 0,
+            "pixelRGBTotal": 70272,
+            "pixelRGBAHash": 15728483836435003267
+          }
+        ]
+      },
+      "unmasked": {
+        "pixelRGBAHash": 8502827985783239311,
+        "pixelRGBTotal": 18135374,
+        "varyingPixels": 15908,
+        "pixelProbes": [
+          {
+            "identity": "source",
+            "normalized": [400, 500],
+            "pixel": [256, 180],
+            "rgba": [220, 40, 40, 0]
+          },
+          {
+            "identity": "target",
+            "normalized": [575, 500],
+            "pixel": [367, 180],
+            "rgba": [40, 220, 80, 0]
+          }
+        ],
+        "pixelRegions": [
+          {
+            "identity": "source-region",
+            "normalized": [380, 450, 420, 550],
+            "pixels": [243, 162, 269, 198],
+            "pixelCount": 936,
+            "varyingPixels": 0,
+            "pixelRGBTotal": 280800,
+            "pixelRGBAHash": 7263521872091169731
+          },
+          {
+            "identity": "target-region",
+            "normalized": [550, 450, 600, 550],
+            "pixels": [352, 162, 384, 198],
+            "pixelCount": 1152,
+            "varyingPixels": 0,
+            "pixelRGBTotal": 391680,
+            "pixelRGBAHash": 2623790397109229443
+          }
+        ]
+      }
+    }
+  }
+}

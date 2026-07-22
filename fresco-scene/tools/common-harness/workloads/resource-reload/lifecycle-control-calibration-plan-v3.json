@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 3,
+  "identity": "resource-lifecycle-control-calibration-v3",
+  "purpose": "control-only-calibration",
+  "attemptsPerBackend": 20,
+  "frozenOrder": [
+    "native-opengl", "angle-metal", "native-opengl", "angle-metal",
+    "native-opengl", "angle-metal", "native-opengl", "angle-metal",
+    "native-opengl", "angle-metal", "native-opengl", "angle-metal",
+    "native-opengl", "angle-metal", "native-opengl", "angle-metal",
+    "native-opengl", "angle-metal", "native-opengl", "angle-metal",
+    "native-opengl", "angle-metal", "native-opengl", "angle-metal",
+    "native-opengl", "angle-metal", "native-opengl", "angle-metal",
+    "native-opengl", "angle-metal", "native-opengl", "angle-metal",
+    "native-opengl", "angle-metal", "native-opengl", "angle-metal",
+    "native-opengl", "angle-metal", "native-opengl", "angle-metal"
+  ],
+  "protocol": {
+    "version": 1,
+    "eventTypes": ["hello", "ready", "stopped"],
+    "loads": 1,
+    "project": "static-no-media-minimal-appkit-window"
+  },
+  "environment": {
+    "FRESCO_SCENE_AUDIO_DISABLED": "1",
+    "FRESCO_SCENE_SOUND_EXPERIMENTAL": "0"
+  },
+  "allowedRootIdentities": [
+    {"identity": "AppIntents", "headingToken": "AppIntents"},
+    {"identity": "LinkServices", "headingToken": "LinkServices"},
+    {"identity": "NSXPCConnection", "headingToken": "NSXPCConnection"}
+  ],
+  "forbiddenFrameTokens": [
+    "FrescoScene", "fresco-scene", "WallpaperEngine", "OpenGL",
+    "libGLES", "libEGL", "ANGLE", "Metal.framework", "AGXMetal", "MTL"
+  ],
+  "groupBoundary": "STACK OF heading through the next ==== delimiter",
+  "classificationRule": "exactly one allowed heading token per STACK OF group",
+  "derivation": {
+    "population": "all 40 valid scheduled controls without retry",
+    "aggregate": "maximum-across-controls",
+    "metrics": [
+      "totalRootGroupCount", "totalRootInstances",
+      "perSignatureGroupCount", "perSignatureInstanceCount",
+      "rawLeakObjects", "rawLeakBytes"
+    ]
+  }
+}

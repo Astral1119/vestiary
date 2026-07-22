@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "workload": {
+    "identity": "continuous-animation",
+    "version": 1,
+    "classification": "primary"
+  },
+  "criteriaVersion": "continuous-cadence-v1",
+  "assets": [
+    {
+      "identity": "project-json",
+      "sha256": "10651d68ab0d6d4b882118fb77147a3ddded5a520922334f3d6379aeaacc91de",
+      "bytes": 162
+    },
+    {
+      "identity": "scene-json",
+      "sha256": "e2846b6baa05b813e6ef125a3512cf8057a5d922bf3b132812c80dfeb7cba834",
+      "bytes": 346
+    }
+  ],
+  "inputs": [
+    {
+      "identity": "trace-v1",
+      "sha256": "cd8647ee10605e1979f393693d312e717bd8b2fe529b8c72999866a072cd29cd",
+      "bytes": 639
+    }
+  ],
+  "reference": {
+    "identity": "semantic-reference-v1",
+    "sha256": "b74b2efe649196053b9ea2304e8ffe14d2d85553b78d4e7e5271fced1805e59e",
+    "bytes": 452
+  },
+  "seed": 0,
+  "checkpoints": [
+    {
+      "identity": "fps-15",
+      "atNanoseconds": 800000000,
+      "invariants": [
+        "fps-15-ceiling"
+      ]
+    },
+    {
+      "identity": "fps-30",
+      "atNanoseconds": 1400000000,
+      "invariants": [
+        "fps-30-ceiling"
+      ]
+    },
+    {
+      "identity": "fps-60",
+      "atNanoseconds": 1850000000,
+      "invariants": [
+        "fps-60-ceiling",
+        "continuous-lease-fps-coalescing",
+        "live-fps-retiming"
+      ]
+    },
+    {
+      "identity": "pause-resume",
+      "atNanoseconds": 2500000000,
+      "invariants": [
+        "bounded-pause-resume",
+        "continued-liveness"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "identity": "fps-15-ceiling",
+      "description": "The 15 FPS phase stays within its declared lower cadence and upper ceiling bounds."
+    },
+    {
+      "identity": "fps-30-ceiling",
+      "description": "The 30 FPS phase stays within its declared lower cadence and upper ceiling bounds."
+    },
+    {
+      "identity": "fps-60-ceiling",
+      "description": "The 60 FPS phase stays within its declared lower cadence and upper ceiling bounds."
+    },
+    {
+      "identity": "continuous-lease-fps-coalescing",
+      "description": "Coordinator shows continuous-lease activity coalesced by the FPS ceiling."
+    },
+    {
+      "identity": "live-fps-retiming",
+      "description": "Policy revisions retime one live helper through 15, 30, and 60 FPS."
+    },
+    {
+      "identity": "bounded-pause-resume",
+      "description": "Pause bounds frame and decision churn to zero before resume."
+    },
+    {
+      "identity": "continued-liveness",
+      "description": "Frame production continues after resume."
+    }
+  ]
+}

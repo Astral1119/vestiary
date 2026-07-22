@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 3,
+  "identity": "resource-lifecycle-control-calibration-schema-v3-attempt-2",
+  "campaignRequired": [
+    "schemaVersion", "identity", "purpose", "attempt", "plan", "schema",
+    "ledger", "host", "tool", "helpers", "frozenOrder", "runReceipts",
+    "campaignStatus", "invalidRuns", "derivedTable"
+  ],
+  "slotRequired": [
+    "ordinal", "backend", "attemptWithinBackend", "attempt", "assignment",
+    "elapsedNanoseconds", "status", "invalidReasons", "rawReport", "derived"
+  ],
+  "receiptRequired": [
+    "ordinal", "backend", "walSha256", "walBytes", "casPath",
+    "readbackSha256", "readbackBytes"
+  ],
+  "persistenceOrder": [
+    "atomic-wal-write", "wal-fsync", "wal-directory-fsync", "cas-ingest",
+    "cas-readback-rehash", "atomic-receipt-write", "receipt-fsync",
+    "receipt-directory-fsync", "next-slot"
+  ],
+  "partialFailurePolicy": "abort without retry or resume; retain WAL, CAS artifacts, receipts, and a partial invalid campaign without caps"
+}

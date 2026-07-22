@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "workload": "particle-heavy",
+  "semantics": [
+    "authored-seed-determinism",
+    "bounded-catch-up",
+    "finite-emitter-quiescence",
+    "particle-resource-reuse",
+    "typed-continuous-lease-release",
+    "unknown-particle-fail-live"
+  ],
+  "backendNeutral": true,
+  "limitations": [
+    "semantic evidence does not claim pixel-reference correctness",
+    "only fully recognized finite emitters qualify for lifecycle scheduling",
+    "unsupported particle graphs remain fail-live and continuously scheduled"
+  ]
+}

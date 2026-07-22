@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "identity": "sdl3-gpu-metal-static-render-foundation-minimal-3d-v1",
+  "implementation": {
+    "sdlVersion": "3.4.10",
+    "driver": "metal",
+    "depthFormat": "depth32float",
+    "colorFormat": "bgra8unorm-srgb",
+    "offscreen": true,
+    "debugMode": true
+  },
+  "depthProbe": {
+    "depth32float": true,
+    "depth24unorm-stencil8": false,
+    "depth16unorm": true
+  },
+  "outputs": [
+    {"identity": "static-render-foundation-clear", "transform": "none", "cull": "none", "width": 320, "height": 180, "indexed": false, "bytes": 230400, "sha256": "6f77f852d070d718abceaf639531c5424c1abecf4b2b603c640169f3546be7a1"},
+    {"identity": "cull-none-landscape-t0", "transform": "landscape-t0", "cull": "none", "width": 640, "height": 360, "indexed": true, "bytes": 921600, "sha256": "b51cdbc27cd644a57746fc3824fc27b63e4a73e0d2daa85c25a0391334e0ee7d"},
+    {"identity": "cull-back-landscape-t0", "transform": "landscape-t0", "cull": "back", "width": 640, "height": 360, "indexed": true, "bytes": 921600, "sha256": "c323768b6ea34a83239e8f4b29ad6afdb0e89af5e2530c90715fee1db667bac1"},
+    {"identity": "cull-back-landscape-t1", "transform": "landscape-t1", "cull": "back", "width": 640, "height": 360, "indexed": true, "bytes": 921600, "sha256": "0e41be31b8a358de9a9b6e135cb8498638aa519e1c55d7b409d78a22777cce61"},
+    {"identity": "cull-back-portrait-t1", "transform": "portrait-t1", "cull": "back", "width": 360, "height": 640, "indexed": true, "bytes": 921600, "sha256": "2efbd279a220881d11ee0696aac25661f5363d8037e022aaf6ac5c8ceb137e41"}
+  ],
+  "probeColors": [
+    {"identity": "depth-overlap-near", "checkpoint": "cull-back-landscape-t0", "bgra8": ["0000ffff", "00ff00ff", "00ffffff", "ff0000ff"]},
+    {"identity": "far-nonoverlap-visible", "checkpoint": "cull-back-landscape-t0", "bgra8": ["00ff00ff", "00ffffff"]},
+    {"identity": "cull-diagnostic", "checkpoint": "cull-none-landscape-t0", "bgra8": ["0000ffff", "00ff00ff"]},
+    {"identity": "cull-diagnostic", "checkpoint": "cull-back-landscape-t0", "bgra8": ["000000ff"]},
+    {"identity": "perspective-near-extent", "checkpoint": "cull-back-landscape-t0", "bgra8": ["0000ffff", "00ff00ff"]},
+    {"identity": "perspective-far-extent", "checkpoint": "cull-back-landscape-t0", "bgra8": ["0000ffff", "00ff00ff", "00ffffff", "ff0000ff"]},
+    {"identity": "texture-top-left", "checkpoint": "cull-back-landscape-t0", "bgra8": ["0000ffff"]},
+    {"identity": "texture-bottom-right", "checkpoint": "cull-back-landscape-t0", "bgra8": ["00ffffff"]}
+  ],
+  "lifecycle": {
+    "commandBuffersAcquired": 6,
+    "commandBuffersSubmitted": 6,
+    "fencesCreated": 6,
+    "fencesWaited": 6,
+    "fencesReleased": 6,
+    "buffersCreated": 2,
+    "buffersReleased": 2,
+    "texturesCreated": 6,
+    "texturesReleased": 6,
+    "transferBuffersCreated": 6,
+    "transferBuffersReleased": 6,
+    "shadersCreated": 2,
+    "shadersReleased": 2,
+    "pipelinesCreated": 2,
+    "pipelinesReleased": 2,
+    "samplersCreated": 1,
+    "samplersReleased": 1,
+    "resizeRetirementsAfterCompletion": 2,
+    "pushedVertexUniforms": 4,
+    "indexedDraws": 4
+  }
+}

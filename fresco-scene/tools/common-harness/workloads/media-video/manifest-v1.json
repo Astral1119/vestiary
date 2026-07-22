@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 2,
+  "workload": {
+    "identity": "media-video",
+    "version": 1,
+    "classification": "primary"
+  },
+  "criteriaVersion": "media-semantics-v1",
+  "assets": [
+    {
+      "identity": "project-json",
+      "sha256": "a1218927e6932f898457bfd1c502a7c39f66d163ff17b02803fb23de60b2e1c7",
+      "bytes": 155
+    },
+    {
+      "identity": "scene-json",
+      "sha256": "c676ce72715ec0d811b13da12a01ec544299e55240770f5ef2d60c1f1c69b0e3",
+      "bytes": 575
+    },
+    {
+      "identity": "media-model-json",
+      "sha256": "b7d3736a8582a278baf4dc1b6fc965b275f8ea259e9df567683a34da01219773",
+      "bytes": 93
+    },
+    {
+      "identity": "media-material-json",
+      "sha256": "1b1f4f7a36f664c350b716a0470a81329cf9a0d56a1213146b8b50b77efcd427",
+      "bytes": 255
+    },
+    {
+      "identity": "media-fixture-generator-source",
+      "sha256": "5e38e79da73fef3a56cd95e42096b1be8a284626df421cf7937f8366b2986734",
+      "bytes": 12542
+    }
+  ],
+  "inputs": [
+    {
+      "identity": "trace-v1",
+      "sha256": "110610c6ec1f469b4684540bc761ef2ab2639c244938326326e4b8a2c540c878",
+      "bytes": 475
+    },
+    {
+      "identity": "media-generator-parameters-v1",
+      "sha256": "0611dd3551ae89f979690e26b9f6ba381289f838be90c38482232b6fc2dba328",
+      "bytes": 428
+    }
+  ],
+  "reference": {
+    "identity": "semantic-reference-v1",
+    "sha256": "4edec4fa2a81991bf6d7136130e10e10e7a681d062fe1ee53085e76210f57fdf",
+    "bytes": 565
+  },
+  "derivedArtifacts": [
+    {
+      "identity": "generated-video-texture",
+      "generatorAsset": "media-fixture-generator-source",
+      "parametersInput": "media-generator-parameters-v1",
+      "artifact": "generated-media-container",
+      "comparisonArtifact": "generated-media-container-comparison",
+      "generatorBinaryArtifact": "media-fixture-generator-binary",
+      "byteReproducible": false
+    }
+  ],
+  "seed": 0,
+  "checkpoints": [
+    {
+      "identity": "pts-advance",
+      "atNanoseconds": 750000000,
+      "invariants": [
+        "decoded-frame-readiness",
+        "presentation-time-scheduling"
+      ]
+    },
+    {
+      "identity": "seek-and-eos",
+      "atNanoseconds": 2000000000,
+      "invariants": [
+        "seek-semantic-content",
+        "terminal-stall-quiescence"
+      ]
+    },
+    {
+      "identity": "reload-and-stop",
+      "atNanoseconds": 3000000000,
+      "invariants": [
+        "reload-isolation",
+        "exact-player-teardown",
+        "derived-container-provenance"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "identity": "decoded-frame-readiness",
+      "description": "Only a successfully decoded and queued frame emits frame-ready invalidation and reaches upload and presentation."
+    },
+    {
+      "identity": "presentation-time-scheduling",
+      "description": "A future decoded presentation timestamp schedules a typed one-shot deadline without eager presentation or polling frames."
+    },
+    {
+      "identity": "seek-semantic-content",
+      "description": "A real seek decodes and presents the requested position with a different deterministic semantic frame hash."
+    },
+    {
+      "identity": "terminal-stall-quiescence",
+      "description": "End of stream causes one suppressed evaluation and then no decoder, evaluation, submission, presentation, or suppression retry spin."
+    },
+    {
+      "identity": "reload-isolation",
+      "description": "Reload resets per-session decode and seek evidence, reproduces the first semantic frame hash, and destroys the prior player exactly once."
+    },
+    {
+      "identity": "exact-player-teardown",
+      "description": "The final stopped event reports zero live players and equal global construction and destruction totals."
+    },
+    {
+      "identity": "derived-container-provenance",
+      "description": "Both generated containers and the generator binary are content-addressed artifacts bound to generator source, parameters, and build toolchain without claiming stable container bytes."
+    }
+  ]
+}

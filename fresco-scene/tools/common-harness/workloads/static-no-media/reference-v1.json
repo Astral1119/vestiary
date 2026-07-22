@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "workload": "static-no-media",
+  "semantics": [
+    "constructor-presentation",
+    "zero-quiescent-churn",
+    "exactly-one-property-wake",
+    "property-requiescence"
+  ],
+  "backendNeutral": true,
+  "limitations": [
+    "resize is not exposed by helper protocol version 1"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "workload": "media-video",
+  "assignment": "harness-media-video",
+  "logicalWidth": 320,
+  "logicalHeight": 180,
+  "fpsCeiling": 30,
+  "policyRevision": 1,
+  "evidenceFrames": 1,
+  "pollMilliseconds": 50,
+  "advanceTimeoutMilliseconds": 2000,
+  "seekTimeoutMilliseconds": 1000,
+  "quiescenceMilliseconds": 250,
+  "inactiveObservationMilliseconds": 700,
+  "prePTSQuiescenceMilliseconds": 100,
+  "seekSeconds": 1.0,
+  "endOfStreamSeekSeconds": 1.99
+}

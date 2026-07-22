@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "identity": "resource-lifecycle-subject-v3",
+  "profile": "absolute-calibrated-lifecycle",
+  "calibration": {
+    "archive": {"sha256": "8c55dbf13fb177f995941779a025dc266e075cd9c4367156e62ea7208c7b3549", "bytes": 6521240},
+    "predecessorAddendum": {"sha256": "5fc22a625092183576816ee1ec8195ec4788d28db9dd4561c328ff9c412cf5b8", "bytes": 1610},
+    "archiveAddendumV4": {"sha256": "f20f88b2aeee086df55d26e1aee530fd2634ae2ad92bd67603c838e84c60348b", "bytes": 1388},
+    "archiveVerifier": {"sha256": "a9c5745de01448c44d0295ab9d3f8f3186b9dfa2d561a6f0eced2ed69f10cf73", "bytes": 9418}
+  },
+  "absoluteCaps": {
+    "totalRootGroupCount": 2,
+    "totalRootInstances": 3,
+    "rawLeakObjects": 288,
+    "rawLeakBytes": 18816,
+    "perHeading": {
+      "AppIntents": {"groupCount": 0, "instanceCount": 0},
+      "LinkServices": {"groupCount": 0, "instanceCount": 0},
+      "NSXPCConnection": {"groupCount": 2, "instanceCount": 3}
+    },
+    "unknownGroups": 0,
+    "forbiddenGroups": 0,
+    "subjectOnlyHeadings": 0
+  },
+  "campaign": {
+    "subjectsPerBackend": 5,
+    "controlsPerBackend": 5,
+    "pairOrder": [["control", "subject"], ["subject", "control"], ["control", "subject"], ["subject", "control"], ["control", "subject"]],
+    "comparison": "absolute-caps-only",
+    "retryPolicy": "none",
+    "backendSpecificCaps": false,
+    "acceptance": "all five controls and all five subjects pass"
+  },
+  "endpoints": {
+    "control": {"generationsCreated": 1, "generationsRetired": 1, "liveGenerations": 0, "completionBarriersCompleted": 1, "completionBarriersFailed": 0, "retirementsWithoutCompletion": 0, "programPublicationDeletionBalance": true},
+    "subject": {"generationsCreated": 2, "generationsRetired": 2, "liveGenerations": 0, "completionBarriersCompleted": 2, "completionBarriersFailed": 0, "retirementsWithoutCompletion": 0, "programPublicationDeletionBalance": true}
+  }
+}

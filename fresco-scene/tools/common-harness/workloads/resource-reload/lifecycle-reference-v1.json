@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "workload": "resource-reload",
+  "profile": "lifecycle",
+  "required": {
+    "createDestroyIterations": 3,
+    "reloadIterations": 3,
+    "generationsPerIteration": 2,
+    "completionBarriersPerIteration": 2,
+    "liveGenerationsAfterStop": 0,
+    "programPublicationDeletionBalance": true,
+    "ownedProcessesAfterStop": 0,
+    "atExitLeakCount": 0
+  },
+  "resourceCriteria": {
+    "processes": {"before": 0, "after": 0, "peakAtLeast": 1},
+    "childProcesses": {"before": 0, "after": 0, "peakAtLeast": 0},
+    "rssBytes": {"before": 0, "after": 0, "peakAtLeast": 1},
+    "threads": {"before": 0, "after": 0, "peakAtLeast": 1},
+    "fileDescriptors": {"before": 0, "after": 0, "peakAtLeast": 1},
+    "trackedPrograms": {"before": 0, "after": 0, "peakAtLeast": 1},
+    "trackedRendererAllocations": {"before": 0, "after": 0, "peakAtLeast": 0}
+  },
+  "deviceLoss": {
+    "status": "unavailable",
+    "reason": "protocol version 1 and both compatibility backends expose no supported device-loss injection"
+  },
+  "driverGpuResources": {
+    "status": "unavailable",
+    "reason": "native OpenGL and ANGLE expose no complete count of driver-private GPU allocations"
+  },
+  "metricDefinitions": {
+    "trackedPrograms": "maximum programCacheEntries reported by ready evidence",
+    "trackedRendererAllocations": "maximum sum of live counters across renderAllocations classes reported by metrics evidence"
+  }
+}

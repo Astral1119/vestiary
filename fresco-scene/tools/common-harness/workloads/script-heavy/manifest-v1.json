@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "workload": {
+    "identity": "script-heavy",
+    "version": 1,
+    "classification": "primary"
+  },
+  "criteriaVersion": "script-semantics-v1",
+  "assets": [
+    {
+      "identity": "project-json",
+      "sha256": "d2bdd4bebd1917756f4c22486b8dedec01d804e9cd2cad72f39db3e1be449cc5",
+      "bytes": 299
+    },
+    {
+      "identity": "scene-json",
+      "sha256": "dd1217991eff274468b70a794c24e6bcbaf964fcab5ed97ddf2ade2c74a2a811",
+      "bytes": 1038
+    },
+    {
+      "identity": "timer-scene-json",
+      "sha256": "5f5887dfb45a5d92d026f7d7037a2bcd8e49a1cdb5b9496df489fd64b9b0bec9",
+      "bytes": 683
+    }
+  ],
+  "inputs": [
+    {
+      "identity": "trace-v1",
+      "sha256": "2e854c66ea8bb7b54a5c4529f9bb46957d6e8f643dcd8bb15a2d1aa4135e3d81",
+      "bytes": 519
+    }
+  ],
+  "reference": {
+    "identity": "semantic-reference-v1",
+    "sha256": "ceda79c5a9773b89a91911a83ae7d44660a5de76f73797659aee0cf82f1ee165",
+    "bytes": 414
+  },
+  "seed": 0,
+  "checkpoints": [
+    {
+      "identity": "timer-deadline",
+      "atNanoseconds": 300000000,
+      "invariants": ["authored-timer-deadline"]
+    },
+    {
+      "identity": "script-producers",
+      "atNanoseconds": 600000000,
+      "invariants": [
+        "continuous-script-time",
+        "cursor-invalidation",
+        "property-invalidation",
+        "unknown-producer-fail-live"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "identity": "authored-timer-deadline",
+      "description": "A tracked timer-only authored script fires exactly once after a leaseAt-only coordinator decision within the declared bound."
+    },
+    {
+      "identity": "continuous-script-time",
+      "description": "Authored update callbacks advance with script time under continuous scheduling."
+    },
+    {
+      "identity": "cursor-invalidation",
+      "description": "A handled authored cursor callback records exactly one script invalidation."
+    },
+    {
+      "identity": "property-invalidation",
+      "description": "An authored user-property update records exactly one script invalidation without diagnostics."
+    },
+    {
+      "identity": "unknown-producer-fail-live",
+      "description": "A real unclassified authored script emits a deterministic diagnostic and retains conservative continuous scheduling."
+    }
+  ]
+}

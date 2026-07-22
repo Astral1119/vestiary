@@ -1,0 +1,68 @@
+{
+  "children": null,
+  "controlpoint": [
+    {
+      "flags": 0,
+      "id": 0,
+      "offset": "0 0 0"
+    }
+  ],
+  "emitter": [
+    {
+      "directions": "1 1 0",
+      "distancemax": 24,
+      "distancemin": 4,
+      "duration": 0,
+      "id": 6,
+      "instantaneous": 8,
+      "name": "sphererandom",
+      "origin": "0 0 0",
+      "rate": 0,
+      "speedmax": 10
+    }
+  ],
+  "flags": 1,
+  "initializer": [
+    {
+      "id": 2,
+      "max": 0.2,
+      "min": 0.2,
+      "name": "lifetimerandom"
+    },
+    {
+      "id": 3,
+      "max": 12,
+      "min": 6,
+      "name": "sizerandom"
+    },
+    {
+      "id": 4,
+      "max": "8 8 0",
+      "min": "-8 -8 0",
+      "name": "velocityrandom"
+    },
+    {
+      "id": 5,
+      "max": "255 255 255",
+      "min": "128 192 255",
+      "name": "colorrandom"
+    }
+  ],
+  "material": "materials/particle-fixture.json",
+  "maxcount": 16,
+  "operator": [
+    {
+      "drag": 0,
+      "gravity": "0 -2 0",
+      "id": 7,
+      "name": "movement"
+    }
+  ],
+  "renderer": [
+    {
+      "id": 1,
+      "name": "sprite"
+    }
+  ],
+  "starttime": 0
+}
