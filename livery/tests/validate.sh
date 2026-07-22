@@ -5,6 +5,8 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 CONFIG_ROOT=${LIVERY_CONFIG_ROOT:-$HOME/.config}
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/livery-test.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
+mkdir -p "$TMP/module-cache"
+export CLANG_MODULE_CACHE_PATH="$TMP/module-cache"
 
 production_hashes() {
   shasum -a 256 \
@@ -34,13 +36,23 @@ swiftc \
   -framework AppKit \
   -framework WebKit \
   -framework AVFoundation \
+  -framework JavaScriptCore \
   "$ROOT/../fresco/Fresco.swift" \
+  "$ROOT/../fresco/FrescoStatePlanner.swift" \
+  "$ROOT/../fresco/FrescoStateStore.swift" \
+  "$ROOT/../fresco/RuntimeAssignments.swift" \
+  "$ROOT/../fresco/FrescoObservation.swift" \
+  "$ROOT/../fresco/FrescoStatusPipeline.swift" \
+  "$ROOT/../fresco/SceneSupervisor.swift" \
+  "$ROOT/../fresco/WebWallpaperAudit.swift" \
+  "$ROOT/../fresco/FrescoMain.swift" \
   -o "$TMP/fresco-worker"
 "$TMP/fresco-worker" --self-test-agent-counts >/dev/null
 swiftc \
   -warnings-as-errors \
   -framework AppKit \
   "$ROOT/../tabard/Tabard.swift" \
+  "$ROOT/../tabard/Inbox.swift" \
   -o "$TMP/tabard"
 swiftc \
   -parse-as-library \
@@ -101,6 +113,10 @@ jq -e '.properties.schemaVersion.const == 1' \
   "$ROOT/schema/theme-library.schema.json" >/dev/null
 jq -e '.properties.schemaVersion.const == 1' \
   "$ROOT/schema/wallpaper-library.schema.json" >/dev/null
+jq -e '
+  .properties.fixtures.items.properties.sceneCoverage.properties.status.enum
+    == ["available", "reach", "not-yet-possible"]
+' "$ROOT/schema/wallpaper-library.schema.json" >/dev/null
 
 themes_before=$(shasum -a 256 "$ROOT/themes.json" | awk '{print $1}')
 "$ROOT/generate-themes" >/dev/null
@@ -115,17 +131,27 @@ themes_after=$(shasum -a 256 "$ROOT/themes.json" | awk '{print $1}')
 done
 
 library_runtime="$TMP/library-runtime"
+live_reference="$TMP/live-reference"
+mkdir -p "$live_reference"
 LIVERY_RUNTIME_ROOT="$library_runtime" \
   "$ROOT/liveryctl" import-wallpaper \
   "$ROOT/assets/moonlit-ocean.jpg" \
   --name "Imported Moon" \
   --subtitle "dark / local / test" \
-  --credit "validation fixture" > "$TMP/imported.json"
+  --credit "validation fixture" \
+  --live-reference "$live_reference" \
+  --scene-coverage reach \
+  --scene-note "renderer coverage test" > "$TMP/imported.json"
 jq -e '
   .id == "imported-moon"
     and .name == "Imported Moon"
     and .subtitle == "dark / local / test"
     and .credit == "validation fixture"
+    and .live == "'"$live_reference"'"
+    and .sceneCoverage == {
+      status: "reach",
+      note: "renderer coverage test"
+    }
     and (.assetDigest | test("^sha256:[0-9a-f]{64}$"))
     and (.palettes | map(.name)) == ["content", "vibrant", "neutral"]
     and (.palettes | all(
@@ -135,6 +161,7 @@ jq -e '
         and .ghosttyBackgroundOpacity == 0.5
     ))
 ' "$TMP/imported.json" >/dev/null
+[ ! -d "$library_runtime/library/live/live-reference" ]
 
 LIVERY_RUNTIME_ROOT="$library_runtime" \
   "$ROOT/liveryctl" wallpapers --json > "$TMP/merged-wallpapers.json"
@@ -149,8 +176,19 @@ jq -e '
 LIVERY_RUNTIME_ROOT="$library_runtime" \
   "$ROOT/liveryctl" import-wallpaper \
   "$ROOT/assets/moonlit-ocean.jpg" \
-  --name "Duplicate Name" > "$TMP/duplicate.json"
+  --name "Duplicate Name" \
+  --subtitle "scene / not-yet-possible" \
+  --scene-coverage not-yet-possible \
+  --scene-note "static representative only" > "$TMP/duplicate.json"
 [ "$(jq -r '.id' "$TMP/duplicate.json")" = "imported-moon" ]
+jq -e '
+  .live == null
+    and .subtitle == "scene / not-yet-possible"
+    and .sceneCoverage == {
+      status: "not-yet-possible",
+      note: "static representative only"
+    }
+' "$TMP/duplicate.json" >/dev/null
 [ "$(LIVERY_RUNTIME_ROOT="$library_runtime" \
   "$ROOT/liveryctl" wallpapers --json | jq '.fixtures | length')" -eq 7 ]
 
@@ -158,6 +196,14 @@ LIVERY_RUNTIME_ROOT="$library_runtime" \
   "$ROOT/liveryctl" validate wallpaper:imported-moon:content >/dev/null
 LIVERY_RUNTIME_ROOT="$library_runtime" \
   "$ROOT/liveryctl" validate theme:violet-hour@imported-moon:balanced >/dev/null
+LIVERY_RUNTIME_ROOT="$library_runtime" \
+  "$ROOT/liveryctl" list > "$TMP/imported-profiles.txt"
+grep -Fxq 'wallpaper:imported-moon:content' "$TMP/imported-profiles.txt"
+grep -Fxq 'theme:default@imported-moon:balanced' "$TMP/imported-profiles.txt"
+if grep -Fq 'Imported Moon' "$TMP/imported-profiles.txt"; then
+  echo "generated profile used a wallpaper display name" >&2
+  exit 1
+fi
 
 "$ROOT/liveryctl" list | while IFS= read -r profile; do
   "$ROOT/liveryctl" validate "$profile" >/dev/null

@@ -31,8 +31,15 @@ LEGIBILITY_SOURCE="$ROOT/LegibilityAnalyzer.swift"
 LEGIBILITY_SHARED="$ROOT/BarLegibility.swift"
 IMAGE_BIN="$BUILD_ROOT/bin/livery-image"
 IMAGE_SOURCE="$ROOT/ImagePipeline.swift"
-WALLPAPERCTL="$ROOT/../fresco/fresco"
-ADAPTERS_ROOT=${LIVERY_ADAPTERS_ROOT:-$ROOT/../adapters}
+WALLPAPERCTL=${LIVERY_WALLPAPERCTL:-$ROOT/../fresco/fresco}
+BUILTIN_ADAPTERS_ROOT="$ROOT/../adapters"
+USER_ADAPTERS_ROOT=${LIVERY_USER_ADAPTERS_ROOT:-$CONFIG_ROOT/vestiary/adapters.d}
+if [ -n "${LIVERY_ADAPTERS_ROOT:-}" ]; then
+  ADAPTER_PATH=$LIVERY_ADAPTERS_ROOT
+else
+  ADAPTER_PATH=${LIVERY_ADAPTER_PATH:-$BUILTIN_ADAPTERS_ROOT:$USER_ADAPTERS_ROOT}
+fi
+TARGETS_CONFIG=${LIVERY_TARGETS_CONFIG:-$CONFIG_ROOT/vestiary/targets.json}
 DERIVATIVE_CACHE="$BUILD_ROOT/cache/derivatives"
 ORIGINAL_STORE="$BUILD_ROOT/store/originals"
 
@@ -44,8 +51,13 @@ commands:
   list                         list the captured default and generated candidates
   wallpapers [--json]          list built-in and imported wallpapers
   import-wallpaper <path> [--name <name>] [--subtitle <text>] [--credit <text>]
+                               [--live <path>|--live-reference <path>]
+                               [--scene-coverage <available|reach|not-yet-possible>]
+                               [--scene-note <text>]
                                copy, analyze, and add an image to the local library
   themes                       list independent semantic themes
+  targets                      list discovered adapters and enablement
+  adapter-check <adapter>      run the adapter conformance checks
   resolve <profile>            print a resolved canonical manifest
   render <profile>             render and validate staged target files
   validate <profile>           validate a manifest and its staged target files
@@ -109,6 +121,176 @@ require_tools() {
     fi
   done
 }
+
+validate_targets_config() {
+  [ -e "$TARGETS_CONFIG" ] || return 0
+  [ -r "$TARGETS_CONFIG" ] || {
+    echo "targets config is unreadable: $TARGETS_CONFIG" >&2
+    exit 1
+  }
+  jq -e '
+    . as $root
+    | (if $root | has("enabled") then $root.enabled else [] end) as $enabled
+    | (if $root | has("disabled") then $root.disabled else [] end) as $disabled
+    | type == "object"
+      and ($enabled | type == "array"
+        and all(type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")))
+      and ($disabled | type == "array"
+        and all(type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")))
+      and (($enabled | unique | length) == ($enabled | length))
+      and (($disabled | unique | length) == ($disabled | length))
+      and (($enabled - $disabled | length) == ($enabled | length))
+  ' "$TARGETS_CONFIG" >/dev/null || {
+    echo "invalid targets config: $TARGETS_CONFIG" >&2
+    exit 1
+  }
+  configured_adapters=$(jq -r '[(.enabled // [])[], (.disabled // [])[]] | unique[]' "$TARGETS_CONFIG")
+  for configured_adapter in $configured_adapters; do
+    [ -n "$(resolve_adapter_path "$configured_adapter")" ] || {
+      echo "unknown adapter in targets config: $configured_adapter" >&2
+      exit 1
+    }
+  done
+}
+
+adapter_enabled() {
+  adapter_id=$1
+  [ -r "$TARGETS_CONFIG" ] || return 0
+  jq -e --arg id "$adapter_id" '
+    ((has("enabled") | not) or (.enabled | index($id) != null))
+      and ((.disabled // []) | index($id) == null)
+  ' "$TARGETS_CONFIG" >/dev/null
+}
+
+discovered_adapters() {
+  adapter_seen='|'
+  adapter_old_ifs=$IFS
+  IFS=:
+  for adapter_directory in $ADAPTER_PATH; do
+    IFS=$adapter_old_ifs
+    [ -d "$adapter_directory" ] || { IFS=:; continue; }
+    for adapter_candidate in "$adapter_directory"/*; do
+      [ -f "$adapter_candidate" ] && [ -x "$adapter_candidate" ] || continue
+      adapter_id=$(basename "$adapter_candidate")
+      case "$adapter_seen" in
+        *"|$adapter_id|"*) continue ;;
+      esac
+      adapter_seen="$adapter_seen$adapter_id|"
+      printf '%s\t%s\n' "$adapter_id" "$adapter_candidate"
+    done
+    IFS=:
+  done
+  IFS=$adapter_old_ifs
+}
+
+adapter_paths() {
+  discovered_adapters | while IFS="$(printf '\t')" read -r adapter_id adapter_path; do
+    adapter_enabled "$adapter_id" || continue
+    printf '%s\n' "$adapter_path"
+  done
+}
+
+adapter_ids() {
+  adapter_paths | while IFS= read -r adapter_path; do
+    basename "$adapter_path"
+  done
+}
+
+adapter_metadata() {
+  adapter_path=$1
+  adapter_id=$(basename "$adapter_path")
+  metadata_path="$(dirname "$adapter_path")/$adapter_id.target.json"
+  [ -e "$metadata_path" ] || return 0
+  jq -e --arg id "$adapter_id" '
+    .schemaVersion == 1
+      and .id == $id
+      and (.displayName | type == "string" and length > 0)
+      and (.kind == "adapter")
+      and ((.consumes // []) | type == "array"
+        and all(. == "ui" or . == "terminal" or . == "signals"
+          or . == "effects" or . == "variant" or . == "fonts"))
+      and ((.detect // {}) | type == "object")
+  ' "$metadata_path" >/dev/null || {
+    echo "invalid adapter metadata: $metadata_path" >&2
+    return 1
+  }
+}
+
+targets_status() {
+  discovered_adapters | while IFS="$(printf '\t')" read -r adapter_id adapter_path; do
+    adapter_metadata "$adapter_path"
+    if adapter_enabled "$adapter_id"; then
+      adapter_state=enabled
+    else
+      adapter_state=disabled
+    fi
+    metadata_path="$(dirname "$adapter_path")/$adapter_id.target.json"
+    if [ -r "$metadata_path" ]; then
+      adapter_label=$(jq -r '.displayName // empty' "$metadata_path")
+    else
+      adapter_label=
+    fi
+    printf '%s\t%s\t%s\t%s\n' "$adapter_id" "$adapter_state" "$adapter_path" "$adapter_label"
+  done
+}
+
+resolve_adapter_path() {
+  adapter_request=$1
+  if [ -f "$adapter_request" ] && [ -x "$adapter_request" ]; then
+    printf '%s\n' "$adapter_request"
+    return 0
+  fi
+  discovered_adapters | while IFS="$(printf '\t')" read -r adapter_id adapter_path; do
+    if [ "$adapter_id" = "$adapter_request" ]; then
+      printf '%s\n' "$adapter_path"
+      exit 0
+    fi
+  done
+}
+
+adapter_conformance_check() (
+  adapter_request=$1
+  adapter_path=$(resolve_adapter_path "$adapter_request")
+  [ -n "$adapter_path" ] || {
+    echo "adapter not found or not executable: $adapter_request" >&2
+    return 1
+  }
+  adapter_metadata "$adapter_path"
+
+  conformance_root=$(mktemp -d "${TMPDIR:-/tmp}/livery-adapter-check.XXXXXX")
+  trap 'rm -rf "$conformance_root"' EXIT HUP INT TERM
+  conformance_first="$conformance_root/first"
+  conformance_second="$conformance_root/second"
+  mkdir -p "$conformance_first" "$conformance_second"
+  write_default_look adapter-conformance "$conformance_root"
+  validate_look_bundle "$conformance_root"
+
+  "$adapter_path" render "$conformance_root/manifest.json" "$conformance_first" >/dev/null
+  "$adapter_path" validate "$conformance_first" >/dev/null
+  "$adapter_path" render "$conformance_root/manifest.json" "$conformance_second" >/dev/null
+  "$adapter_path" validate "$conformance_second" >/dev/null
+  if ! diff -ru "$conformance_first" "$conformance_second" >/dev/null; then
+    echo "adapter render is not deterministic: $adapter_path" >&2
+    return 1
+  fi
+
+  set +e
+  "$adapter_path" loader-check >/dev/null 2>&1
+  loader_status=$?
+  "$adapter_path" __livery_unknown_verb__ >/dev/null 2>&1
+  unknown_status=$?
+  set -e
+  case "$loader_status" in
+    0|1) ;;
+    *) echo "loader-check returned reserved status $loader_status" >&2; return 1 ;;
+  esac
+  [ "$unknown_status" -eq 2 ] || {
+    echo "unknown verb must exit 2; got $unknown_status" >&2
+    return 1
+  }
+
+  echo "adapter conforms: $(basename "$adapter_path")"
+)
 
 profile_slug() {
   printf '%s' "$1" | tr ': /@~' '-----' | tr -cd '[:alnum:]_.-'
@@ -428,14 +610,34 @@ import_wallpaper() {
   shift
   name=
   subtitle="local / imported / unclassified"
+  subtitle_set=0
   credit="local import"
   live=
+  mirror_live=1
+  scene_coverage=
+  scene_note=
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --live)
         [ "$#" -ge 2 ] || { usage >&2; exit 2; }
         live=$2
+        shift 2
+        ;;
+      --live-reference)
+        [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+        live=$2
+        mirror_live=0
+        shift 2
+        ;;
+      --scene-coverage)
+        [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+        scene_coverage=$2
+        shift 2
+        ;;
+      --scene-note)
+        [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+        scene_note=$2
         shift 2
         ;;
       --name)
@@ -446,6 +648,7 @@ import_wallpaper() {
       --subtitle)
         [ "$#" -ge 2 ] || { usage >&2; exit 2; }
         subtitle=$2
+        subtitle_set=1
         shift 2
         ;;
       --credit)
@@ -459,6 +662,14 @@ import_wallpaper() {
         ;;
     esac
   done
+
+  case "$scene_coverage" in
+    ""|available|reach|not-yet-possible) ;;
+    *)
+      echo "invalid scene coverage: $scene_coverage" >&2
+      exit 2
+      ;;
+  esac
 
   [ -f "$source" ] || {
     echo "wallpaper does not exist: $source" >&2
@@ -488,12 +699,29 @@ import_wallpaper() {
   )
   if [ -n "$existing" ]; then
     existing_id=$(printf '%s\n' "$existing" | jq -r '.id')
-    if [ -n "$live" ] && [ -f "$LIBRARY_CATALOG" ] \
+    if [ -f "$LIBRARY_CATALOG" ] \
       && jq -e --arg id "$existing_id" '.fixtures[] | select(.id == $id)' \
         "$LIBRARY_CATALOG" >/dev/null; then
-      # Same image re-imported with a live payload: annotate the record.
-      jq --arg id "$existing_id" --arg live "$live" \
-        '.fixtures |= map(if .id == $id then .live = $live else . end)' \
+      # Reimport updates live and scene-coverage metadata without duplicating
+      # the content-addressed image or regenerating its palettes.
+      jq \
+        --arg id "$existing_id" \
+        --arg live "$live" \
+        --arg subtitle "$subtitle" \
+        --argjson subtitleSet "$subtitle_set" \
+        --arg coverage "$scene_coverage" \
+        --arg note "$scene_note" '
+          .fixtures |= map(
+            if .id == $id then
+              (if $coverage == "not-yet-possible" then del(.live)
+               elif $live != "" then .live = $live
+               else . end)
+              | (if $subtitleSet == 1 then .subtitle = $subtitle else . end)
+              | (if $coverage == "" then .
+                 else .sceneCoverage = {status: $coverage, note: $note} end)
+            else . end
+          )
+        ' \
         "$LIBRARY_CATALOG" > "$content_next"
       mv -f "$content_next" "$LIBRARY_CATALOG"
       jq -e --arg id "$existing_id" '.fixtures[] | select(.id == $id)' "$LIBRARY_CATALOG"
@@ -534,7 +762,7 @@ import_wallpaper() {
 
   # Mirror the live payload into the library so it travels with the
   # catalog; sync_live_wallpaper recovers it by workshop id elsewhere.
-  if [ -n "$live" ] && [ -d "$live" ] \
+  if [ "$mirror_live" -eq 1 ] && [ -n "$live" ] && [ -d "$live" ] \
     && [ ! -d "$LIBRARY_ROOT/live/${live##*/}" ]; then
     mkdir -p "$LIBRARY_ROOT/live"
     cp -R "$live" "$LIBRARY_ROOT/live/${live##*/}" || \
@@ -568,11 +796,13 @@ import_wallpaper() {
     --arg assetPath "$asset_path" \
     --arg assetDigest "$digest" \
     --arg live "$live" \
+    --arg coverage "$scene_coverage" \
+    --arg sceneNote "$scene_note" \
     --slurpfile descriptor "$descriptor" \
     --slurpfile content "$content_palette" \
     --slurpfile vibrant "$vibrant_palette" \
     --slurpfile neutral "$neutral_palette" '
-      {
+      ({
         id: $id,
         number: $number,
         name: $name,
@@ -585,7 +815,8 @@ import_wallpaper() {
         dimensions: $descriptor[0].dimensions,
         mediaType: $descriptor[0].mediaType,
         palettes: [$content[0], $vibrant[0], $neutral[0]]
-      }
+      } + (if $coverage == "" then {}
+           else {sceneCoverage: {status: $coverage, note: $sceneNote}} end))
     ' > "$fixture"
 
   jq --slurpfile fixture "$fixture" \
@@ -1708,8 +1939,7 @@ json_value() {
 
 validate_rendered() {
   output_dir=$1
-  for adapter in "$ADAPTERS_ROOT"/*; do
-    [ -x "$adapter" ] || continue
+  adapter_paths | while IFS= read -r adapter; do
     if [ -d "$output_dir/$(basename "$adapter")" ]; then
       "$adapter" validate "$output_dir/$(basename "$adapter")" >/dev/null
     fi
@@ -1725,9 +1955,8 @@ render_profile() {
   mkdir -p "$output_dir/wallpaper"
   resolve_look "$profile" "$output_dir"
   validate_look_bundle "$output_dir"
-  # Every target is an adapter (SPEC §3.1); discovery = executables in adapters/.
-  for adapter in "$ADAPTERS_ROOT"/*; do
-    [ -x "$adapter" ] || continue
+  # Every transactional target is an executable discovered on the adapter path.
+  adapter_paths | while IFS= read -r adapter; do
     "$adapter" render "$manifest" "$output_dir/$(basename "$adapter")" >/dev/null
   done
   validate_rendered "$output_dir"
@@ -1737,57 +1966,56 @@ render_profile() {
 plan_profile() {
   profile=$1
   output_dir=$(render_profile "$profile")
-  current_ghostty="$CONFIG_ROOT/ghostty/themes/catppuccin-mocha.conf"
-  current_sketchybar="$CONFIG_ROOT/sketchybar/colors.lua"
-  current_borders=""
-  if [ -f "$RUNTIME_ROOT/current/ghostty/livery.conf" ]; then
-    current_ghostty="$RUNTIME_ROOT/current/ghostty/livery.conf"
-  fi
-  if [ -f "$RUNTIME_ROOT/current/sketchybar/colors.lua" ]; then
-    current_sketchybar="$RUNTIME_ROOT/current/sketchybar/colors.lua"
-  fi
-  if [ -f "$RUNTIME_ROOT/current/borders/borders.args" ]; then
-    current_borders=$(sed -n '1p' "$RUNTIME_ROOT/current/borders/borders.args")
-  else
-    current_borders=$(sed -n '/^borders active_color=/p' "$CONFIG_ROOT/yabai/yabairc")
-  fi
-
   echo "profile: $profile"
   echo "staged:  $output_dir"
-  echo
-  echo "--- Ghostty theme"
-  diff -u \
-    "$current_ghostty" \
-    "$output_dir/ghostty/livery.conf" || true
-  echo
-  echo "--- SketchyBar colors"
-  diff -u \
-    "$current_sketchybar" \
-    "$output_dir/sketchybar/colors.lua" || true
-  echo
-  echo "--- borders"
-  printf 'current:  %s\n' "$current_borders"
-  printf 'proposed: '
-  sed -n '1p' "$output_dir/borders/borders.args"
+  adapter_paths | while IFS= read -r adapter; do
+    target=$(basename "$adapter")
+    staged_target="$output_dir/$target"
+    current_target="$RUNTIME_ROOT/current/$target"
+    echo
+    echo "--- $target"
+    if [ -d "$current_target" ]; then
+      diff -ru "$current_target" "$staged_target" || true
+    else
+      for fragment in "$staged_target"/*; do
+        [ -f "$fragment" ] || continue
+        echo "new: $fragment"
+      done
+    fi
+  done
 }
 
 loaders_installed() {
   # A profile only earns apply when every adapter's consumer is wired
   # (SPEC §3.1 loader-check); adapters own the knowledge of their loaders.
-  for adapter in "$ADAPTERS_ROOT"/*; do
-    [ -x "$adapter" ] || continue
+  adapter_paths | while IFS= read -r adapter; do
     "$adapter" loader-check >/dev/null || return 1
   done
-  return 0
+}
+
+runtime_profile_digest_input() {
+  staged=$1
+  jq -cS 'del(.meta.resolvedAt)' "$staged/manifest.json"
+  adapter_paths | while IFS= read -r adapter; do
+    target=$(basename "$adapter")
+    printf 'target:%s\n' "$target"
+    find "$staged/$target" -type f -print | LC_ALL=C sort | while IFS= read -r artifact; do
+      relative=${artifact#"$staged/"}
+      artifact_digest=$(shasum -a 256 "$artifact" | awk '{print $1}')
+      printf 'artifact:%s:%s\n' "$relative" "$artifact_digest"
+    done
+  done
 }
 
 install_runtime_profile() {
   profile=$1
   staged=$2
   slug=$(profile_slug "$profile")
-  # resolvedAt is provenance, not content — digesting it would mint a new
-  # profile dir on every apply of an unchanged profile.
-  digest=$(jq -cS 'del(.meta.resolvedAt)' "$staged/manifest.json" | shasum -a 256 | awk '{print substr($1, 1, 12)}')
+  # resolvedAt is provenance, not content. Adapter IDs and artifact bytes are
+  # content: changing the enabled set must mint a complete immutable bundle.
+  digest=$(runtime_profile_digest_input "$staged" \
+    | shasum -a 256 \
+    | awk '{print substr($1, 1, 12)}')
   name="$slug-$digest"
   destination="$RUNTIME_ROOT/profiles/$name"
 
@@ -1798,8 +2026,7 @@ install_runtime_profile() {
     cp "$staged/spec.json" "$temporary/spec.json"
     cp "$staged/manifest.json" "$temporary/manifest.json"
     # Adapter-rendered targets: copy every adapter's staged subdir (SPEC §3.2).
-    for adapter in "$ADAPTERS_ROOT"/*; do
-      [ -x "$adapter" ] || continue
+    adapter_paths | while IFS= read -r adapter; do
       target=$(basename "$adapter")
       if [ -d "$staged/$target" ]; then
         cp -R "$staged/$target" "$temporary/$target"
@@ -1833,8 +2060,7 @@ reload_live_targets() {
     return 0
   fi
   # Adapter reloads are best-effort and never roll back the apply (SPEC §3.2).
-  for adapter in "$ADAPTERS_ROOT"/*; do
-    [ -x "$adapter" ] || continue
+  adapter_paths | while IFS= read -r adapter; do
     if ! "$adapter" reload "$RUNTIME_ROOT/current"; then
       echo "warning: $(basename "$adapter") reload failed — target may be stale" >&2
     fi
@@ -2225,14 +2451,21 @@ lock_command() {
       lock_status
       ;;
   esac
+  if [ "$action" != "status" ]; then
+    sync_live_wallpaper
+  fi
 }
 
 sync_live_wallpaper() {
-  # Live-wallpaper adapter: point the runtime at the current Look's live
-  # payload, or clear it for static Looks. Decorative layer — non-fatal.
+  # Desktop-layer adapter: point Fresco at the current Look's live payload.
+  # A static Look also uses the layer when a separately pinned lock image
+  # occupies macOS's system-wallpaper slot. Otherwise clear the layer.
   # Dry runs must not escape their isolated Livery roots and mutate the
   # user's real wallpaper daemon.
-  [ "${LIVERY_SKIP_RELOAD:-0}" != "1" ] || return 0
+  if [ "${LIVERY_SKIP_RELOAD:-0}" = "1" ] \
+    && [ "${LIVERY_TEST_DESKTOP_SYNC:-0}" != "1" ]; then
+    return 0
+  fi
   [ -x "$WALLPAPERCTL" ] || return 0
   manifest="$RUNTIME_ROOT/current/manifest.json"
   [ -f "$manifest" ] || return 0
@@ -2252,9 +2485,18 @@ sync_live_wallpaper() {
       live=
     fi
   fi
-  if [ -n "$live" ]; then
-    "$WALLPAPERCTL" set "$live" >/dev/null 2>&1 \
-      || echo "live wallpaper sync failed (non-fatal): $live" >&2
+  desktop=$live
+  if [ -z "$desktop" ]; then
+    case "$(lock_source)" in
+      file|look|scene)
+        target=$(readlink "$RUNTIME_ROOT/current")
+        desktop=$(wallpaper_artifact_for_target "$target")
+        ;;
+    esac
+  fi
+  if [ -n "$desktop" ]; then
+    "$WALLPAPERCTL" set "$desktop" >/dev/null 2>&1 \
+      || echo "desktop wallpaper sync failed (non-fatal): $desktop" >&2
   else
     "$WALLPAPERCTL" clear >/dev/null 2>&1 || true
   fi
@@ -2359,7 +2601,7 @@ apply_profile() {
 
   echo "applied profile: $profile ($scope)"
   echo "current: $target"
-  echo "reloaded: $(for a in "$ADAPTERS_ROOT"/*; do [ -x "$a" ] && printf "%s " "$(basename "$a")"; done)"
+  echo "reloaded: $(adapter_ids | tr '\n' ' ')"
   if [ "$scope" = "look" ]; then
     echo "wallpaper: synchronized"
   else
@@ -2406,7 +2648,7 @@ rollback_profile() {
   sync_live_wallpaper
   write_state "$profile" "$previous_target" "$current_target" "look"
   echo "rolled back profile: $profile"
-  echo "reloaded: $(for a in "$ADAPTERS_ROOT"/*; do [ -x "$a" ] && printf "%s " "$(basename "$a")"; done)"
+  echo "reloaded: $(adapter_ids | tr '\n' ' ')"
   echo "wallpaper: synchronized"
 }
 
@@ -2433,6 +2675,7 @@ current_status() {
 }
 
 require_tools
+validate_targets_config
 command=${1:-}
 
 case "$command" in
@@ -2440,13 +2683,13 @@ case "$command" in
     echo "default"
     combined_catalog | jq -r '
       .fixtures[]
-      | .name as $fixture
+      | .id as $fixture
       | .palettes[]
       | "wallpaper:\($fixture):\(.name)"
     '
     combined_catalog | jq -r '
       .fixtures[]
-      | .name as $fixture
+      | .id as $fixture
       | ["subtle", "balanced", "theme-forward"][]
       | "theme:default@\($fixture):\(.)"
     '
@@ -2482,6 +2725,14 @@ case "$command" in
       | [.ref, .label, .style, (.tags | join(","))]
       | @tsv
     ' "$THEME_CATALOG"
+    ;;
+  targets)
+    [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+    targets_status
+    ;;
+  adapter-check)
+    [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+    adapter_conformance_check "$2"
     ;;
   resolve)
     [ "$#" -eq 2 ] || { usage >&2; exit 2; }

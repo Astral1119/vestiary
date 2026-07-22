@@ -8,6 +8,15 @@ import SwiftUI
 let liveryPanelShown = Notification.Name("livery.panel.shown")
 
 private let monoFamily = "JetBrainsMono Nerd Font"
+private let displayFamily = "Instrument Serif"
+// Two-token transparency. Chrome is a translucent surface over the blur base
+// (the frosted bar), not clear; reading surfaces climb for legibility. One
+// knob each, tuned once — not a per-pane gradient.
+private let chromeSurfaceOpacity: Double = 0.55
+private let readingSurfaceOpacity: Double = 0.94
+private let panelShownNotification = Notification.Name("com.vestiary.panel.shown")
+private let liveryPanelSource = "livery"
+private let inboxPanelSource = "inbox"
 private let readinessURL = URL(
     fileURLWithPath: "/tmp/livery-\(getuid()).ready"
 )
@@ -243,6 +252,33 @@ private struct ThemeLibraryCatalog: Decodable {
     let themes: [ThemeLibraryEntry]
 }
 
+private enum SceneCoverageStatus: String, Decodable {
+    case available
+    case reach
+    case notYetPossible = "not-yet-possible"
+
+    var label: String {
+        switch self {
+        case .available: "available"
+        case .reach: "reach"
+        case .notYetPossible: "not yet possible"
+        }
+    }
+
+    func tint(_ palette: ThemePalette) -> Color {
+        switch self {
+        case .available: Color(hex: palette.tertiary)
+        case .reach: Color(hex: palette.primary)
+        case .notYetPossible: Color(hex: palette.error)
+        }
+    }
+}
+
+private struct SceneCoverage: Decodable {
+    let status: SceneCoverageStatus
+    let note: String
+}
+
 private struct WallpaperFixture: Identifiable, Decodable {
     let id: String
     let number: Int
@@ -253,6 +289,7 @@ private struct WallpaperFixture: Identifiable, Decodable {
     let assetPath: String?
     let assetDigest: String?
     let live: String?
+    let sceneCoverage: SceneCoverage?
     let palettes: [ThemePalette]
 
     var shortcut: Character? {
@@ -338,6 +375,10 @@ private let themes = themeLibrary.themes
 private extension Font {
     static func lab(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .custom(monoFamily, fixedSize: size).weight(weight)
+    }
+
+    static func display(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .custom(displayFamily, fixedSize: size).weight(weight)
     }
 }
 
@@ -773,6 +814,37 @@ private func representativeColor(in image: NSImage, fallback: String) -> RGBColo
     return RGBColor(nsColor: average)
 }
 
+private struct TerminalCellBackgroundCacheKey: Hashable {
+    let imageIdentity: String
+    let terminalBackground: String
+    let terminalOpacity: Double
+}
+
+private final class TerminalCellBackgroundCache {
+    static let shared = TerminalCellBackgroundCache()
+
+    private var values: [TerminalCellBackgroundCacheKey: RGBColor] = [:]
+    private let lock = NSLock()
+
+    func value(
+        for key: TerminalCellBackgroundCacheKey,
+        image: NSImage
+    ) -> RGBColor {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let value = values[key] {
+            return value
+        }
+        let value = RGBColor(hex: key.terminalBackground).composited(
+            over: representativeColor(in: image, fallback: key.terminalBackground),
+            alpha: key.terminalOpacity
+        )
+        values[key] = value
+        return value
+    }
+}
+
 private struct ApplyResult {
     let succeeded: Bool
     let message: String
@@ -848,8 +920,8 @@ private func runLiveryControl(_ arguments: [String]) -> ControlResult {
 
     do {
         try process.run()
-        process.waitUntilExit()
         let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         return ControlResult(
             status: process.terminationStatus,
             output: String(decoding: data, as: UTF8.self)
@@ -899,11 +971,12 @@ private func runWorkshop(_ arguments: [String]) -> ControlResult {
     process.environment = environment
     do {
         try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return ControlResult(
             status: process.terminationStatus,
             output: String(
-                data: output.fileHandleForReading.readDataToEndOfFile(),
+                data: data,
                 encoding: .utf8
             )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         )
@@ -937,11 +1010,12 @@ private func runWallpaperControl(_ arguments: [String]) -> ControlResult {
     process.environment = environment
     do {
         try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return ControlResult(
             status: process.terminationStatus,
             output: String(
-                data: output.fileHandleForReading.readDataToEndOfFile(),
+                data: data,
                 encoding: .utf8
             )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         )
@@ -1235,7 +1309,7 @@ private struct LockPolicyControl: View {
                 .foregroundStyle(palette.panelAccent(0.72))
                 .padding(11)
                 .frame(width: 224, alignment: .leading)
-                .background(Color(hex: palette.surfaceElevated, opacity: 0.98))
+                .background(Color(hex: palette.surfaceElevated, opacity: readingSurfaceOpacity))
                 .overlay(
                     Rectangle().strokeBorder(palette.panelAccent(0.42), lineWidth: 1)
                 )
@@ -1266,7 +1340,7 @@ private struct Header: View {
         HStack(spacing: 10) {
             Text("livery")
                 .foregroundStyle(Color(hex: palette.primary))
-                .font(.lab(12, weight: .bold))
+                .font(.display(13))
 
             Text("//")
                 .foregroundStyle(palette.panelMuted(0.34))
@@ -1341,7 +1415,7 @@ private struct Header: View {
         .font(.lab(10, weight: .medium))
         .padding(.horizontal, 16)
         .frame(height: 39)
-        .background(Color(hex: palette.surface, opacity: 0.72))
+        .background(Color(hex: palette.surface, opacity: chromeSurfaceOpacity))
         .gesture(WindowDragGesture())
         .zIndex(20)
     }
@@ -1377,7 +1451,7 @@ private struct ImportOverlay: View {
                 .foregroundStyle(palette.panelText(0.88))
                 .padding(.horizontal, 9)
                 .frame(height: 31)
-                .background(Color(hex: palette.background, opacity: 0.54))
+                .background(Color(hex: palette.surface, opacity: chromeSurfaceOpacity))
                 .overlay(
                     Rectangle()
                         .stroke(Color(hex: palette.outline).opacity(0.28), lineWidth: 1)
@@ -1454,7 +1528,7 @@ private struct ImportOverlay: View {
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, maxHeight: 270)
-                .background(Color(hex: palette.surface, opacity: 0.96))
+                .background(Color(hex: palette.surface, opacity: readingSurfaceOpacity))
             }
             .frame(width: 700, height: 270)
             .overlay(
@@ -1524,7 +1598,7 @@ private struct AuthoritySelector: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(Color(hex: palette.surface, opacity: 0.48))
+        .background(Color(hex: palette.surface, opacity: chromeSurfaceOpacity))
     }
 }
 
@@ -1549,6 +1623,14 @@ private struct WallpaperOption: View {
                         .padding(4)
                         .background(Color.black.opacity(0.58))
                 }
+                .overlay(alignment: .topTrailing) {
+                    if let coverage = fixture.sceneCoverage {
+                        Circle()
+                            .fill(coverage.status.tint(fixture.palettes[0]))
+                            .frame(width: 7, height: 7)
+                            .padding(4)
+                    }
+                }
                 .overlay(
                     Rectangle()
                         .stroke(selected ? Color(hex: accent) : Color.white.opacity(0.10), lineWidth: selected ? 2 : 1)
@@ -1561,6 +1643,20 @@ private struct WallpaperOption: View {
         } else {
             button
         }
+    }
+}
+
+private struct SceneCoverageBadge: View {
+    let coverage: SceneCoverage
+    let palette: ThemePalette
+
+    var body: some View {
+        Text(coverage.status.label)
+            .font(.lab(7, weight: .bold))
+            .foregroundStyle(Color.black.opacity(0.78))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(coverage.status.tint(palette).opacity(0.92))
     }
 }
 
@@ -1627,11 +1723,23 @@ private struct SourcePane: View {
                                 Text(fixture.name)
                                     .font(.lab(12, weight: .bold))
                                     .foregroundStyle(.white.opacity(0.90))
+                                if let coverage = fixture.sceneCoverage {
+                                    Text(coverage.note)
+                                        .font(.lab(8))
+                                        .foregroundStyle(.white.opacity(0.62))
+                                        .lineLimit(2)
+                                }
                                 Text(fixture.credit)
                                     .font(.lab(9))
                                     .foregroundStyle(.white.opacity(0.45))
                             }
                             .padding(11)
+                        }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        if let coverage = fixture.sceneCoverage {
+                            SceneCoverageBadge(coverage: coverage, palette: palette)
+                                .padding(9)
                         }
                     }
                     .overlay(Rectangle().stroke(Color.white.opacity(0.15), lineWidth: 1))
@@ -1681,6 +1789,12 @@ private struct WallpaperGridCard: View {
                             .padding(.vertical, 4)
                             .background(Color.black.opacity(0.62))
                     }
+                    .overlay(alignment: .topTrailing) {
+                        if let coverage = fixture.sceneCoverage {
+                            SceneCoverageBadge(coverage: coverage, palette: palette)
+                                .padding(7)
+                        }
+                    }
 
                 HStack(spacing: 9) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -1704,8 +1818,8 @@ private struct WallpaperGridCard: View {
                 .padding(9)
                 .background(
                     selected
-                        ? Color(hex: palette.surfaceElevated, opacity: 0.92)
-                        : Color(hex: palette.surface, opacity: 0.72)
+                        ? Color(hex: palette.surfaceElevated, opacity: readingSurfaceOpacity)
+                        : Color(hex: palette.surface, opacity: chromeSurfaceOpacity)
                 )
             }
             .contentShape(Rectangle())
@@ -1860,7 +1974,9 @@ private struct GridPane: View {
                     let data = String(line).data(using: .utf8),
                     let ingested = try? JSONDecoder().decode(WorkshopIngest.self, from: data)
                 else {
-                    workshopNote = "ingest failed"
+                    let detail = result.output.split(separator: "\n")
+                        .last.map(String.init) ?? "unknown error"
+                    workshopNote = "ingest failed · \(detail)"
                     return
                 }
                 workshopNote = nil
@@ -2224,6 +2340,7 @@ private struct RoleCell: View {
 
 private struct TerminalSpecimen: View {
     let wallpaperImage: NSImage
+    let wallpaperIdentity: String
     let palette: ThemePalette
 
     private var bgLiteral: String { "0xff\(palette.background.dropFirst())" }
@@ -2234,9 +2351,13 @@ private struct TerminalSpecimen: View {
     private var terminalForeground: String { palette.resolvedTerminalForeground }
     private var terminalOpacity: Double { palette.resolvedGhosttyBackgroundOpacity }
     private var cellBackground: RGBColor {
-        RGBColor(hex: terminalBackground).composited(
-            over: representativeColor(in: wallpaperImage, fallback: terminalBackground),
-            alpha: terminalOpacity
+        TerminalCellBackgroundCache.shared.value(
+            for: TerminalCellBackgroundCacheKey(
+                imageIdentity: wallpaperIdentity,
+                terminalBackground: terminalBackground,
+                terminalOpacity: terminalOpacity
+            ),
+            image: wallpaperImage
         )
     }
     private var minimumContrast: Double {
@@ -2358,6 +2479,7 @@ private struct PalettePane: View {
     let palette: ThemePalette
     let authority: LookAuthority
     let wallpaperImage: NSImage
+    let wallpaperIdentity: String
     let selectedTheme: Int
     let selectedPalette: Int
     let selectedPreset: GradePreset
@@ -2555,7 +2677,11 @@ private struct PalettePane: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 14)
 
-                    TerminalSpecimen(wallpaperImage: wallpaperImage, palette: palette)
+                    TerminalSpecimen(
+                        wallpaperImage: wallpaperImage,
+                        wallpaperIdentity: wallpaperIdentity,
+                        palette: palette
+                    )
                         .padding(.horizontal, 14)
                         .padding(.bottom, 12)
                 }
@@ -2938,7 +3064,7 @@ private struct Footer: View {
         .font(.lab(9))
         .padding(.horizontal, 16)
         .frame(height: 39)
-        .background(Color(hex: palette.surface, opacity: 0.72))
+        .background(Color(hex: palette.surface, opacity: chromeSurfaceOpacity))
     }
 }
 
@@ -2991,6 +3117,18 @@ private struct LiveryView: View {
             return derivedWallpaper
         }
         return fixture.image
+    }
+    private var wallpaperIdentity: String {
+        let sourceIdentity = fixture.assetDigest
+            ?? fixture.imageURL?.standardizedFileURL.path
+            ?? "fixture:\(fixture.id):\(fixture.fileName)"
+        if authority == .theme,
+           !showingOriginal,
+           derivedProfile == profile,
+           derivedWallpaper != nil {
+            return "derived:\(sourceIdentity):\(profile)"
+        }
+        return "source:\(sourceIdentity)"
     }
     private var transformRecipe: String {
         [
@@ -3364,6 +3502,7 @@ private struct LiveryView: View {
                             palette: palette,
                             authority: authority,
                             wallpaperImage: wallpaperImage,
+                            wallpaperIdentity: wallpaperIdentity,
                             selectedTheme: selectedTheme,
                             selectedPalette: selectedPalette,
                             selectedPreset: gradePreset,
@@ -3478,17 +3617,22 @@ private final class LiveryPanel: NSPanel {
 private final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: LiveryPanel?
     private var signalSource: DispatchSourceSignal?
+    private var panelShownObserver: NSObjectProtocol?
     private weak var previousApplication: NSRunningApplication?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         runtimeLog("applicationDidFinishLaunching")
         buildPanel()
+        observePanelVisibility()
         installToggleSignal()
         markReady()
         showPanel()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let panelShownObserver {
+            DistributedNotificationCenter.default().removeObserver(panelShownObserver)
+        }
         guard
             let contents = try? String(contentsOf: readinessURL, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -3521,7 +3665,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func buildPanel() {
         let panel = LiveryPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 940, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 585),
             styleMask: [.titled, .resizable, .fullSizeContentView, .utilityWindow],
             backing: .buffered,
             defer: false
@@ -3534,7 +3678,7 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.isMovableByWindowBackground = false
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
-        panel.minSize = NSSize(width: 860, height: 520)
+        panel.minSize = NSSize(width: 860, height: 540)
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.setAccessibilitySubrole(.floatingWindow)
@@ -3549,10 +3693,35 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         let host = NSHostingView(rootView: LiveryView())
         host.frame = panel.contentView?.bounds ?? .zero
         host.autoresizingMask = [.width, .height]
+        // Round at the layer, not via SwiftUI .clipShape: clipping a view that
+        // hosts a .behindWindow NSVisualEffectView breaks its vibrancy and
+        // forces the panel opaque. A layer mask rounds without that.
+        host.wantsLayer = true
+        host.layer?.cornerRadius = 16
+        host.layer?.cornerCurve = .continuous
+        host.layer?.masksToBounds = true
         panel.contentView = host
         panel.center()
         self.panel = panel
         runtimeLog("buildPanel visible=\(panel.isVisible) key=\(panel.isKeyWindow)")
+    }
+
+    private func observePanelVisibility() {
+        panelShownObserver = DistributedNotificationCenter.default().addObserver(
+            forName: panelShownNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard
+                let source = notification.userInfo?["source"] as? String,
+                source != liveryPanelSource
+            else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.hidePanel()
+            }
+        }
     }
 
     private func installToggleSignal() {
@@ -3605,6 +3774,12 @@ private final class AppDelegate: NSObject, NSApplicationDelegate {
         runtimeLog("showPanel activated=\(activated)")
         panel.orderFrontRegardless()
         panel.makeKeyAndOrderFront(nil)
+        DistributedNotificationCenter.default().postNotificationName(
+            panelShownNotification,
+            object: nil,
+            userInfo: ["source": liveryPanelSource],
+            deliverImmediately: true
+        )
         DispatchQueue.main.async {
             runtimeLog(
                 "showPanel end visible=\(panel.isVisible) key=\(panel.isKeyWindow) "

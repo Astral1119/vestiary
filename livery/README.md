@@ -1,19 +1,13 @@
 # Livery
 
-A native macOS panel and companion CLI for a bidirectional wallpaper/theme
-workflow. The panel previews and applies reversible Looks through the same
-`liveryctl` transaction engine as the CLI. Wallpaper-derived palettes and
-independently authored semantic themes are separate checked-in catalogs, so
-either side can be held fixed. The two directions aren't inverses, and the
-catalogs don't pretend they are.
+A native macOS panel and CLI for building and applying Looks. A Look pairs a
+semantic application theme with a wallpaper. Livery can derive the theme from
+the wallpaper or hold the theme fixed while grading the wallpaper toward it.
+The panel and CLI use the same transactional `liveryctl` engine.
 
-The interface is a graphical workbench, not a miniature desktop or a settings
-panel. Grid mode browses sources. Detail mode inspects one wallpaper through
-the real image, semantic roles, a syntax-highlighted Lua specimen, and a draft
-terminal mapping. JetBrains Mono, compact spacing, flat controls, hairline
-boundaries, shortcut labels, backdrop blur, and theme-colored scroll chrome
-follow the surrounding Ghostty/SketchyBar environment. No decorative desktop
-mockups.
+Grid mode browses wallpaper and theme sources. Detail mode shows the source
+image, semantic roles, a syntax-highlighted Lua specimen, and the resolved
+terminal mapping before apply.
 
 ## Run
 
@@ -78,7 +72,7 @@ The checked-in `palettes.json` is generated in dark mode using each image's most
 The independent theme catalog deliberately spans different visual languages
 rather than producing nine small variations on one dark palette:
 
-- `current` — the captured working baseline;
+- `default` — the checked-in project baseline;
 - `violet-hour` — muted dark-purple, translucent, anime-nocturne glass;
 - `sakura-static` — ink navy, dusty pink, and late-night signage;
 - `moss-ledger` — organic green with an editorial, paper-and-ink temperament;
@@ -112,16 +106,23 @@ cargo install matugen --version 4.1.0 --locked --root tools
 
 ## Target infrastructure
 
-`liveryctl` resolves a canonical Look manifest and renders staged adapters for
-Ghostty, SketchyBar, borders, and the wallpaper. A normal `apply` means one
-global Look: coordinated colors plus one wallpaper across every managed desktop
-Space. `--colors-only` is a manual override, not the default workflow.
-`livery` is the short command installed on `PATH`.
+`liveryctl` resolves a canonical Look manifest and renders every enabled
+adapter. The bundled set targets Ghostty, tmux, Neovim, SketchyBar,
+JankyBorders, and generic CSS. A normal `apply` means one global Look:
+coordinated colors plus one wallpaper across every managed desktop Space.
+`--colors-only` is a manual override, not the default workflow. `livery` is the
+short command installed on `PATH`.
+
+`resolve`, `render`, `validate`, and `plan` work from checked-in inputs. `plan`
+compares enabled staged artifacts with the active runtime profile and reports
+new artifacts when no profile is active.
 
 ```sh
 livery list
 livery wallpapers
 livery themes
+livery targets
+livery adapter-check css
 livery import-wallpaper ~/Pictures/example.png --name "Example"
 livery plan default
 livery plan wallpaper:warm-dunes:content
@@ -135,6 +136,11 @@ livery apply wallpaper:warm-dunes:content --colors-only
 livery rollback
 ./tests/validate.sh
 ```
+
+The adapter search path, target selection file, conformance check, generic CSS
+artifact, and direct-consumer model are documented in
+[`../adapters/README.md`](../adapters/README.md). Visual Studio Code is the
+reference direct consumer.
 
 The legacy `warm-dunes:content` spelling remains accepted. Canonical profile
 names state their authority explicitly:
@@ -160,9 +166,9 @@ primary theme-first workflow; the legacy form remains useful for comparison.
 
 ## Lock image
 
-The live-wallpaper runtime covers the working desktop, so macOS's system
-wallpaper is the still shown by the lock screen. Livery manages that slot as a
-global policy, independently from Look history:
+Fresco hides its desktop windows while macOS is locked, so the system wallpaper
+becomes the lock image. Livery manages that system slot as a global policy,
+independently from Look history:
 
 ```sh
 livery lock                         # show the current policy
@@ -175,11 +181,13 @@ livery lock off                     # stop lock-specific management
 ```
 
 File, Look, and scene pins live in `~/.config/livery/lock.json` and win whenever
-a normal Look apply or rollback touches the wallpaper store. Look-only pins
-cache the exact resolved wallpaper artifact beneath `lock/looks/` without
-applying the Look's desktop wallpaper or colors. `theme` follows the active
-profile and updates with later Look changes; `off` leaves the current store
-alone and returns future applies to their normal wallpaper behavior.
+a normal Look apply or rollback touches the wallpaper store. When the active
+Look is static, Fresco displays its image at the desktop layer while the pinned
+image remains in the system slot. Look-only pins cache the exact resolved
+wallpaper artifact beneath `lock/looks/` without applying that Look's desktop
+wallpaper or colors. `theme` follows the active profile and updates with later
+Look changes; `off` leaves the current store alone and returns future applies
+to their normal wallpaper behavior.
 Video scenes are resolved from `~/.config/fresco/scenes/` and
 reduced with ffmpeg to a content-addressed PNG beneath
 `~/.config/livery/lock/scenes/`. The source scene selection remains in the
@@ -212,6 +220,12 @@ checked-in fixtures and personal catalog are merged at read time; importing
 does not rewrite the checked-in fixtures or install an application. The original
 source path can therefore move or disappear after a successful import.
 
+Scene records may carry an `available`, `reach`, or `not yet possible` coverage
+badge and a measured limitation note. `available` and `reach` records may point
+at an installed live package without copying it by using `--live-reference`.
+`not yet possible` records are intentionally still-only. Fresco owns the
+repeatable corpus import through `fresco scene-samples`.
+
 The grid uses adaptive card widths, the detail thumbnail rail scrolls
 horizontally, and theme cards are full-surface hit targets. Catalog growth no
 longer changes the meaning of existing item IDs or requires assigning every
@@ -240,12 +254,12 @@ light or dark bar roles by lower-decile contrast, adjusts bar-only accents and
 signals when necessary, and introduces the smallest required scrim only when an
 open rail cannot reach 4.5:1. Popup colors are kept separate.
 
-`default`/`current` is an exact capture of the current colors for those three targets:
-its Ghostty and SketchyBar diffs are empty and its proposed borders command is
-identical to the running configuration. Generated profiles retain the default
-signal colors, visualizer gradient, and opacity policy while replacing UI and
-terminal colors. Independently authored library themes may instead define all
-of those semantic domains explicitly.
+`default` is a checked-in capture of the project's original Ghostty,
+SketchyBar, and JankyBorders colors. Installation does not recapture those
+colors from the local machine. Generated profiles retain the baseline signal
+colors, visualizer gradient, and opacity policy while replacing UI and terminal
+colors. Independently authored library themes may instead define all of those
+semantic domains explicitly.
 
 Ghostty reads the active runtime profile through an optional config include and
 retains `catppuccin-mocha.conf` as its fallback. Apply and rollback send
@@ -261,7 +275,7 @@ named by the resolved manifest, so preview and apply use identical pixels.
 Generated Looks set Ghostty's native `minimum-contrast` floor to `3`. Ghostty
 checks foreground text against its cell background at render time without
 modifying background colors, including colors selected by terminal
-applications. The captured `default` retains Ghostty's native `1` setting.
+applications. The project baseline retains Ghostty's native `1` setting.
 Livery's terminal specimen is an illustrative Lua syntax map rendered through
 the actual terminal contract: semantic terminal background/foreground, the
 resolved ANSI slots, `ghosttyBackgroundOpacity`, and the configured minimum

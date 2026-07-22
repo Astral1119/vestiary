@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+[ -n "${LIVERY_TEST_FRESCO_LOG:-}" ] || {
+  echo "LIVERY_TEST_FRESCO_LOG is required" >&2
+  exit 2
+}
+printf '%s\n' "$*" >> "$LIVERY_TEST_FRESCO_LOG"
