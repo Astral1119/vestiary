@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "desiredRevision": 12,
+  "updatedAt": "2026-07-20T18:11:00Z",
+  "observed": {
+    "locked": true,
+    "sleeping": false,
+    "onBattery": true,
+    "displays": [
+      {
+        "id": "display:left",
+        "connected": true,
+        "frame": { "x": 0, "y": 0, "width": 1728, "height": 1117 },
+        "scale": 2,
+        "occluded": false
+      },
+      {
+        "id": "display:right",
+        "connected": true,
+        "frame": { "x": 1728, "y": 0, "width": 2560, "height": 1440 },
+        "scale": 2,
+        "occluded": false
+      }
+    ],
+    "applications": [
+      {
+        "bundleId": "com.apple.dt.Xcode",
+        "running": true,
+        "frontmost": true,
+        "fullscreen": true,
+        "displayIds": ["display:left"]
+      }
+    ]
+  },
+  "effective": {
+    "activeProfile": { "profileId": "profile:desk", "reasons": ["user"] },
+    "layoutMode": "perDisplay",
+    "displays": [
+      {
+        "displayId": "display:left",
+        "binding": { "kind": "playlist", "playlistId": "playlist:quiet" },
+        "paused": true,
+        "muted": true,
+        "hidden": true,
+        "fpsCeiling": 30,
+        "reasons": {
+          "paused": ["locked", "rule:focus"],
+          "muted": ["locked", "user"],
+          "hidden": ["locked"],
+          "fpsCeiling": ["rule:focus"]
+        }
+      },
+      {
+        "displayId": "display:right",
+        "binding": { "kind": "wallpaper", "target": "/Library/Fresco/Repose" },
+        "paused": true,
+        "muted": true,
+        "hidden": true,
+        "fpsCeiling": 60,
+        "reasons": {
+          "paused": ["locked"],
+          "muted": ["locked", "user"],
+          "hidden": ["locked"],
+          "fpsCeiling": ["user"]
+        }
+      }
+    ]
+  },
+  "runtime": {
+    "generation": "generation:43",
+    "status": "running",
+    "playlistCheckpoints": [
+      { "playlistId": "playlist:quiet", "entryId": "cat", "elapsedSeconds": 42.5 }
+    ],
+    "displays": [
+      { "displayId": "display:left", "status": "running", "target": "3208430444" },
+      { "displayId": "display:right", "status": "running", "target": "/Library/Fresco/Repose" }
+    ]
+  }
+}

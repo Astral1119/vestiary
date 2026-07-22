@@ -34,6 +34,7 @@ import urllib.request
 
 APP_ID = 431960
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LIVERYCTL = os.path.join(os.path.dirname(SCRIPT_DIR), "livery", "liveryctl")
 CONTENT_DIR = os.path.expanduser(
     f"~/Library/Application Support/Steam/steamapps/workshop/content/{APP_ID}")
 TYPE_TAGS = {"web": "Web", "video": "Video", "scene": "Scene"}
@@ -569,6 +570,16 @@ def video_duration(path):
         return 0.0
 
 
+def import_wallpaper(frame, title, credit, live):
+    if not os.path.isfile(LIVERYCTL) or not os.access(LIVERYCTL, os.X_OK):
+        sys.exit(f"livery control not executable: {LIVERYCTL}")
+    return subprocess.run(
+        [LIVERYCTL, "import-wallpaper", frame, "--name", title,
+         "--subtitle", "Wallpaper Engine", "--credit", credit,
+         "--live", live],
+        capture_output=True, text=True)
+
+
 def theme(target, as_json=False):
     # Resolve the wallpaper (workshop id, project folder, or bare video).
     item_id = target if target.isdigit() else None
@@ -638,18 +649,12 @@ def theme(target, as_json=False):
               if item_id else f"Wallpaper Engine item {title}")
     if not as_json:
         print(f"frame: {frame}  ({origin})")
-    result = subprocess.run(
-        ["livery", "import-wallpaper", frame, "--name", title,
-         "--subtitle", "Wallpaper Engine", "--credit", credit,
-         "--live", base],
-        capture_output=True, text=True)
+    result = import_wallpaper(frame, title, credit, base)
     output = (result.stdout + result.stderr).strip()
     if not as_json:
         print(output)
     if result.returncode != 0:
-        if as_json:
-            print(output, file=sys.stderr)
-        sys.exit("livery import failed")
+        sys.exit("livery import failed" + (f": {output}" if output else ""))
     source = slug
     has_live = False
     try:

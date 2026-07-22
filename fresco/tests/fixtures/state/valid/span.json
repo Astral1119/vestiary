@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "revision": 21,
+  "updatedAt": "2026-07-20T18:20:00Z",
+  "displays": [
+    { "id": "display:left" },
+    { "id": "display:right" }
+  ],
+  "playlists": [],
+  "profiles": [
+    {
+      "id": "profile:panorama",
+      "name": "Panorama",
+      "layout": {
+        "mode": "span",
+        "binding": { "kind": "wallpaper", "target": "3747222633" }
+      },
+      "controls": { "paused": false, "muted": false }
+    },
+    {
+      "id": "profile:meeting",
+      "name": "Meeting",
+      "layout": { "mode": "clone", "binding": { "kind": "idle" } },
+      "controls": { "paused": true, "muted": true },
+      "fpsCeiling": 24
+    }
+  ],
+  "applicationRules": [
+    {
+      "id": "meeting",
+      "enabled": true,
+      "priority": 100,
+      "match": {
+        "bundleIds": ["us.zoom.xos"],
+        "running": "require",
+        "frontmost": "require",
+        "fullscreen": "ignore"
+      },
+      "scope": { "kind": "global" },
+      "effect": {
+        "profileId": "profile:meeting",
+        "paused": true,
+        "muted": true,
+        "fpsCeiling": 24
+      }
+    }
+  ],
+  "desired": { "profileId": "profile:panorama" }
+}

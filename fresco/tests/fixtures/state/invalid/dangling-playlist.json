@@ -1,0 +1,9 @@
+{
+  "schema": "state",
+  "base": "clone.json",
+  "replace": {
+    "pointer": "/desired/layout/binding",
+    "value": { "kind": "playlist", "playlistId": "playlist:missing" }
+  },
+  "error": "unknown playlist ID"
+}

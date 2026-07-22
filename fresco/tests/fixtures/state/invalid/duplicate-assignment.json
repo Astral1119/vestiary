@@ -1,0 +1,12 @@
+{
+  "schema": "state",
+  "base": "per-display.json",
+  "append": {
+    "pointer": "/profiles/0/layout/assignments",
+    "value": {
+      "displayId": "display:left",
+      "binding": { "kind": "idle" }
+    }
+  },
+  "error": "duplicate display ID"
+}

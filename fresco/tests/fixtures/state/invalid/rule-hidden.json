@@ -1,0 +1,9 @@
+{
+  "schema": "state",
+  "base": "span.json",
+  "replace": {
+    "pointer": "/applicationRules/0/effect/hidden",
+    "value": true
+  },
+  "error": "additional property"
+}

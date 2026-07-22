@@ -6,7 +6,16 @@ BIN="/tmp/fresco-$(id -u)"
 
 swiftc -O -warnings-as-errors \
   -framework AppKit -framework WebKit -framework AVFoundation \
+  -framework JavaScriptCore \
   "$ROOT/Fresco.swift" \
+  "$ROOT/FrescoStatePlanner.swift" \
+  "$ROOT/FrescoStateStore.swift" \
+  "$ROOT/RuntimeAssignments.swift" \
+  "$ROOT/FrescoObservation.swift" \
+  "$ROOT/FrescoStatusPipeline.swift" \
+  "$ROOT/SceneSupervisor.swift" \
+  "$ROOT/WebWallpaperAudit.swift" \
+  "$ROOT/FrescoMain.swift" \
   -o "$BIN"
 
 exec "$BIN" "${@:-$ROOT/samples/aurora-web}"

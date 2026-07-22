@@ -1,0 +1,9 @@
+{
+  "schema": "state",
+  "base": "clone.json",
+  "replace": {
+    "pointer": "/desired/controls/hidden",
+    "value": true
+  },
+  "error": "additional property"
+}

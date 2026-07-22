@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vestiary.local/fresco/status.schema.json",
+  "title": "Fresco runtime status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "desiredRevision", "updatedAt", "observed", "effective", "runtime"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "desiredRevision": { "type": "integer", "minimum": 1 },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "observed": { "$ref": "#/$defs/observed" },
+    "effective": { "$ref": "#/$defs/effective" },
+    "runtime": { "$ref": "#/$defs/runtime" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "pattern": "^[^\\s]+$" },
+    "wallpaperBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "wallpaper" },
+        "target": { "type": "string", "minLength": 1 }
+      }
+    },
+    "playlistBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "playlistId"],
+      "properties": {
+        "kind": { "const": "playlist" },
+        "playlistId": { "$ref": "#/$defs/id" }
+      }
+    },
+    "idleBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": { "kind": { "const": "idle" } }
+    },
+    "binding": {
+      "oneOf": [
+        { "$ref": "#/$defs/wallpaperBinding" },
+        { "$ref": "#/$defs/playlistBinding" },
+        { "$ref": "#/$defs/idleBinding" }
+      ]
+    },
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "observedDisplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "connected", "frame", "scale", "occluded"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "connected": { "type": "boolean" },
+        "frame": { "$ref": "#/$defs/rect" },
+        "scale": { "type": "number", "exclusiveMinimum": 0 },
+        "occluded": { "type": "boolean" }
+      }
+    },
+    "observedApplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundleId", "running", "frontmost", "fullscreen", "displayIds"],
+      "properties": {
+        "bundleId": { "$ref": "#/$defs/id" },
+        "running": { "type": "boolean" },
+        "frontmost": { "type": "boolean" },
+        "fullscreen": { "type": "boolean" },
+        "displayIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "observed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locked", "sleeping", "onBattery", "displays", "applications"],
+      "properties": {
+        "locked": { "type": "boolean" },
+        "sleeping": { "type": "boolean" },
+        "onBattery": { "type": "boolean" },
+        "displays": { "type": "array", "items": { "$ref": "#/$defs/observedDisplay" } },
+        "applications": { "type": "array", "items": { "$ref": "#/$defs/observedApplication" } }
+      }
+    },
+    "reasons": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paused", "muted", "hidden", "fpsCeiling"],
+      "properties": {
+        "paused": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "muted": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "hidden": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "fpsCeiling": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "effectiveDisplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["displayId", "binding", "paused", "muted", "hidden", "reasons"],
+      "properties": {
+        "displayId": { "$ref": "#/$defs/id" },
+        "binding": { "$ref": "#/$defs/binding" },
+        "paused": { "type": "boolean" },
+        "muted": { "type": "boolean" },
+        "hidden": { "type": "boolean" },
+        "fpsCeiling": { "type": "integer", "minimum": 1, "maximum": 240 },
+        "reasons": { "$ref": "#/$defs/reasons" }
+      }
+    },
+    "activeProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profileId", "reasons"],
+      "properties": {
+        "profileId": { "$ref": "#/$defs/id" },
+        "reasons": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "effective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layoutMode", "displays"],
+      "properties": {
+        "activeProfile": { "$ref": "#/$defs/activeProfile" },
+        "layoutMode": { "enum": ["clone", "perDisplay", "span"] },
+        "displays": { "type": "array", "items": { "$ref": "#/$defs/effectiveDisplay" } }
+      }
+    },
+    "playlistCheckpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["playlistId", "entryId", "elapsedSeconds"],
+      "properties": {
+        "playlistId": { "$ref": "#/$defs/id" },
+        "entryId": { "$ref": "#/$defs/id" },
+        "elapsedSeconds": { "type": "number", "minimum": 0 }
+      }
+    },
+    "runtimeDisplay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["displayId", "status"],
+      "properties": {
+        "displayId": { "$ref": "#/$defs/id" },
+        "status": { "enum": ["idle", "starting", "running", "degraded", "stopping"] },
+        "target": { "type": "string", "minLength": 1 },
+        "firstFrameAt": { "type": "string", "format": "date-time" },
+        "error": { "type": "string", "minLength": 1 }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generation", "status", "playlistCheckpoints", "displays"],
+      "properties": {
+        "generation": { "$ref": "#/$defs/id" },
+        "status": { "enum": ["idle", "starting", "running", "degraded", "stopping"] },
+        "playlistCheckpoints": { "type": "array", "items": { "$ref": "#/$defs/playlistCheckpoint" } },
+        "displays": { "type": "array", "items": { "$ref": "#/$defs/runtimeDisplay" } }
+      }
+    }
+  }
+}

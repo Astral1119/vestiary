@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vestiary.local/fresco/state.schema.json",
+  "title": "Fresco durable state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "revision", "updatedAt", "displays", "playlists", "profiles", "applicationRules", "desired"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "displays": { "type": "array", "items": { "$ref": "#/$defs/display" } },
+    "playlists": { "type": "array", "items": { "$ref": "#/$defs/playlist" } },
+    "profiles": { "type": "array", "items": { "$ref": "#/$defs/profile" } },
+    "applicationRules": { "type": "array", "items": { "$ref": "#/$defs/applicationRule" } },
+    "desired": { "$ref": "#/$defs/desired" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "pattern": "^[^\\s]+$" },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "wallpaperBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target"],
+      "properties": {
+        "kind": { "const": "wallpaper" },
+        "target": { "type": "string", "minLength": 1 }
+      }
+    },
+    "playlistBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "playlistId"],
+      "properties": {
+        "kind": { "const": "playlist" },
+        "playlistId": { "$ref": "#/$defs/id" }
+      }
+    },
+    "idleBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": { "kind": { "const": "idle" } }
+    },
+    "binding": {
+      "oneOf": [
+        { "$ref": "#/$defs/wallpaperBinding" },
+        { "$ref": "#/$defs/playlistBinding" },
+        { "$ref": "#/$defs/idleBinding" }
+      ]
+    },
+    "controls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paused", "muted"],
+      "properties": {
+        "paused": { "type": "boolean" },
+        "muted": { "type": "boolean" }
+      }
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["displayId", "binding"],
+      "properties": {
+        "displayId": { "$ref": "#/$defs/id" },
+        "binding": { "$ref": "#/$defs/binding" }
+      }
+    },
+    "cloneLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "binding"],
+      "properties": {
+        "mode": { "const": "clone" },
+        "binding": { "$ref": "#/$defs/binding" }
+      }
+    },
+    "perDisplayLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "assignments"],
+      "properties": {
+        "mode": { "const": "perDisplay" },
+        "assignments": { "type": "array", "items": { "$ref": "#/$defs/assignment" } },
+        "defaultBinding": { "$ref": "#/$defs/binding" }
+      }
+    },
+    "spanLayout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "binding"],
+      "properties": {
+        "mode": { "const": "span" },
+        "binding": { "$ref": "#/$defs/binding" }
+      }
+    },
+    "layout": {
+      "oneOf": [
+        { "$ref": "#/$defs/cloneLayout" },
+        { "$ref": "#/$defs/perDisplayLayout" },
+        { "$ref": "#/$defs/spanLayout" }
+      ]
+    },
+    "playlistEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "wallpaper", "durationSeconds"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "wallpaper": { "$ref": "#/$defs/wallpaperBinding" },
+        "durationSeconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "playlist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "entries", "order", "repeat"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1 },
+        "entries": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/playlistEntry" } },
+        "order": { "enum": ["sequential", "shuffle"] },
+        "repeat": { "type": "boolean" }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "layout", "controls"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "minLength": 1 },
+        "layout": { "$ref": "#/$defs/layout" },
+        "controls": { "$ref": "#/$defs/controls" },
+        "fpsCeiling": { "type": "integer", "minimum": 1, "maximum": 240 }
+      }
+    },
+    "condition": { "enum": ["ignore", "require", "exclude"] },
+    "ruleMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundleIds", "running", "frontmost", "fullscreen"],
+      "properties": {
+        "bundleIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "running": { "$ref": "#/$defs/condition" },
+        "frontmost": { "$ref": "#/$defs/condition" },
+        "fullscreen": { "$ref": "#/$defs/condition" }
+      }
+    },
+    "globalScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": { "kind": { "const": "global" } }
+    },
+    "affectedDisplayScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": { "kind": { "const": "affectedDisplays" } }
+    },
+    "ruleScope": {
+      "oneOf": [
+        { "$ref": "#/$defs/globalScope" },
+        { "$ref": "#/$defs/affectedDisplayScope" }
+      ]
+    },
+    "ruleEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "profileId": { "$ref": "#/$defs/id" },
+        "paused": { "const": true },
+        "muted": { "const": true },
+        "fpsCeiling": { "type": "integer", "minimum": 1, "maximum": 240 }
+      }
+    },
+    "affectedDisplayRuleEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "paused": { "const": true },
+        "muted": { "const": true },
+        "fpsCeiling": { "type": "integer", "minimum": 1, "maximum": 240 }
+      }
+    },
+    "applicationRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "enabled", "priority", "match", "scope", "effect"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "enabled": { "type": "boolean" },
+        "priority": { "type": "integer" },
+        "match": { "$ref": "#/$defs/ruleMatch" },
+        "scope": { "$ref": "#/$defs/ruleScope" },
+        "effect": { "$ref": "#/$defs/ruleEffect" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["scope"],
+            "properties": {
+              "scope": { "$ref": "#/$defs/affectedDisplayScope" }
+            }
+          },
+          "then": {
+            "properties": {
+              "effect": { "$ref": "#/$defs/affectedDisplayRuleEffect" }
+            }
+          }
+        }
+      ]
+    },
+    "desired": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "profileId": { "$ref": "#/$defs/id" },
+        "layout": { "$ref": "#/$defs/layout" },
+        "controls": { "$ref": "#/$defs/controls" },
+        "fpsCeiling": { "type": "integer", "minimum": 1, "maximum": 240 }
+      },
+      "anyOf": [
+        { "required": ["profileId"] },
+        { "required": ["layout", "controls"] }
+      ]
+    }
+  }
+}

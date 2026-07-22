@@ -1,0 +1,33 @@
+{
+  "generation": "generation:fixture",
+  "locked": false,
+  "sleeping": false,
+  "onBattery": false,
+  "pauseWhenOccluded": true,
+  "displays": [
+    {
+      "id": "display:right",
+      "connected": true,
+      "frame": { "x": 1728, "y": 0, "width": 2560, "height": 1440 },
+      "scale": 2,
+      "occluded": false
+    },
+    {
+      "id": "display:left",
+      "connected": true,
+      "frame": { "x": 0, "y": 0, "width": 1728, "height": 1117 },
+      "scale": 2,
+      "occluded": false
+    }
+  ],
+  "applications": [
+    {
+      "bundleId": "com.apple.dt.Xcode",
+      "running": true,
+      "frontmost": true,
+      "fullscreen": true,
+      "displayIds": ["display:left"]
+    }
+  ],
+  "reasons": []
+}

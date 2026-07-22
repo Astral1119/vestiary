@@ -1,0 +1,9 @@
+{
+  "schema": "state",
+  "base": "per-display.json",
+  "replace": {
+    "pointer": "/desired/fpsCeiling",
+    "value": 241
+  },
+  "error": "value is above maximum"
+}

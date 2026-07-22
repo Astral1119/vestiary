@@ -1,6 +1,9 @@
 import AppKit
+import Carbon
 import WebKit
 import AVFoundation
+import CryptoKit
+import JavaScriptCore
 import Darwin
 import notify
 
@@ -12,18 +15,48 @@ import notify
 
 // MARK: - Runtime paths (daemon mode)
 
-let runtimeDirectory = URL(fileURLWithPath: NSHomeDirectory())
-    .appendingPathComponent(".config/fresco")
+let runtimeDirectory = URL(fileURLWithPath:
+    ProcessInfo.processInfo.environment["FRESCO_STATE_DIR"]
+        ?? (NSHomeDirectory() as NSString).appendingPathComponent(".config/fresco"))
 let configFile = runtimeDirectory.appendingPathComponent("current")
 let pidFile = runtimeDirectory.appendingPathComponent("pid")
 let reposeCommandFile = runtimeDirectory.appendingPathComponent("repose-command")
 let reposeStateFile = runtimeDirectory.appendingPathComponent("repose.json")
 let scenesDirectory = runtimeDirectory.appendingPathComponent("scenes")
+let propertyStateDirectory = runtimeDirectory.appendingPathComponent("properties")
+let sceneHelperFile = runtimeDirectory.appendingPathComponent("bin/fresco-scene")
+let sceneAssetsFile = runtimeDirectory.appendingPathComponent("scene-assets")
+let workshopContentDirectory = URL(fileURLWithPath: NSHomeDirectory())
+    .appendingPathComponent("Library/Application Support/Steam/steamapps/workshop/content/431960")
 
-func loadConfiguredWallpaper() -> Wallpaper? {
+func configuredWallpaperPath() -> String? {
     guard let path = try? String(contentsOf: configFile, encoding: .utf8)
         .trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return nil }
-    return resolveWallpaper(path)
+    return path
+}
+
+func configuredSceneAssetPath() -> String? {
+    guard let path = try? String(contentsOf: sceneAssetsFile, encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else { return nil }
+    return path
+}
+
+func loadConfiguredWallpaper() -> Wallpaper? {
+    configuredWallpaperPath().flatMap(resolveWallpaper)
+}
+
+func resolveStateWallpaper(_ target: String) -> Wallpaper? {
+    if let wallpaper = resolveStateWallpaperExact(target) { return wallpaper }
+    guard !(target as NSString).isAbsolutePath,
+          let projection = configuredWallpaperPath() else { return nil }
+    return resolveWallpaper(projection)
+}
+
+func resolveStateWallpaperExact(_ target: String) -> Wallpaper? {
+    if target.allSatisfy(\.isNumber) && !target.isEmpty {
+        return resolveWallpaper(workshopContentDirectory.appendingPathComponent(target).path)
+    }
+    return resolveWallpaper(target)
 }
 
 // MARK: - Repose state (the single selection record — see HANDOFF
@@ -139,6 +172,11 @@ func jsonString(_ object: [String: Any]) -> String {
         .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
 }
 
+func jsonFragmentString(_ object: Any) -> String {
+    (try? JSONSerialization.data(withJSONObject: object, options: [.fragmentsAllowed]))
+        .flatMap { String(data: $0, encoding: .utf8) } ?? "null"
+}
+
 // Per-scene theme sidecar (qylock precedent: each scene carries its own
 // palette). `<scene minus extension>.theme.json` holds hex roles that
 // override the Livery Look while that scene is up.
@@ -186,27 +224,238 @@ func shell(_ arguments: [String]) -> (status: Int32, stdout: String) {
 // MARK: - Wallpaper resolution
 
 enum Wallpaper {
+    case image(URL)
     case video(URL)
     case web(index: URL, root: URL, properties: [String: Any])
+    case scene(
+        root: URL,
+        package: URL,
+        preview: URL?,
+        properties: [String: Any],
+        runtimePropertyNames: Set<String>
+    )
 }
 
-func resolveWallpaper(_ path: String) -> Wallpaper? {
-    let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+func overlayProperty(_ value: Any, forKey key: String,
+                     in properties: inout [String: Any]) {
+    var definition = properties[key] as? [String: Any] ?? [:]
+    if let override = value as? [String: Any] {
+        for (field, fieldValue) in override { definition[field] = fieldValue }
+    } else {
+        definition["value"] = value
+    }
+    properties[key] = definition
+}
+
+func resolvePresetAsset(_ value: Any, definition: [String: Any]?, root: URL) -> Any {
+    guard let definition,
+          let type = (definition["type"] as? String)?.lowercased(),
+          type == "file" || type == "directory" else { return value }
+
+    if var override = value as? [String: Any] {
+        if let nestedValue = override["value"] {
+            override["value"] = resolvePresetAsset(
+                nestedValue, definition: definition, root: root)
+        }
+        return override
+    }
+
+    guard let rawPath = value as? String, !rawPath.isEmpty else { return value }
+    let expanded = (rawPath as NSString).expandingTildeInPath
+    guard !(expanded as NSString).isAbsolutePath else { return value }
+    let candidate = root.appendingPathComponent(
+        expanded.replacingOccurrences(of: "\\", with: "/")
+    ).standardizedFileURL
+    guard FileManager.default.fileExists(atPath: candidate.path) else { return value }
+    return candidate.path
+}
+
+func standardizedWallpaperURL(_ path: String) -> URL {
+    URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL
+}
+
+func propertyStateID(for path: String) -> String {
+    let standardizedPath = standardizedWallpaperURL(path).path
+    let basename = (standardizedPath as NSString).lastPathComponent
+    if !basename.isEmpty && basename.allSatisfy({ $0.isNumber }) { return basename }
+    var hash: UInt64 = 14695981039346656037
+    for byte in standardizedPath.utf8 {
+        hash ^= UInt64(byte)
+        hash &*= 1099511628211
+    }
+    return String(format: "path-%016llx", hash)
+}
+
+func propertyStateURL(for path: String) -> URL {
+    propertyStateDirectory.appendingPathComponent(propertyStateID(for: path) + ".json")
+}
+
+func persistedPropertyValues(for path: String) -> [String: Any] {
+    let url = propertyStateURL(for: path)
+    guard let data = try? Data(contentsOf: url),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return [:] }
+    return object["values"] as? [String: Any] ?? [:]
+}
+
+func webPropertyStateID(for path: String) -> String { propertyStateID(for: path) }
+func webPropertyStateURL(for path: String) -> URL { propertyStateURL(for: path) }
+func persistedWebPropertyValues(for path: String) -> [String: Any] {
+    persistedPropertyValues(for: path)
+}
+
+func propertyKey(_ requestedKey: String, in properties: [String: Any]) -> String {
+    if properties[requestedKey] != nil { return requestedKey }
+    let lowercaseKey = requestedKey.lowercased()
+    return properties.keys.first { $0.lowercased() == lowercaseKey } ?? requestedKey
+}
+
+func applyPropertyValues(_ values: [String: Any], to properties: inout [String: Any]) {
+    for (key, value) in values {
+        let resolvedKey = propertyKey(key, in: properties)
+        guard properties[resolvedKey] != nil else { continue }
+        overlayProperty(value, forKey: resolvedKey, in: &properties)
+    }
+}
+
+func projectDocument(at root: URL) -> [String: Any]? {
+    let projectURL = root.appendingPathComponent("project.json")
+    guard let data = try? Data(contentsOf: projectURL) else { return nil }
+    return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+}
+
+func effectiveProjectProperties(
+    project: [String: Any], root: URL, includePersisted: Bool = true
+) -> [String: Any] {
+    let general = project["general"] as? [String: Any]
+    var properties = general?["properties"] as? [String: Any] ?? [:]
+    let localURL = root.appendingPathComponent("properties.local.json")
+    if let data = try? Data(contentsOf: localURL),
+       let overrides = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        applyPropertyValues(overrides, to: &properties)
+    }
+    if includePersisted {
+        applyPropertyValues(persistedPropertyValues(for: root.path), to: &properties)
+    }
+    return properties
+}
+
+private func packageUInt32(_ handle: FileHandle, fileSize: UInt64) -> UInt32? {
+    guard handle.offsetInFile <= fileSize, fileSize - handle.offsetInFile >= 4 else { return nil }
+    let data = handle.readData(ofLength: 4)
+    guard data.count == 4 else { return nil }
+    return data.enumerated().reduce(UInt32(0)) {
+        $0 | UInt32($1.element) << UInt32($1.offset * 8)
+    }
+}
+
+private func packageString(_ handle: FileHandle, fileSize: UInt64) -> String? {
+    guard let length = packageUInt32(handle, fileSize: fileSize),
+          UInt64(length) <= fileSize - handle.offsetInFile else { return nil }
+    let data = handle.readData(ofLength: Int(length))
+    guard data.count == Int(length) else { return nil }
+    return String(data: data, encoding: .utf8)
+}
+
+private final class ScenePropertyNameCacheEntry: NSObject {
+    let names: Set<String>
+    init(_ names: Set<String>) { self.names = names }
+}
+
+private let scenePropertyNameCache = NSCache<NSString, ScenePropertyNameCacheEntry>()
+
+func sceneRuntimePropertyNames(package: URL) -> Set<String> {
+    guard let attributes = try? FileManager.default.attributesOfItem(atPath: package.path),
+          let size = attributes[.size] as? NSNumber else { return [] }
+    let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+    let cacheKey = "\(package.standardizedFileURL.path)|\(size.uint64Value)|\(modified)" as NSString
+    if let cached = scenePropertyNameCache.object(forKey: cacheKey) { return cached.names }
+    guard let handle = try? FileHandle(forReadingFrom: package) else { return [] }
+    defer { try? handle.close() }
+    let fileSize = size.uint64Value
+    guard packageString(handle, fileSize: fileSize) != nil,
+          let count = packageUInt32(handle, fileSize: fileSize), count <= 1_000_000 else {
+        return []
+    }
+    struct Entry { let name: String; let offset: UInt32; let length: UInt32 }
+    var entries: [Entry] = []
+    for _ in 0..<count {
+        guard let name = packageString(handle, fileSize: fileSize),
+              let entryOffset = packageUInt32(handle, fileSize: fileSize),
+              let length = packageUInt32(handle, fileSize: fileSize) else { return [] }
+        entries.append(Entry(name: name, offset: entryOffset, length: length))
+    }
+    let base = handle.offsetInFile
+    guard let entry = entries.first(where: { $0.name == "scene.json" }),
+          entry.length <= 64 * 1024 * 1024 else { return [] }
+    let lower = base + UInt64(entry.offset)
+    let upper = lower + UInt64(entry.length)
+    guard lower >= base, upper >= lower, upper <= fileSize else { return [] }
+    handle.seek(toFileOffset: lower)
+    let data = handle.readData(ofLength: Int(entry.length))
+    guard data.count == Int(entry.length),
+          let scene = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let objects = scene["objects"] as? [[String: Any]] else { return [] }
+    var names = Set<String>(objects.compactMap { object in
+        guard object["sound"] is [Any],
+              let volume = object["volume"] as? [String: Any],
+              let name = volume["user"] as? String, !name.isEmpty else { return nil }
+        return name
+    })
+    let propertyScriptProfiles: [(objectID: Int, bytes: Int, sha256: String)] = [
+        (95, 3900, "43803a4cc38a86451269dbab6737616b114680d24daa4ee2c0240d1691334cbf"),
+        (460, 1774, "cef79c36a0edddf40c2633723541c659007e4d5c4065053de837c817ecd6d4d5"),
+    ]
+    for profile in propertyScriptProfiles {
+        guard let object = objects.first(where: {
+                  ($0["id"] as? NSNumber)?.intValue == profile.objectID
+              }),
+              let visible = object["visible"] as? [String: Any],
+              visible["value"] is Bool,
+              let source = visible["script"] as? String,
+              source.utf8.count == profile.bytes,
+              source.contains("export function init()"),
+              source.contains("export function applyUserProperties("),
+              source.contains("thisScene.getLayer("),
+              !source.contains("export function cursorClick(") else { continue }
+        let digest = SHA256.hash(data: Data(source.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        if digest == profile.sha256 { names.insert("music") }
+    }
+    scenePropertyNameCache.setObject(ScenePropertyNameCacheEntry(names), forKey: cacheKey)
+    return names
+}
+
+func dependencyID(from project: [String: Any]) -> String? {
+    if let dependency = project["dependency"] as? String, !dependency.isEmpty {
+        return dependency
+    }
+    if let dependency = project["dependency"] as? NSNumber {
+        return dependency.stringValue
+    }
+    return nil
+}
+
+private func resolveWallpaperManifest(at url: URL, includePersisted: Bool = true) -> Wallpaper? {
     var isDirectory: ObjCBool = false
     guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return nil }
 
     if !isDirectory.boolValue {
-        return ["mp4", "mov", "m4v"].contains(url.pathExtension.lowercased()) ? .video(url) : nil
+        let fileType = url.pathExtension.lowercased()
+        if ["mp4", "mov", "m4v"].contains(fileType) { return .video(url) }
+        if ["png", "jpg", "jpeg", "heic", "tiff", "webp"].contains(fileType),
+           NSImage(contentsOf: url) != nil {
+            return .image(url)
+        }
+        return nil
     }
 
-    let projectURL = url.appendingPathComponent("project.json")
-    guard let data = try? Data(contentsOf: projectURL),
-          let project = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    else { return nil }
+    guard let project = projectDocument(at: url) else { return nil }
 
     // Preset items configure another wallpaper: resolve the dependency and
     // overlay the preset's property values (WE downloads deps the same way).
-    if let dependency = project["dependency"] as? String, !dependency.isEmpty {
+    if let dependency = dependencyID(from: project) {
         let baseURL = url.deletingLastPathComponent().appendingPathComponent(dependency)
         guard FileManager.default.fileExists(
             atPath: baseURL.appendingPathComponent("project.json").path) else {
@@ -214,37 +463,522 @@ func resolveWallpaper(_ path: String) -> Wallpaper? {
                 + "downloaded — run: workshop get \(dependency)")
             return nil
         }
-        guard let base = resolveWallpaper(baseURL.path) else { return nil }
+        guard let base = resolveWallpaperManifest(at: baseURL, includePersisted: false) else {
+            return nil
+        }
         guard case .web(let index, let root, var properties) = base else { return base }
         if let preset = project["preset"] as? [String: Any] {
             for (key, value) in preset {
-                properties[key] = ["value": value]
-                properties[key.lowercased()] = ["value": value]
+                let resolvedKey = propertyKey(key, in: properties)
+                let definition = properties[resolvedKey] as? [String: Any]
+                let resolvedValue = resolvePresetAsset(
+                    value, definition: definition, root: url)
+                overlayProperty(resolvedValue, forKey: resolvedKey, in: &properties)
             }
+        }
+        if includePersisted {
+            applyPropertyValues(persistedPropertyValues(for: url.path), to: &properties)
         }
         return .web(index: index, root: root, properties: properties)
     }
 
-    guard let file = project["file"] as? String else { return nil }
     let type = (project["type"] as? String ?? "").lowercased()
+    if type.contains("scene") {
+        let package = url.appendingPathComponent("scene.pkg")
+        guard FileManager.default.fileExists(atPath: package.path) else { return nil }
+        let preview = (project["preview"] as? String).flatMap { relative -> URL? in
+            let candidate = url.appendingPathComponent(relative).standardizedFileURL
+            return NSImage(contentsOf: candidate) != nil ? candidate : nil
+        }
+        return .scene(
+            root: url,
+            package: package,
+            preview: preview,
+            properties: effectiveProjectProperties(
+                project: project, root: url, includePersisted: includePersisted
+            ),
+            runtimePropertyNames: sceneRuntimePropertyNames(package: package)
+        )
+    }
+
+    guard let file = project["file"] as? String else { return nil }
     let target = url.appendingPathComponent(file)
 
+    if type.contains("video") || type.contains("web") {
+        var targetIsDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(
+                atPath: target.path, isDirectory: &targetIsDirectory),
+              !targetIsDirectory.boolValue,
+              FileManager.default.isReadableFile(atPath: target.path) else { return nil }
+    }
     if type.contains("video") { return .video(target) }
     if type.contains("web") {
-        let general = project["general"] as? [String: Any]
-        var properties = general?["properties"] as? [String: Any] ?? [:]
-        // properties.local.json stands in for Wallpaper Engine's property
-        // UI: per-wallpaper user overrides, merged over project defaults.
-        let localURL = url.appendingPathComponent("properties.local.json")
-        if let data = try? Data(contentsOf: localURL),
-           let overrides = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            for (key, value) in overrides {
-                properties[key] = value is [String: Any] ? value : ["value": value]
-            }
-        }
-        return .web(index: target, root: url, properties: properties)
+        return .web(
+            index: target,
+            root: url,
+            properties: effectiveProjectProperties(
+                project: project, root: url, includePersisted: includePersisted
+            )
+        )
     }
     return nil
+}
+
+func resolveWallpaper(_ path: String) -> Wallpaper? {
+    let url = standardizedWallpaperURL(path)
+    return resolveWallpaperManifest(at: url)
+}
+
+func baseWebProjectDocument(for target: URL) -> [String: Any]? {
+    var root = target
+    var seen = Set<String>()
+    while let project = projectDocument(at: root) {
+        guard let dependency = dependencyID(from: project), seen.insert(dependency).inserted
+        else { return project }
+        root = root.deletingLastPathComponent().appendingPathComponent(dependency)
+    }
+    return nil
+}
+
+func selectedLocalization(from localization: [String: Any])
+    -> (locale: String?, strings: [String: Any]) {
+    let localesByLowercase = Dictionary(
+        uniqueKeysWithValues: localization.keys.map { ($0.lowercased(), $0) })
+    var candidates: [String] = []
+    for language in Locale.preferredLanguages {
+        let normalized = language.replacingOccurrences(of: "_", with: "-").lowercased()
+        candidates.append(normalized)
+        if let base = normalized.split(separator: "-").first { candidates.append(String(base)) }
+    }
+    candidates += ["en-us", "en"]
+    for candidate in candidates {
+        guard let locale = localesByLowercase[candidate],
+              let strings = localization[locale] as? [String: Any] else { continue }
+        return (locale, strings)
+    }
+    guard let locale = localization.keys.sorted().first,
+          let strings = localization[locale] as? [String: Any] else { return (nil, [:]) }
+    return (locale, strings)
+}
+
+func localizedWebText(_ raw: Any?, strings: [String: Any]) -> Any? {
+    guard let key = raw as? String else { return raw }
+    return strings[key] ?? raw
+}
+
+func webPropertyPresentation(
+    properties: [String: Any],
+    strings: [String: Any],
+    runtimePropertyNames: Set<String>? = nil
+) -> [[String: Any]] {
+    let context = JSContext()!
+    let identifierPattern = "^[A-Za-z_$][A-Za-z0-9_$]*$"
+    for (name, rawDefinition) in properties {
+        guard name.range(of: identifierPattern, options: .regularExpression) != nil,
+              let definition = rawDefinition as? [String: Any] else { continue }
+        context.setObject(definition, forKeyedSubscript: name as NSString)
+    }
+
+    let editableTypes = Set(["bool", "color", "combo", "directory", "file",
+                             "slider", "textinput"])
+    var presentation: [[String: Any]] = []
+    for (name, rawDefinition) in properties {
+        guard let definition = rawDefinition as? [String: Any] else { continue }
+        var item = definition
+        let type = (definition["type"] as? String ?? "").lowercased()
+        let runtimeSupported = runtimePropertyNames?.contains(name) ?? true
+        item["name"] = name
+        item["type"] = type
+        item["runtimeSupported"] = runtimeSupported
+        item["editable"] = editableTypes.contains(type)
+        item["label"] = localizedWebText(definition["text"], strings: strings) ?? name
+        if let options = definition["options"] as? [[String: Any]] {
+            item["options"] = options.map { option in
+                var localized = option
+                localized["label"] = localizedWebText(option["label"], strings: strings)
+                    ?? String(describing: option["value"] ?? "")
+                return localized
+            }
+        }
+        if let condition = definition["condition"] as? String, !condition.isEmpty {
+            if let result = context.evaluateScript("Boolean(\(condition))"),
+               !result.isUndefined && !result.isNull {
+                item["active"] = result.toBool()
+            } else {
+                item["active"] = NSNull()
+            }
+        } else {
+            item["active"] = true
+        }
+        presentation.append(item)
+    }
+    return presentation.sorted {
+        let leftOrder = ($0["order"] as? NSNumber)?.doubleValue ?? Double.greatestFiniteMagnitude
+        let rightOrder = ($1["order"] as? NSNumber)?.doubleValue ?? Double.greatestFiniteMagnitude
+        if leftOrder != rightOrder { return leftOrder < rightOrder }
+        return ($0["name"] as? String ?? "") < ($1["name"] as? String ?? "")
+    }
+}
+
+func wallpaperProjectDescription(_ path: String) -> [String: Any]? {
+    let target = standardizedWallpaperURL(path)
+    guard let wallpaper = resolveWallpaper(target.path),
+          let targetProject = projectDocument(at: target) else { return nil }
+    let root: URL
+    let index: URL
+    let properties: [String: Any]
+    let runtimePropertyNames: Set<String>?
+    let kind: String
+    switch wallpaper {
+    case let .web(webIndex, webRoot, webProperties):
+        root = webRoot
+        index = webIndex
+        properties = webProperties
+        runtimePropertyNames = nil
+        kind = "web"
+    case let .scene(sceneRoot, package, _, sceneProperties, supportedNames):
+        guard dependencyID(from: targetProject) == nil else { return nil }
+        root = sceneRoot
+        index = package
+        properties = sceneProperties
+        runtimePropertyNames = supportedNames
+        kind = "scene"
+    default:
+        return nil
+    }
+    let baseProject = baseWebProjectDocument(for: target) ?? targetProject
+    let general = baseProject["general"] as? [String: Any]
+    let localization = general?["localization"] as? [String: Any] ?? [:]
+    let selected = selectedLocalization(from: localization)
+    return [
+        "schemaVersion": 1,
+        "wallpaperPath": target.path,
+        "title": targetProject["title"] as? String ?? target.lastPathComponent,
+        "kind": kind,
+        "projectRoot": root.path,
+        "indexPath": index.path,
+        "stateID": propertyStateID(for: target.path),
+        "statePath": propertyStateURL(for: target.path).path,
+        "locale": selected.locale ?? NSNull(),
+        "properties": properties,
+        "presentation": webPropertyPresentation(
+            properties: properties,
+            strings: selected.strings,
+            runtimePropertyNames: runtimePropertyNames),
+        "overrides": persistedPropertyValues(for: target.path),
+    ]
+}
+
+func webProjectDescription(_ path: String) -> [String: Any]? {
+    guard let description = wallpaperProjectDescription(path),
+          description["kind"] as? String == "web" else { return nil }
+    return description
+}
+
+func propertyValuesEqual(_ left: Any?, _ right: Any?) -> Bool {
+    switch (left, right) {
+    case (nil, nil):
+        return true
+    case (let left as NSObject, let right as NSObject):
+        return left.isEqual(right)
+    default:
+        return false
+    }
+}
+
+func changedWebProperties(from old: [String: Any], to new: [String: Any]) -> [String: Any] {
+    var changed: [String: Any] = [:]
+    for (name, rawNewDefinition) in new {
+        guard var newDefinition = rawNewDefinition as? [String: Any] else { continue }
+        let oldDefinition = old[name] as? [String: Any]
+        if propertyValuesEqual(oldDefinition?["value"], newDefinition["value"]) { continue }
+        let type = (newDefinition["type"] as? String ?? "").lowercased()
+        if newDefinition["value"] == nil && type == "textinput" {
+            newDefinition["value"] = ""
+        }
+        changed[name] = newDefinition
+    }
+    return changed
+}
+
+func mergedWallpaperProperties(
+    project: [String: Any], overlays: [[String: Any]]
+) -> [String: Any] {
+    var merged = project
+    for overlay in overlays {
+        for (key, value) in overlay { merged[key] = value }
+    }
+    return merged.filter { _, value in
+        guard let definition = value as? [String: Any],
+              let text = definition["value"] as? String else { return true }
+        return !text.isEmpty
+    }
+}
+
+struct WebDirectoryInventory {
+    let allFiles: [String: [String]]
+    let fetchAllFiles: [String: [String]]
+}
+
+func webDirectoryInventory(for properties: [String: Any]) -> WebDirectoryInventory {
+    let imageExtensions = Set(["jpeg", "jpg", "png", "pnga", "bmp", "gif", "svg", "webp"])
+    let videoExtensions = Set(["webm", "ogg", "ogv", "mp4", "mov", "m4v"])
+    var allFiles: [String: [String]] = [:]
+    var fetchAllFiles: [String: [String]] = [:]
+
+    for (name, rawDefinition) in properties {
+        guard let definition = rawDefinition as? [String: Any],
+              (definition["type"] as? String)?.lowercased() == "directory",
+              let rawPath = definition["value"] as? String, !rawPath.isEmpty
+        else { continue }
+        let path = (rawPath as NSString).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { continue }
+
+        let fileType = (definition["fileType"] as? String ?? "image").lowercased()
+        let allowed = fileType.contains("video") ? videoExtensions : imageExtensions
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        let keys: [URLResourceKey] = [.isRegularFileKey]
+        let enumerator = FileManager.default.enumerator(
+            at: directory, includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        )
+        var files: [String] = []
+        while let file = enumerator?.nextObject() as? URL {
+            let values = try? file.resourceValues(forKeys: Set(keys))
+            guard values?.isRegularFile == true,
+                  allowed.contains(file.pathExtension.lowercased()) else { continue }
+            files.append(file.path)
+        }
+        files.sort()
+        allFiles[name] = files
+        if (definition["mode"] as? String)?.lowercased() == "fetchall" {
+            fetchAllFiles[name] = files
+        }
+    }
+    return WebDirectoryInventory(allFiles: allFiles, fetchAllFiles: fetchAllFiles)
+}
+
+func userProperties(from properties: [String: Any], includeEmptyText: Bool = false)
+    -> [String: Any] {
+    var result: [String: Any] = [:]
+    for (name, rawDefinition) in properties {
+        guard let definition = rawDefinition as? [String: Any],
+              let value = definition["value"], !(value is NSNull) else { continue }
+        if let text = value as? String, text.isEmpty {
+            let type = (definition["type"] as? String ?? "").lowercased()
+            if !(includeEmptyText && type == "textinput") { continue }
+        }
+        if (definition["type"] as? String)?.lowercased() == "directory",
+           (definition["mode"] as? String)?.lowercased() == "fetchall" {
+            continue
+        }
+        var event = ["value": value]
+        if let text = definition["text"] { event["text"] = text }
+        result[name] = event
+    }
+    return result
+}
+
+func webUserProperties(from properties: [String: Any], includeEmptyText: Bool = false)
+    -> [String: Any] {
+    userProperties(from: properties, includeEmptyText: includeEmptyText)
+}
+
+func sceneUserProperties(from properties: [String: Any]) -> [String: Any] {
+    var result: [String: Any] = [:]
+    for (name, rawDefinition) in properties {
+        guard let definition = rawDefinition as? [String: Any],
+              let value = definition["value"], !(value is NSNull),
+              value is String || value is NSNumber else { continue }
+        result[name] = ["value": value]
+    }
+    return result
+}
+
+func scopedWebProperties(_ properties: [String: Any],
+                         using scopedProperties: [String: Any]) -> [String: Any] {
+    var result = properties
+    for (name, rawDefinition) in properties {
+        guard let scopedDefinition = scopedProperties[name] as? [String: Any],
+              let type = (scopedDefinition["type"] as? String)?.lowercased(),
+              type == "file" || type == "directory",
+              let scopedValue = scopedDefinition["value"] else { continue }
+        var definition = rawDefinition as? [String: Any] ?? [:]
+        definition["value"] = scopedValue
+        result[name] = definition
+    }
+    return result
+}
+
+final class WebAccessScope {
+    let index: URL
+    let root: URL
+    let properties: [String: Any]
+    private var stagingRoot: URL?
+
+    init(index originalIndex: URL, root originalRoot: URL,
+         properties originalProperties: [String: Any]) {
+        let projectRoot = originalRoot.standardizedFileURL
+        var normalizedProperties = originalProperties
+        var propertySources: [String: URL] = [:]
+        var hasExternalSource = false
+
+        for (name, rawDefinition) in originalProperties {
+            guard var definition = rawDefinition as? [String: Any],
+                  let type = (definition["type"] as? String)?.lowercased(),
+                  type == "file" || type == "directory",
+                  let rawPath = definition["value"] as? String, !rawPath.isEmpty
+            else { continue }
+            let expanded = (rawPath as NSString).expandingTildeInPath
+            let source = (expanded as NSString).isAbsolutePath
+                ? URL(fileURLWithPath: expanded).standardizedFileURL
+                : projectRoot.appendingPathComponent(expanded).standardizedFileURL
+            guard FileManager.default.fileExists(atPath: source.path) else { continue }
+            definition["value"] = source.path
+            normalizedProperties[name] = definition
+            propertySources[name] = source
+            if !Self.contains(source, within: projectRoot) { hasExternalSource = true }
+        }
+
+        guard hasExternalSource else {
+            index = originalIndex
+            root = projectRoot
+            properties = normalizedProperties
+            stagingRoot = nil
+            return
+        }
+        do {
+            let staged = try Self.stage(
+                index: originalIndex, root: projectRoot,
+                properties: normalizedProperties, propertySources: propertySources)
+            index = staged.index
+            root = staged.root
+            properties = staged.properties
+            stagingRoot = staged.root
+        } catch {
+            print("web access: could not stage selected files: \(error)")
+            index = originalIndex
+            root = projectRoot
+            properties = normalizedProperties
+            stagingRoot = nil
+        }
+    }
+
+    deinit {
+        invalidate()
+    }
+
+    func invalidate() {
+        guard let stagingRoot else { return }
+        self.stagingRoot = nil
+        try? FileManager.default.removeItem(at: stagingRoot)
+    }
+
+    static func removeStaleDirectories() {
+        guard let children = try? FileManager.default.contentsOfDirectory(
+            at: runtimeDirectory, includingPropertiesForKeys: nil) else { return }
+        for child in children where child.lastPathComponent.hasPrefix("web-access-") {
+            try? FileManager.default.removeItem(at: child)
+        }
+    }
+
+    private static func stage(index: URL, root: URL, properties: [String: Any],
+                              propertySources: [String: URL]) throws
+        -> (index: URL, root: URL, properties: [String: Any]) {
+        try FileManager.default.createDirectory(at: runtimeDirectory,
+                                                withIntermediateDirectories: true)
+        let stagingRoot = runtimeDirectory.appendingPathComponent(
+            "web-access-\(UUID().uuidString)", isDirectory: true)
+        let stagedProject = stagingRoot.appendingPathComponent("project", isDirectory: true)
+        do {
+            try mirrorDirectory(root, to: stagedProject)
+            var stagedProperties = properties
+            for (name, source) in propertySources {
+                guard var definition = stagedProperties[name] as? [String: Any] else { continue }
+                let destination: URL
+                if contains(source, within: root) {
+                    destination = stagedProject.appendingPathComponent(relativePath(of: source, in: root))
+                } else {
+                    let safeName = name.replacingOccurrences(of: "/", with: "_")
+                    let propertyRoot = stagingRoot.appendingPathComponent("properties")
+                        .appendingPathComponent(safeName, isDirectory: true)
+                    var isDirectory: ObjCBool = false
+                    FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory)
+                    if isDirectory.boolValue {
+                        try mirrorDirectory(source, to: propertyRoot)
+                        destination = propertyRoot
+                    } else {
+                        try FileManager.default.createDirectory(
+                            at: propertyRoot, withIntermediateDirectories: true)
+                        destination = propertyRoot.appendingPathComponent(source.lastPathComponent)
+                        try linkOrCopy(source, to: destination)
+                    }
+                }
+                definition["value"] = destination.path
+                stagedProperties[name] = definition
+            }
+            let stagedIndex = stagedProject.appendingPathComponent(relativePath(of: index, in: root))
+            return (stagedIndex, stagingRoot, stagedProperties)
+        } catch {
+            try? FileManager.default.removeItem(at: stagingRoot)
+            throw error
+        }
+    }
+
+    private static func mirrorDirectory(_ source: URL, to destination: URL) throws {
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: source, includingPropertiesForKeys: keys, options: [.skipsPackageDescendants]
+        ) else { return }
+        while let item = enumerator.nextObject() as? URL {
+            let target = destination.appendingPathComponent(relativePath(of: item, in: source))
+            let values = try item.resourceValues(forKeys: Set(keys))
+            if values.isSymbolicLink == true {
+                let resolved = item.resolvingSymlinksInPath()
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(
+                    atPath: resolved.path, isDirectory: &isDirectory) else { continue }
+                if isDirectory.boolValue {
+                    enumerator.skipDescendants()
+                    try mirrorDirectory(resolved, to: target)
+                } else {
+                    try FileManager.default.createDirectory(
+                        at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try linkOrCopy(resolved, to: target)
+                }
+            } else if values.isDirectory == true {
+                try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            } else if values.isRegularFile == true {
+                try FileManager.default.createDirectory(
+                    at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try linkOrCopy(item, to: target)
+            }
+        }
+    }
+
+    private static func linkOrCopy(_ source: URL, to destination: URL) throws {
+        do {
+            try FileManager.default.linkItem(at: source, to: destination)
+        } catch {
+            try FileManager.default.copyItem(at: source, to: destination)
+        }
+    }
+
+    private static func contains(_ candidate: URL, within directory: URL) -> Bool {
+        let path = candidate.standardizedFileURL.path
+        let rootPath = directory.standardizedFileURL.path
+        return path == rootPath || path.hasPrefix(rootPath + "/")
+    }
+
+    private static func relativePath(of candidate: URL, in directory: URL) -> String {
+        let path = candidate.standardizedFileURL.path
+        let rootPath = directory.standardizedFileURL.path
+        guard path.hasPrefix(rootPath + "/") else { return candidate.lastPathComponent }
+        return String(path.dropFirst(rootPath.count + 1))
+    }
 }
 
 // MARK: - Livery Look → WE user properties
@@ -318,7 +1052,14 @@ func liveryManifestModificationDate() -> Date? {
     return (try? FileManager.default.attributesOfItem(atPath: manifest.path))?[.modificationDate] as? Date
 }
 
-// MARK: - Cava audio tap (64 bars → 128-sample WE frames)
+// MARK: - Cava audio tap (64 bands/channel → 128-sample WE frames)
+
+func wallpaperAudioFrame(fromCava bands: [Double]) -> [Double]? {
+    guard bands.count >= 128 else { return nil }
+    // Cava's stereo display mirrors the left channel (treble → bass) and
+    // leaves the right channel bass → treble. WE wants both bass → treble.
+    return Array(bands[0..<64].reversed()) + Array(bands[64..<128])
+}
 
 final class AudioTap {
     private var process: Process?
@@ -327,6 +1068,7 @@ final class AudioTap {
     private var configURL: URL?
     private var cavaPath: String?
     private var watchdog: Timer?
+    private var silenceTimer: Timer?
     private var consecutiveFailures = 0
     private var lastFrameAt = Date.distantPast
     private var framesThisLaunch = 0
@@ -336,6 +1078,14 @@ final class AudioTap {
     private(set) var capturePermissionAvailable = true
 
     func start() {
+        guard silenceTimer == nil else { return }
+        capturePermissionAvailable = true
+        lastFrameAt = .distantPast
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) {
+            [weak self] _ in
+            guard let self, Date().timeIntervalSince(self.lastFrameAt) > 0.2 else { return }
+            self.onFrame?(Array(repeating: 0, count: 128))
+        }
         // Never let a background wallpaper process initiate macOS's capture
         // permission flow. Rebuilding this ad-hoc-signed binary can invalidate
         // its old TCC grant; launching cava's system-output tap in that state
@@ -351,7 +1101,7 @@ final class AudioTap {
         // device and delivers silence.
         let config = """
         [general]
-        bars = 64
+        bars = 128
         framerate = 30
         lower_cutoff_freq = 40
         higher_cutoff_freq = 16000
@@ -366,8 +1116,7 @@ final class AudioTap {
         ascii_max_range = 1000
         bar_delimiter = 59
         frame_delimiter = 10
-        channels = mono
-        mono_option = average
+        channels = stereo
         [smoothing]
         integral = 0
         waves = 0
@@ -451,9 +1200,7 @@ final class AudioTap {
             buffer.removeSubrange(buffer.startIndex...newline)
             guard let text = String(data: line, encoding: .utf8) else { continue }
             let bands = text.split(separator: ";").compactMap { Double($0) }.map { $0 / 1000.0 }
-            guard bands.count >= 32 else { continue }
-            // WE convention: 64 left + 64 right; mirror our mono bands.
-            let frame = bands + bands.reversed()
+            guard let frame = wallpaperAudioFrame(fromCava: bands) else { continue }
             DispatchQueue.main.async {
                 self.framesReceived += 1
                 self.framesThisLaunch += 1
@@ -465,10 +1212,18 @@ final class AudioTap {
 
     func stop() {
         watchdog?.invalidate()
+        watchdog = nil
+        silenceTimer?.invalidate()
+        silenceTimer = nil
         live = false
         pipe?.fileHandleForReading.readabilityHandler = nil
         if let process, process.isRunning { process.terminate() }
         if let configURL { try? FileManager.default.removeItem(at: configURL) }
+        process = nil
+        pipe = nil
+        configURL = nil
+        cavaPath = nil
+        buffer.removeAll(keepingCapacity: true)
     }
 }
 
@@ -521,6 +1276,7 @@ final class MediaFeed {
     private var pollTimer: DispatchSourceTimer?
     private var timelineTimer: DispatchSourceTimer?
     private var lastTrackKey = ""
+    private var lastArtworkKey = ""
     private var lastPlayback = -1
     private var lastEnabled: Bool?
     private var playing = false
@@ -556,6 +1312,8 @@ final class MediaFeed {
     func stop() {
         pollTimer?.cancel()
         timelineTimer?.cancel()
+        pollTimer = nil
+        timelineTimer = nil
     }
 
     private func emit(_ kind: String, _ payload: [String: Any]) {
@@ -582,28 +1340,36 @@ final class MediaFeed {
         duration = doubleValue(object["duration"])
         sampledAt = Date()
 
-        let state = playing ? 2 : 1
+        let state = playing ? 1 : 2
         if state != lastPlayback {
             lastPlayback = state
             emit("playback", ["state": state])
         }
         let trackKey = "\(title)|\(artist)|\(album)"
-        guard trackKey != lastTrackKey else { return }
-        lastTrackKey = trackKey
-        emit("properties", [
-            "title": title, "artist": artist, "subTitle": "",
-            "albumTitle": album, "albumArtist": artist, "genres": "",
-            "contentType": "music",
-        ])
+        if trackKey != lastTrackKey {
+            lastTrackKey = trackKey
+            emit("properties", [
+                "title": title, "artist": artist, "subTitle": "",
+                "albumTitle": album, "albumArtist": artist, "genres": "",
+                "contentType": "music",
+            ])
+        }
         if let artwork = object["artworkData"] as? String, !artwork.isEmpty {
             let mime = object["artworkMimeType"] as? String ?? "image/jpeg"
-            let colors = artworkColors(base64: artwork)
-            emit("thumbnail", [
-                "thumbnail": "data:\(mime);base64,\(artwork)",
-                "primaryColor": colors.0, "secondaryColor": colors.1,
-                "tertiaryColor": colors.2, "textColor": colors.3,
-                "highContrastColor": colors.4,
-            ])
+            let artworkKey = "\(mime)|\(artwork.hashValue)"
+            if artworkKey != lastArtworkKey {
+                lastArtworkKey = artworkKey
+                let colors = artworkColors(base64: artwork)
+                emit("thumbnail", [
+                    "thumbnail": "data:\(mime);base64,\(artwork)",
+                    "primaryColor": colors.0, "secondaryColor": colors.1,
+                    "tertiaryColor": colors.2, "textColor": colors.3,
+                    "highContrastColor": colors.4,
+                ])
+            }
+        } else if !lastArtworkKey.isEmpty {
+            lastArtworkKey = ""
+            emit("thumbnail", ["thumbnail": ""])
         }
     }
 
@@ -613,6 +1379,8 @@ final class MediaFeed {
         emit("status", ["enabled": enabled])
         if !enabled {
             lastTrackKey = ""
+            lastArtworkKey = ""
+            emit("thumbnail", ["thumbnail": ""])
             if lastPlayback != 0 {
                 lastPlayback = 0
                 emit("playback", ["state": 0])
@@ -839,6 +1607,7 @@ func makeCoverPanel(for screen: NSScreen) -> NSWindow {
 
 // MARK: - Per-display hosts
 
+
 final class VideoHost {
     let window: NSWindow
     let view: NSView
@@ -872,9 +1641,291 @@ final class VideoHost {
     func setPaused(_ paused: Bool) { paused ? player.pause() : player.play() }
 }
 
+final class ImageHost {
+    let window: NSWindow
+    let view: NSView
+
+    init(screen: NSScreen, url: URL, attachTo existingWindow: NSWindow? = nil) {
+        window = existingWindow ?? makeDesktopWindow(for: screen)
+        view = NSView(frame: existingWindow?.contentView?.bounds ?? screen.frame)
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.black.cgColor
+        view.layer?.contentsGravity = .resizeAspectFill
+        view.layer?.contentsScale = screen.backingScaleFactor
+        if let image = NSImage(contentsOf: url) {
+            var proposed = NSRect(origin: .zero, size: image.size)
+            view.layer?.contents = image.cgImage(
+                forProposedRect: &proposed,
+                context: nil,
+                hints: nil
+            )
+        }
+        if let container = existingWindow?.contentView {
+            view.autoresizingMask = [.width, .height]
+            container.addSubview(view)
+        } else {
+            window.contentView = view
+            window.orderFront(nil)
+        }
+    }
+}
+
 enum WebSurface {
     case desktop
     case cover
+}
+
+func webBridgeBootstrap(pendingPropertiesJSON: String,
+                        generalPropertiesJSON: String,
+                        directoryFilesJSON: String,
+                        mediaSnapshotJSON: String) -> String {
+    """
+    window.__wePendingProps = \(pendingPropertiesJSON);
+    window.__weGeneralProps = \(generalPropertiesJSON);
+    window.__weDirectoryFiles = \(directoryFilesJSON);
+    window.__wePaused = false;
+    window.__weDocumentReady = document.readyState !== 'loading';
+    window.__weLog = function (message) {
+        try { webkit.messageHandlers.weLog.postMessage(String(message)); } catch (e) {}
+    };
+    window.__weErrorText = function (error) {
+        if (!error) return String(error);
+        const message = String(error.message || error);
+        const name = String(error.name || 'Error');
+        const stack = error.stack ? String(error.stack) : '';
+        if (!stack) return name + ': ' + message;
+        return stack.includes(message) ? stack : name + ': ' + message + '\\n' + stack;
+    };
+    window.__weReportedErrors = {};
+    window.__weReportOnce = function (category, error) {
+        const text = window.__weErrorText(error);
+        const key = category + '\\n' + text;
+        if (window.__weReportedErrors[key]) return;
+        window.__weReportedErrors[key] = true;
+        window.__weLog(category + ': ' + text);
+    };
+
+    window.__weAudio = [];
+    window.__weAnnounceAudioReady = function () {
+        try { webkit.messageHandlers.weAudioReady.postMessage(true); } catch (e) {}
+    };
+    window.wallpaperRegisterAudioListener = function (fn) {
+        if (typeof fn !== 'function') return;
+        window.__weAudio.push(fn);
+        if (window.__weDocumentReady) {
+            window.__weAnnounceAudioReady();
+        } else {
+            document.addEventListener('DOMContentLoaded', function () {
+                setTimeout(window.__weAnnounceAudioReady, 0);
+            }, { once: true });
+        }
+    };
+    window.__wePushAudio = function (frame) {
+        if (window.__wePaused) return;
+        for (const fn of window.__weAudio) {
+            try { fn(frame); } catch (e) { window.__weReportOnce('audio listener threw', e); }
+        }
+    };
+
+    window.__wePL = null;
+    window.__weDeliverInitialState = function (listener) {
+        if (!listener) return;
+        if (typeof listener.applyUserProperties === 'function') {
+            try { listener.applyUserProperties(window.__wePendingProps || {}); }
+            catch (e) { window.__weReportOnce('applyUserProperties threw', e); }
+        }
+        if (typeof listener.applyGeneralProperties === 'function') {
+            try { listener.applyGeneralProperties(window.__weGeneralProps || {}); }
+            catch (e) { window.__weReportOnce('applyGeneralProperties threw', e); }
+        }
+        if (window.__wePaused && typeof listener.setPaused === 'function') {
+            try { listener.setPaused(true); }
+            catch (e) { window.__weReportOnce('setPaused threw', e); }
+        }
+        if (typeof listener.userDirectoryFilesAddedOrChanged === 'function') {
+            for (const propertyName of Object.keys(window.__weDirectoryFiles || {})) {
+                try {
+                    listener.userDirectoryFilesAddedOrChanged(
+                        propertyName, window.__weDirectoryFiles[propertyName].slice());
+                } catch (e) {
+                    window.__weReportOnce('directory listener threw', e);
+                }
+            }
+        }
+    };
+    window.__weInitialListener = null;
+    window.__weScheduleInitialState = function () {
+        if (!window.__weDocumentReady) return;
+        const listener = window.__wePL;
+        setTimeout(function () {
+            if (!listener || listener !== window.__wePL || listener === window.__weInitialListener) return;
+            window.__weInitialListener = listener;
+            window.__weDeliverInitialState(listener);
+        }, 0);
+    };
+    Object.defineProperty(window, 'wallpaperPropertyListener', {
+        configurable: true,
+        get: function () { return window.__wePL; },
+        set: function (listener) {
+            window.__wePL = listener;
+            window.__weScheduleInitialState();
+        }
+    });
+    window.__weApplyProps = function (props) {
+        window.__wePendingProps = Object.assign(window.__wePendingProps || {}, props);
+        const listener = window.__wePL;
+        if (listener && typeof listener.applyUserProperties === 'function') {
+            try { listener.applyUserProperties(props); }
+            catch (e) { window.__weReportOnce('applyUserProperties threw', e); }
+        }
+    };
+    window.__weApplyGeneralProperties = function (props) {
+        window.__weGeneralProps = Object.assign(window.__weGeneralProps || {}, props);
+        const listener = window.__wePL;
+        if (listener && typeof listener.applyGeneralProperties === 'function') {
+            try { listener.applyGeneralProperties(props); }
+            catch (e) { window.__weReportOnce('applyGeneralProperties threw', e); }
+        }
+    };
+    window.__weSetPaused = function (paused) {
+        paused = Boolean(paused);
+        if (window.__wePaused === paused) return;
+        window.__wePaused = paused;
+        const listener = window.__wePL;
+        if (listener && typeof listener.setPaused === 'function') {
+            try { listener.setPaused(paused); }
+            catch (e) { window.__weReportOnce('setPaused threw', e); }
+        }
+    };
+
+    window.__weRandomRequestID = 0;
+    window.__weRandomCallbacks = {};
+    window.wallpaperRequestRandomFileForProperty = function (propertyName, callback) {
+        if (typeof callback !== 'function') return;
+        const requestID = ++window.__weRandomRequestID;
+        window.__weRandomCallbacks[requestID] = callback;
+        try {
+            webkit.messageHandlers.weRandomFile.postMessage({
+                requestId: requestID, propertyName: String(propertyName)
+            });
+        } catch (e) {
+            delete window.__weRandomCallbacks[requestID];
+            setTimeout(function () { callback(String(propertyName), ''); }, 0);
+        }
+    };
+    window.__weResolveRandomFile = function (requestID, propertyName, filePath) {
+        const callback = window.__weRandomCallbacks[requestID];
+        delete window.__weRandomCallbacks[requestID];
+        if (callback) {
+            try { callback(propertyName, filePath || ''); }
+            catch (e) { window.__weReportOnce('random file callback threw', e); }
+        }
+    };
+    window.__weUpdateDirectoryFiles = function (propertyName, files) {
+        const previous = window.__weDirectoryFiles[propertyName] || [];
+        const next = Array.isArray(files) ? files.slice() : [];
+        const added = next.filter(function (path) { return !previous.includes(path); });
+        const removed = previous.filter(function (path) { return !next.includes(path); });
+        window.__weDirectoryFiles[propertyName] = next;
+        const listener = window.__wePL;
+        if (listener && added.length &&
+            typeof listener.userDirectoryFilesAddedOrChanged === 'function') {
+            try { listener.userDirectoryFilesAddedOrChanged(propertyName, added); }
+            catch (e) { window.__weReportOnce('directory listener threw', e); }
+        }
+        if (listener && removed.length && typeof listener.userDirectoryFilesRemoved === 'function') {
+            try { listener.userDirectoryFilesRemoved(propertyName, removed); }
+            catch (e) { window.__weReportOnce('directory listener threw', e); }
+        }
+    };
+
+    window.__weInput = function (type, payload) {
+        payload = payload || {};
+        const common = {
+            bubbles: true, cancelable: true, clientX: payload.x || 0, clientY: payload.y || 0,
+            button: payload.button || 0, buttons: payload.buttons || 0,
+            ctrlKey: Boolean(payload.ctrlKey), shiftKey: Boolean(payload.shiftKey),
+            altKey: Boolean(payload.altKey), metaKey: Boolean(payload.metaKey)
+        };
+        let event;
+        if (type === 'wheel') {
+            event = new WheelEvent(type, Object.assign(common, {
+                deltaX: payload.deltaX || 0, deltaY: payload.deltaY || 0,
+                deltaMode: WheelEvent.DOM_DELTA_PIXEL
+            }));
+        } else {
+            event = new MouseEvent(type, common);
+        }
+        const target = document.elementFromPoint(common.clientX, common.clientY) || document;
+        target.dispatchEvent(event);
+    };
+    window.__weMouse = function (x, y) {
+        window.__weInput('mousemove', { x: x, y: y });
+    };
+
+    window.wallpaperMediaIntegration = {
+        PLAYBACK_STOPPED: 0, PLAYBACK_PAUSED: 1, PLAYBACK_PLAYING: 2,
+        playback: { STOPPED: 0, PAUSED: 1, PLAYING: 2 }
+    };
+    window.__weMediaLast = \(mediaSnapshotJSON);
+    window.__weMediaFns = { status: [], properties: [], thumbnail: [], playback: [], timeline: [] };
+    window.__weRegisterMedia = function (kind) {
+        return function (fn) {
+            if (typeof fn !== 'function') return;
+            window.__weMediaFns[kind].push(fn);
+            if (window.__weMediaLast[kind]) {
+                try { fn(window.__weMediaLast[kind]); }
+                catch (e) { window.__weReportOnce('media listener threw', e); }
+            }
+        };
+    };
+    window.wallpaperRegisterMediaStatusListener = window.__weRegisterMedia('status');
+    window.wallpaperRegisterMediaPropertiesListener = window.__weRegisterMedia('properties');
+    window.wallpaperRegisterMediaThumbnailListener = window.__weRegisterMedia('thumbnail');
+    window.wallpaperRegisterMediaPlaybackListener = window.__weRegisterMedia('playback');
+    window.wallpaperRegisterMediaTimelineListener = window.__weRegisterMedia('timeline');
+    window.__wePushMedia = function (kind, payload) {
+        window.__weMediaLast[kind] = payload;
+        for (const fn of window.__weMediaFns[kind] || []) {
+            try { fn(payload); }
+            catch (e) { window.__weReportOnce('media listener threw', e); }
+        }
+    };
+    window.wallpaperReady = window.wallpaperReady || function () {};
+
+    window.__weResourceFailures = [];
+    window.addEventListener('error', function (event) {
+        const target = event.target;
+        if (target && target !== window) {
+            const url = String(target.currentSrc || target.src || target.href || '');
+            const failure = {
+                tag: String(target.tagName || '').toLowerCase(),
+                parentTag: String(target.parentElement && target.parentElement.tagName || '')
+                    .toLowerCase(),
+                rel: String(target.rel || '').toLowerCase(),
+                url: url
+            };
+            window.__weResourceFailures.push(failure);
+            window.__weReportOnce('resource failed',
+                new Error((failure.tag || 'resource') + ': ' + (url || '(unknown URL)')));
+            return;
+        }
+        const location = (event.filename || '?') + ':' + (event.lineno || '?')
+            + ':' + (event.colno || '?');
+        window.__weReportOnce('page error @ ' + location,
+            event.error || new Error(event.message));
+    }, true);
+    window.addEventListener('unhandledrejection', function (event) {
+        window.__weReportOnce('unhandled rejection', event.reason);
+    });
+    document.addEventListener('DOMContentLoaded', function () {
+        window.__weDocumentReady = true;
+        window.__weScheduleInitialState();
+        const style = document.createElement('style');
+        style.textContent = 'img[src=""], img[src="file:///"] { visibility: hidden !important; }';
+        document.head.appendChild(style);
+    });
+    """
 }
 
 final class WebHost: NSObject, WKScriptMessageHandler {
@@ -883,12 +1934,28 @@ final class WebHost: NSObject, WKScriptMessageHandler {
     let screen: NSScreen
     let surface: WebSurface
     private(set) var paused = false
+    private(set) var hasAudioListener = false
+    var onPageLog: ((String) -> Void)?
+    private let randomFiles: [String: [String]]
+    private let accessScope: WebAccessScope
+    var scopedRoot: URL { accessScope.root }
+    var scopedProperties: [String: Any] { accessScope.properties }
 
-    init(screen: NSScreen, index: URL, root: URL, pendingPropertiesJSON: String,
+    init(screen: NSScreen, index: URL, root: URL, properties: [String: Any],
          surface: WebSurface = .desktop, attachTo existingWindow: NSWindow? = nil,
-         mediaSnapshotJSON: String = "{}", transparent: Bool = false) {
+         mediaSnapshotJSON: String = "{}", transparent: Bool = false,
+         accessScope providedAccessScope: WebAccessScope? = nil,
+         auditDiagnostics: Bool = false) {
         self.screen = screen
         self.surface = surface
+        let accessScope = providedAccessScope
+            ?? WebAccessScope(index: index, root: root, properties: properties)
+        self.accessScope = accessScope
+        let index = accessScope.index
+        let root = accessScope.root
+        let properties = accessScope.properties
+        let directories = webDirectoryInventory(for: properties)
+        randomFiles = directories.allFiles
         if let existingWindow {
             window = existingWindow
         } else {
@@ -897,87 +1964,28 @@ final class WebHost: NSObject, WKScriptMessageHandler {
         }
 
         let configuration = WKWebViewConfiguration()
+        configuration.mediaTypesRequiringUserActionForPlayback = []
         // WE web wallpapers load local textures into WebGL; without this
         // the canvas is tainted and drawing fails (the fork's "web fix").
         configuration.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
 
-        // WE semantics: user properties are applied when the page registers
-        // its listener — whenever that is (some wallpapers register late,
-        // after async CDN imports). A setter trap reproduces that exactly.
-        let bootstrap = """
-        window.__wePendingProps = \(pendingPropertiesJSON);
-        window.__weAudio = [];
-        window.wallpaperRegisterAudioListener = function (fn) { window.__weAudio.push(fn); };
-        window.__wePushAudio = function (frame) {
-            if (window.__wePaused) return;
-            for (const fn of window.__weAudio) { try { fn(frame); } catch (e) {} }
-        };
-        window.__weLog = function (message) {
-            try { webkit.messageHandlers.weLog.postMessage(String(message)); } catch (e) {}
-        };
-        window.__wePL = null;
-        Object.defineProperty(window, 'wallpaperPropertyListener', {
-            configurable: true,
-            get: function () { return window.__wePL; },
-            set: function (listener) {
-                window.__wePL = listener;
-                if (listener && listener.applyUserProperties) {
-                    setTimeout(function () {
-                        try { listener.applyUserProperties(window.__wePendingProps || {}); }
-                        catch (e) { window.__weLog('applyUserProperties threw: ' + e.message); }
-                    }, 0);
-                }
-            }
-        });
-        window.__weApplyProps = function (props) {
-            window.__wePendingProps = Object.assign(window.__wePendingProps || {}, props);
-            var listener = window.__wePL;
-            if (listener && listener.applyUserProperties) {
-                try { listener.applyUserProperties(props); }
-                catch (e) { window.__weLog('applyUserProperties threw: ' + e.message); }
-            }
-        };
-        window.__weMouse = function (x, y) {
-            document.dispatchEvent(new MouseEvent('mousemove', { clientX: x, clientY: y }));
-        };
-        window.wallpaperMediaIntegration = {
-            PLAYBACK_STOPPED: 0, PLAYBACK_PAUSED: 1, PLAYBACK_PLAYING: 2
-        };
-        window.__weMediaLast = \(mediaSnapshotJSON);
-        window.__weMediaFns = { status: [], properties: [], thumbnail: [], playback: [], timeline: [] };
-        function __weRegisterMedia(kind) {
-            return function (fn) {
-                window.__weMediaFns[kind].push(fn);
-                if (window.__weMediaLast[kind]) {
-                    try { fn(window.__weMediaLast[kind]); } catch (e) {}
-                }
-            };
-        }
-        window.wallpaperRegisterMediaStatusListener = __weRegisterMedia('status');
-        window.wallpaperRegisterMediaPropertiesListener = __weRegisterMedia('properties');
-        window.wallpaperRegisterMediaThumbnailListener = __weRegisterMedia('thumbnail');
-        window.wallpaperRegisterMediaPlaybackListener = __weRegisterMedia('playback');
-        window.wallpaperRegisterMediaTimelineListener = __weRegisterMedia('timeline');
-        window.__wePushMedia = function (kind, payload) {
-            window.__weMediaLast[kind] = payload;
-            for (const fn of window.__weMediaFns[kind]) { try { fn(payload); } catch (e) {} }
-        };
-        window.addEventListener('error', function (e) {
-            window.__weLog('page error: ' + e.message + ' @ ' + (e.filename || '?') + ':' + (e.lineno || '?'));
-        });
-        window.addEventListener('unhandledrejection', function (e) {
-            window.__weLog('unhandled rejection: ' + ((e.reason && e.reason.message) || e.reason));
-        });
-        document.addEventListener('DOMContentLoaded', function () {
-            // CEF/Chromium hides broken images with empty alt; WebKit shows
-            // a placeholder. Match the engine wallpapers were written for.
-            var style = document.createElement('style');
-            style.textContent = 'img[src=""], img[src="file:///"] { visibility: hidden !important; }';
-            document.head.appendChild(style);
-        });
-        """
+        // WE semantics: listeners receive their initial state whenever the
+        // page registers, including wallpapers that register after async work.
+        let fps = max(1, min(240,
+            Int(ProcessInfo.processInfo.environment["FRESCO_FPS"] ?? "") ?? 30))
+        let bootstrap = webBridgeBootstrap(
+            pendingPropertiesJSON: jsonString(webUserProperties(from: properties)),
+            generalPropertiesJSON: jsonString(["fps": fps]),
+            directoryFilesJSON: jsonString(directories.fetchAllFiles),
+            mediaSnapshotJSON: mediaSnapshotJSON
+        )
         configuration.userContentController.addUserScript(
             WKUserScript(source: bootstrap, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if auditDiagnostics {
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: webAuditDiagnosticsBootstrap(), injectionTime: .atDocumentStart,
+                forMainFrameOnly: true))
+        }
 
         webView = WKWebView(frame: screen.frame, configuration: configuration)
         if transparent {
@@ -999,55 +2007,669 @@ final class WebHost: NSObject, WKScriptMessageHandler {
             }
         }
         super.init()
-        webView.configuration.userContentController.add(self, name: "weLog")
+        for name in ["weLog", "weRandomFile", "weAudioReady"] {
+            webView.configuration.userContentController.add(self, name: name)
+        }
         webView.loadFileURL(index, allowingReadAccessTo: root)
     }
 
     func userContentController(_ userContentController: WKUserContentController,
                                didReceive message: WKScriptMessage) {
-        print("page: \(message.body)")
+        switch message.name {
+        case "weLog":
+            let text = String(describing: message.body)
+            onPageLog?(text)
+            print("page: \(text)")
+        case "weAudioReady":
+            hasAudioListener = true
+        case "weRandomFile":
+            guard let request = message.body as? [String: Any],
+                  let requestID = request["requestId"] as? NSNumber,
+                  let propertyName = request["propertyName"] as? String else { return }
+            let candidates = randomFiles[propertyName]
+                ?? randomFiles[propertyName.lowercased()] ?? []
+            let path = candidates.randomElement() ?? ""
+            let source = "window.__weResolveRandomFile(\(requestID.intValue), "
+                + "\(jsonFragmentString(propertyName)), \(jsonFragmentString(path)))"
+            webView.evaluateJavaScript(source, completionHandler: nil)
+        default:
+            break
+        }
     }
 
-    func push(properties: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: properties),
+    func invalidate() {
+        webView.stopLoading()
+        for name in ["weLog", "weRandomFile", "weAudioReady"] {
+            webView.configuration.userContentController.removeScriptMessageHandler(forName: name)
+        }
+        accessScope.invalidate()
+    }
+
+    func push(properties: [String: Any], includeEmptyText: Bool = false) {
+        let eventProperties = webUserProperties(
+            from: scopedWebProperties(properties, using: accessScope.properties),
+            includeEmptyText: includeEmptyText)
+        guard !eventProperties.isEmpty,
+              let data = try? JSONSerialization.data(withJSONObject: eventProperties),
               let json = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.__weApplyProps(\(json))", completionHandler: nil)
     }
 
     func push(audio frame: [Double]) {
-        guard !paused else { return }
+        guard !paused, hasAudioListener else { return }
         let samples = frame.map { String(format: "%.3f", $0) }.joined(separator: ",")
         webView.evaluateJavaScript("window.__wePushAudio([\(samples)])", completionHandler: nil)
     }
 
     func push(mouseAt location: NSPoint) {
-        guard screen.frame.contains(location) else { return }
+        pushInput(type: "mousemove", location: location, button: 0,
+                  buttons: NSEvent.pressedMouseButtons, deltaX: 0, deltaY: 0,
+                  modifiers: [])
+    }
+
+    func push(event: NSEvent) {
+        let location = NSEvent.mouseLocation
+        let type: String
+        let button: Int
+        switch event.type {
+        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            type = "mousemove"
+            button = 0
+        case .leftMouseDown:
+            type = "mousedown"
+            button = 0
+        case .leftMouseUp:
+            type = "mouseup"
+            button = 0
+        case .rightMouseDown:
+            type = "mousedown"
+            button = 2
+        case .rightMouseUp:
+            type = "mouseup"
+            button = 2
+        case .otherMouseDown:
+            type = "mousedown"
+            button = event.buttonNumber == 2 ? 1 : event.buttonNumber
+        case .otherMouseUp:
+            type = "mouseup"
+            button = event.buttonNumber == 2 ? 1 : event.buttonNumber
+        case .scrollWheel:
+            type = "wheel"
+            button = 0
+        default:
+            return
+        }
+        pushInput(type: type, location: location, button: button,
+                  buttons: NSEvent.pressedMouseButtons,
+                  deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY,
+                  modifiers: event.modifierFlags)
+        if event.type == .leftMouseUp {
+            pushInput(type: "click", location: location, button: 0,
+                      buttons: NSEvent.pressedMouseButtons, deltaX: 0, deltaY: 0,
+                      modifiers: event.modifierFlags)
+        } else if event.type == .rightMouseUp {
+            pushInput(type: "contextmenu", location: location, button: 2,
+                      buttons: NSEvent.pressedMouseButtons, deltaX: 0, deltaY: 0,
+                      modifiers: event.modifierFlags)
+        }
+    }
+
+    private func pushInput(type: String, location: NSPoint, button: Int,
+                           buttons: Int, deltaX: CGFloat, deltaY: CGFloat,
+                           modifiers: NSEvent.ModifierFlags) {
+        guard !paused, screen.frame.contains(location) else { return }
         let x = location.x - screen.frame.origin.x
         let y = screen.frame.height - (location.y - screen.frame.origin.y)
-        webView.evaluateJavaScript("window.__weMouse(\(Int(x)), \(Int(y)))", completionHandler: nil)
+        let payload: [String: Any] = [
+            "x": Int(x), "y": Int(y), "button": button, "buttons": buttons,
+            "deltaX": deltaX, "deltaY": deltaY,
+            "ctrlKey": modifiers.contains(.control), "shiftKey": modifiers.contains(.shift),
+            "altKey": modifiers.contains(.option), "metaKey": modifiers.contains(.command),
+        ]
+        let source = "window.__weInput(\(jsonFragmentString(type)), \(jsonString(payload)))"
+        webView.evaluateJavaScript(source, completionHandler: nil)
     }
 
     func setPaused(_ paused: Bool) {
+        guard paused != self.paused else { return }
         self.paused = paused
-        webView.evaluateJavaScript("window.__wePaused = \(paused)", completionHandler: nil)
+        if !paused { webView.isHidden = false }
+        webView.evaluateJavaScript("window.__weSetPaused(\(paused))") { [weak webView] _, _ in
+            if paused { webView?.isHidden = true }
+        }
+    }
+}
+
+final class WebBridgeContractTest: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    private var webView: WKWebView?
+    private var audioReady = false
+    private var pageLogs: [String] = []
+
+    func run() -> Never {
+        let configuration = WKWebViewConfiguration()
+        let source = webBridgeBootstrap(
+            pendingPropertiesJSON: jsonString(["accent": ["value": "blue"]]),
+            generalPropertiesJSON: jsonString(["fps": 30]),
+            directoryFilesJSON: jsonString(["slides": ["/tmp/slide.png"]]),
+            mediaSnapshotJSON: jsonString(["status": ["enabled": true]])
+        )
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        for name in ["weLog", "weRandomFile", "weAudioReady"] {
+            configuration.userContentController.add(self, name: name)
+        }
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200),
+                                configuration: configuration)
+        self.webView = webView
+        webView.navigationDelegate = self
+        webView.loadHTMLString("<html><body><div id='target'>test</div></body></html>", baseURL: nil)
+        Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { _ in
+            fputs("web bridge self-test timed out\n", stderr)
+            exit(1)
+        }
+        NSApplication.shared.run()
+        fatalError("application run loop returned")
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        let exercise = """
+        window.__test = {
+            user: [], general: [], paused: [], directories: [], removed: [], random: null,
+            audioLength: 0, mediaEnabled: false, inputs: [], constants: false
+        };
+        for (const type of ['mousemove', 'mousedown', 'mouseup', 'click', 'contextmenu', 'wheel']) {
+            document.addEventListener(type, function (event) {
+                window.__test.inputs.push({ type: event.type, x: event.clientX, y: event.clientY });
+            });
+        }
+        window.wallpaperPropertyListener = {
+            applyUserProperties: function (properties) { window.__test.user.push(properties); },
+            applyGeneralProperties: function (properties) { window.__test.general.push(properties); },
+            setPaused: function (paused) { window.__test.paused.push(paused); },
+            userDirectoryFilesAddedOrChanged: function (name, files) {
+                window.__test.directories.push({ name: name, files: files });
+            },
+            userDirectoryFilesRemoved: function (name, files) {
+                window.__test.removed.push({ name: name, files: files });
+            }
+        };
+        window.__weDeliverInitialState(window.wallpaperPropertyListener);
+        window.wallpaperRegisterAudioListener(function (frame) {
+            window.__test.audioLength = frame.length;
+        });
+        window.__wePushAudio(new Array(128).fill(0.5));
+        window.wallpaperRegisterMediaStatusListener(function (status) {
+            window.__test.mediaEnabled = status.enabled;
+        });
+        window.wallpaperRequestRandomFileForProperty('slides', function (name, path) {
+            window.__test.random = { name: name, path: path };
+        });
+        setTimeout(function () {
+            window.__weApplyProps({ speed: { value: 7 } });
+            window.__weApplyGeneralProperties({ fps: 24 });
+            window.__weSetPaused(true);
+        }, 100);
+        window.__weInput('mousemove', { x: 10, y: 11 });
+        window.__weInput('mousedown', { x: 12, y: 13, button: 0, buttons: 1 });
+        window.__weInput('mouseup', { x: 12, y: 13, button: 0 });
+        window.__weInput('click', { x: 12, y: 13, button: 0 });
+        window.__weInput('contextmenu', { x: 12, y: 13, button: 2 });
+        window.__weInput('wheel', { x: 14, y: 15, deltaY: 3 });
+        window.__weUpdateDirectoryFiles('slides', ['/tmp/new-slide.png']);
+        window.__test.constants =
+            window.wallpaperMediaIntegration.PLAYBACK_PLAYING === 2 &&
+            window.wallpaperMediaIntegration.playback.PLAYING === 2;
+        """
+        webView.evaluateJavaScript(exercise) { [weak self] _, error in
+            guard error == nil else {
+                fputs("web bridge self-test setup failed: \(error!)\n", stderr)
+                exit(1)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                self?.verify()
+            }
+        }
+    }
+
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        switch message.name {
+        case "weAudioReady":
+            audioReady = true
+        case "weLog":
+            pageLogs.append(String(describing: message.body))
+        case "weRandomFile":
+            guard let request = message.body as? [String: Any],
+                  let requestID = request["requestId"] as? NSNumber,
+                  let propertyName = request["propertyName"] as? String else { return }
+            let response = "window.__weResolveRandomFile(\(requestID.intValue), "
+                + "\(jsonFragmentString(propertyName)), '/tmp/random.png')"
+            webView?.evaluateJavaScript(response, completionHandler: nil)
+        default:
+            break
+        }
+    }
+
+    private func verify() {
+        webView?.evaluateJavaScript("JSON.stringify(window.__test)") { [weak self] value, error in
+            guard let self, error == nil, let json = value as? String,
+                  let data = json.data(using: .utf8),
+                  let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else {
+                fputs("web bridge self-test result unavailable\n", stderr)
+                exit(1)
+            }
+            let user = result["user"] as? [[String: Any]] ?? []
+            let sawAccent = user.contains {
+                (($0["accent"] as? [String: Any])?["value"] as? String) == "blue"
+            }
+            let sawSpeed = user.contains {
+                (($0["speed"] as? [String: Any])?["value"] as? NSNumber)?.intValue == 7
+            }
+            let general = result["general"] as? [[String: Any]] ?? []
+            let fpsValues = Set(general.compactMap { ($0["fps"] as? NSNumber)?.intValue })
+            let paused = result["paused"] as? [Bool] ?? []
+            let directories = result["directories"] as? [[String: Any]] ?? []
+            let directoryOK = directories.contains {
+                $0["name"] as? String == "slides"
+                    && ($0["files"] as? [String]) == ["/tmp/slide.png"]
+            }
+            let random = result["random"] as? [String: Any]
+            let randomOK = random?["name"] as? String == "slides"
+                && random?["path"] as? String == "/tmp/random.png"
+            let inputTypes = Set((result["inputs"] as? [[String: Any]] ?? [])
+                .compactMap { $0["type"] as? String })
+            let removed = result["removed"] as? [[String: Any]] ?? []
+            let removalOK = removed.contains {
+                $0["name"] as? String == "slides"
+                    && ($0["files"] as? [String]) == ["/tmp/slide.png"]
+            }
+            let passed = audioReady && pageLogs.isEmpty && sawAccent && sawSpeed
+                && fpsValues.contains(24) && paused.contains(true)
+                && directoryOK && removalOK && randomOK
+                && (result["audioLength"] as? NSNumber)?.intValue == 128
+                && result["mediaEnabled"] as? Bool == true
+                && inputTypes == Set([
+                    "mousemove", "mousedown", "mouseup", "click", "contextmenu", "wheel",
+                ])
+                && result["constants"] as? Bool == true
+            guard passed else {
+                fputs("web bridge self-test failed: \(json); logs=\(pageLogs)\n", stderr)
+                exit(1)
+            }
+            print("web bridge self-test passed")
+            exit(0)
+        }
+    }
+}
+
+
+func desktopReceives(_ event: NSEvent) -> Bool {
+    guard let cgEvent = event.cgEvent else { return false }
+    let rawWindowID = cgEvent.getIntegerValueField(
+        .mouseEventWindowUnderMousePointerThatCanHandleThisEvent)
+    guard rawWindowID > 0 else { return true }
+    let windowID = CGWindowID(rawWindowID)
+    guard let window = (CGWindowListCopyWindowInfo(
+        .optionIncludingWindow, windowID
+    ) as? [[String: Any]])?.first else { return false }
+    let ownerPID = (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue ?? 0
+    if ownerPID == ProcessInfo.processInfo.processIdentifier { return true }
+    let layer = (window[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0
+    return layer < 0
+}
+
+private protocol WebRuntimeDisplayAssignment: RuntimeDisplayAssignment {
+    var webHost: WebHost { get }
+    var webRoot: URL { get }
+    var properties: [String: Any] { get }
+    func setUserProperties(_ properties: [String: Any], changed: [String: Any])
+}
+
+private protocol SceneRuntimeDisplayAssignment:
+    RuntimeDisplayAssignment, RuntimeSceneAudioEndpoint {
+    var sceneSupervisor: SceneHelperSupervisor? { get }
+    var sceneRoot: URL { get }
+    var properties: [String: Any] { get }
+    func setMuted(_ muted: Bool, completion: (() -> Void)?)
+    func setUserProperties(_ properties: [String: Any], changed: [String: Any])
+}
+
+private protocol OcclusionRuntimeDisplayAssignment: RuntimeDisplayAssignment {
+    func updateOcclusion(window: NSWindow, visible: Bool)
+}
+
+private final class ImageRuntimeAssignment: OcclusionRuntimeDisplayAssignment {
+    let displayID: String
+    let binding: FrescoBinding
+    private let host: ImageHost
+    private let target: String
+    private let startedAt = ISO8601DateFormatter().string(from: Date())
+    private(set) var isOccluded = false
+
+    init(displayID: String, binding: FrescoBinding, screen: NSScreen, url: URL) {
+        self.displayID = displayID
+        self.binding = binding
+        target = url.path
+        host = ImageHost(screen: screen, url: url)
+    }
+
+    var evidence: RuntimeAssignmentEvidence {
+        RuntimeAssignmentEvidence(
+            displayID: displayID, status: .running, target: target,
+            firstFrameAt: startedAt, error: nil)
+    }
+    func setPaused(_ paused: Bool) {}
+    func updateOcclusion(window: NSWindow, visible: Bool) {
+        if host.window == window { isOccluded = !visible }
+    }
+    func setVisible(_ visible: Bool) {
+        visible ? host.window.orderFront(nil) : host.window.orderOut(nil)
+    }
+    func stop() { host.window.orderOut(nil) }
+}
+
+private final class VideoRuntimeAssignment: OcclusionRuntimeDisplayAssignment {
+    let displayID: String
+    let binding: FrescoBinding
+    private let host: VideoHost
+    private let target: String
+    private let startedAt = ISO8601DateFormatter().string(from: Date())
+    private(set) var isOccluded = false
+
+    init(displayID: String, binding: FrescoBinding, screen: NSScreen, url: URL) {
+        self.displayID = displayID
+        self.binding = binding
+        target = url.path
+        host = VideoHost(screen: screen, url: url)
+    }
+
+    var evidence: RuntimeAssignmentEvidence {
+        RuntimeAssignmentEvidence(
+            displayID: displayID, status: .running, target: target,
+            firstFrameAt: startedAt, error: nil)
+    }
+    func setPaused(_ paused: Bool) { host.setPaused(paused) }
+    func updateOcclusion(window: NSWindow, visible: Bool) {
+        if host.window == window {
+            isOccluded = !visible
+            host.setPaused(!visible)
+        }
+    }
+    func setVisible(_ visible: Bool) {
+        visible ? host.window.orderFront(nil) : host.window.orderOut(nil)
+    }
+    func stop() {
+        host.setPaused(true)
+        host.window.orderOut(nil)
+    }
+}
+
+private final class DesktopWebRuntimeAssignment:
+    WebRuntimeDisplayAssignment, OcclusionRuntimeDisplayAssignment {
+    let displayID: String
+    let binding: FrescoBinding
+    let webHost: WebHost
+    let webRoot: URL
+    private(set) var properties: [String: Any]
+    private let target: String
+    private let startedAt = ISO8601DateFormatter().string(from: Date())
+    private(set) var isOccluded = false
+
+    init(displayID: String, binding: FrescoBinding, screen: NSScreen, index: URL, root: URL,
+         properties: [String: Any], effectiveProperties: [String: Any],
+         mediaSnapshotJSON: String,
+         accessScope: WebAccessScope) {
+        self.displayID = displayID
+        self.binding = binding
+        webRoot = root.standardizedFileURL
+        self.properties = properties
+        target = root.path
+        webHost = WebHost(
+            screen: screen, index: index, root: root, properties: effectiveProperties,
+            mediaSnapshotJSON: mediaSnapshotJSON, accessScope: accessScope)
+    }
+
+    var evidence: RuntimeAssignmentEvidence {
+        RuntimeAssignmentEvidence(
+            displayID: displayID, status: .running, target: target,
+            firstFrameAt: startedAt, error: nil)
+    }
+    func setPaused(_ paused: Bool) { webHost.setPaused(paused) }
+    func updateOcclusion(window: NSWindow, visible: Bool) {
+        if webHost.window == window {
+            isOccluded = !visible
+            webHost.setPaused(!visible)
+        }
+    }
+    func setVisible(_ visible: Bool) {
+        visible ? webHost.window.orderFront(nil) : webHost.window.orderOut(nil)
+    }
+    func setUserProperties(_ properties: [String: Any], changed: [String: Any]) {
+        self.properties = properties
+        webHost.push(properties: changed, includeEmptyText: true)
+    }
+    func stop() {
+        webHost.invalidate()
+        webHost.window.orderOut(nil)
+    }
+}
+
+private final class DesktopSceneRuntimeAssignment: SceneRuntimeDisplayAssignment {
+    let displayID: String
+    let binding: FrescoBinding
+    let sceneSupervisor: SceneHelperSupervisor?
+    let sceneRoot: URL
+    private(set) var properties: [String: Any]
+    private let runtimePropertyNames: Set<String>
+    private let fallback: ImageHost?
+    private let target: String
+    private var ready = false
+    private var visible = true
+    private var firstFrameAt: String?
+    private var evidenceError: String?
+    private var retiring = false
+    private var retirementMuted = false
+    private var retirementMuteCompletions: [() -> Void] = []
+    private var retirementTimer: Timer?
+    private let onEvidenceChanged: () -> Void
+
+    init(displayID: String, binding: FrescoBinding, screen: NSScreen, root: URL, preview: URL?,
+         properties: [String: Any], runtimePropertyNames: Set<String>,
+         executable: URL?, assetRoot: String?, fpsCeiling: Int? = nil,
+         policyRevision: Int = 0, policyReasonTokens: [String] = [],
+         onAudioSupportChanged: @escaping () -> Void,
+         onEvidenceChanged: @escaping () -> Void) {
+        self.displayID = displayID
+        self.binding = binding
+        sceneRoot = root.standardizedFileURL
+        self.properties = properties
+        self.runtimePropertyNames = runtimePropertyNames
+        target = root.path
+        self.onEvidenceChanged = onEvidenceChanged
+        fallback = preview.map { ImageHost(screen: screen, url: $0) }
+        guard let executable else {
+            sceneSupervisor = nil
+            evidenceError = "scene helper unavailable"
+            return
+        }
+        let supervisor = SceneHelperSupervisor(
+            executable: executable,
+            project: root,
+            assetRoot: assetRoot,
+            assignmentID: displayID,
+            displayFrame: screen.frame,
+            fpsCeiling: fpsCeiling,
+            policyRevision: policyRevision,
+            policyReasonTokens: policyReasonTokens,
+            userProperties: Self.supportedUserProperties(
+                from: properties, names: runtimePropertyNames))
+        sceneSupervisor = supervisor
+        supervisor.setMuted(true)
+        supervisor.onEvent = { [weak self, weak supervisor] event in
+            guard let self, let type = event["type"] as? String,
+                  ["unsupported", "fatal", "ready"].contains(type) else { return }
+            let code = event["code"] as? String
+            print("scene \(supervisor?.assignmentID ?? self.displayID): \(type)"
+                + (code.map { " (\($0))" } ?? ""))
+            if type == "ready" {
+                self.ready = true
+                self.firstFrameAt = ISO8601DateFormatter().string(from: Date())
+                self.evidenceError = nil
+                self.updateFallbackVisibility()
+                self.onEvidenceChanged()
+            } else {
+                self.evidenceError = code ?? type
+                self.onEvidenceChanged()
+            }
+        }
+        supervisor.onUnavailable = { [weak self] in
+            guard let self else { return }
+            if self.retiring {
+                self.finishRetirement()
+                return
+            }
+            self.ready = false
+            self.evidenceError = "scene helper unavailable"
+            self.updateFallbackVisibility()
+            self.onEvidenceChanged()
+        }
+        supervisor.onExhausted = { [weak supervisor] in
+            print("scene \(supervisor?.assignmentID ?? displayID): "
+                + "restart limit reached; preview retained")
+        }
+        supervisor.onAudioSupportChanged = onAudioSupportChanged
+        supervisor.start()
+    }
+
+    var evidence: RuntimeAssignmentEvidence {
+        RuntimeAssignmentEvidence(
+            displayID: displayID,
+            status: ready ? .running : evidenceError == nil ? .starting : .degraded,
+            target: target,
+            firstFrameAt: firstFrameAt,
+            error: evidenceError)
+    }
+    func setPaused(_ paused: Bool) { sceneSupervisor?.setPaused(paused) }
+    func setMuted(_ muted: Bool) { setMuted(muted, completion: nil) }
+    func setMuted(_ muted: Bool, completion: (() -> Void)?) {
+        if retiring {
+            guard muted else {
+                completion?()
+                return
+            }
+            if retirementMuted {
+                completion?()
+            } else if let completion {
+                retirementMuteCompletions.append(completion)
+            }
+            return
+        }
+        guard let sceneSupervisor else {
+            completion?()
+            return
+        }
+        sceneSupervisor.setMuted(muted, completion: completion)
+    }
+    func setUserProperties(_ properties: [String: Any], changed: [String: Any]) {
+        self.properties = properties
+        sceneSupervisor?.setUserProperties(
+            Self.supportedUserProperties(from: properties, names: runtimePropertyNames),
+            changed: Self.supportedUserProperties(
+                from: changed, names: runtimePropertyNames))
+    }
+    func setVisible(_ visible: Bool) {
+        self.visible = visible
+        sceneSupervisor?.setVisible(visible)
+        updateFallbackVisibility()
+    }
+    func setSchedulingPolicy(
+        fpsCeiling: Int?, policyRevision: Int, reasonTokens: [String]
+    ) {
+        sceneSupervisor?.setSchedulingPolicy(
+            fpsCeiling: fpsCeiling,
+            policyRevision: policyRevision,
+            reasonTokens: reasonTokens)
+    }
+    func stop() {
+        guard !retiring else { return }
+        retiring = true
+        fallback?.window.orderOut(nil)
+        guard let sceneSupervisor else {
+            finishRetirement()
+            return
+        }
+        retirementTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: false) {
+            [weak self, weak sceneSupervisor] _ in
+            guard let self else { return }
+            guard let sceneSupervisor else {
+                self.finishRetirement()
+                return
+            }
+            sceneSupervisor.forceStop { [weak self] in self?.finishRetirement() }
+        }
+        sceneSupervisor.setMuted(true) { [sceneSupervisor, self] in
+            sceneSupervisor.stop { self.finishRetirement() }
+        }
+    }
+
+    private func finishRetirement() {
+        guard !retirementMuted else { return }
+        retirementMuted = true
+        retirementTimer?.invalidate()
+        retirementTimer = nil
+        let completions = retirementMuteCompletions
+        retirementMuteCompletions.removeAll()
+        completions.forEach { $0() }
+    }
+
+    private func updateFallbackVisibility() {
+        guard let fallback else { return }
+        visible && !ready ? fallback.window.orderFront(nil) : fallback.window.orderOut(nil)
+    }
+
+    private static func supportedUserProperties(
+        from source: [String: Any], names: Set<String>
+    ) -> [String: Any] {
+        sceneUserProperties(from: source.filter { names.contains($0.key) })
     }
 }
 
 // MARK: - Controller
 
 final class RuntimeController: NSObject, NSApplicationDelegate {
+    private static let muteHotKeyID = EventHotKeyID(
+        signature: OSType(0x46525343), id: 1) // FRSC
+    private var sceneSchedulingPolicyRevision = 0
+    private static let muteHotKeyHandler: EventHandlerUPP = { _, event, context in
+        guard let event, let context else { return OSStatus(eventNotHandledErr) }
+        var hotKeyID = EventHotKeyID()
+        let status = GetEventParameter(
+            event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+            nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+        guard status == noErr, hotKeyID.id == RuntimeController.muteHotKeyID.id,
+              hotKeyID.signature == RuntimeController.muteHotKeyID.signature else {
+            return OSStatus(eventNotHandledErr)
+        }
+        let controller = Unmanaged<RuntimeController>.fromOpaque(context)
+            .takeUnretainedValue()
+        DispatchQueue.main.async { controller.toggleMuteFromHotKey() }
+        return noErr
+    }
+
     private let initialWallpaper: Wallpaper?
+    private let sceneAudioCoordinator = RuntimeSceneAudioCoordinator()
     private let daemon: Bool
     private struct CoverDisplay {
         let panel: NSWindow
         let screen: NSScreen
+        var backdropImage: ImageHost?
         var backdropWeb: WebHost?
         var backdropVideo: VideoHost?
         let composition: WebHost
     }
 
-    private var videoHosts: [VideoHost] = []
-    private var webHosts: [WebHost] = []
+    private let desktopAssignments = RuntimeAssignmentRegistry()
     private var coverDisplays: [CoverDisplay] = []
     private var coverScene = "desktop"
     private var compositionRoot: URL?
@@ -1058,10 +2680,20 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     private let mediaFeed = MediaFeed()
     private let agentFeed = AgentFeed()
     private var mouseMonitor: Any?
+    private var muteHotKey: EventHotKeyRef?
+    private var muteHotKeyEventHandler: EventHandlerRef?
     private var liveryTimer: Timer?
     private var liveryModified: Date?
     private var projectProperties: [String: Any] = [:]
     private var webServicesStarted = false
+    private var audioTapStarted = false
+    private let stateStore = FrescoStateStore(directory: runtimeDirectory)
+    private let statusPublisher = FrescoStatusPublisher(
+        file: runtimeDirectory.appendingPathComponent("status.json"))
+    private let runtimeGeneration = "generation:" + UUID().uuidString.lowercased()
+    private var sleeping = false
+    private var lastStateDiagnostics: [String] = []
+    private var cloneCompatibilityDisplayIDs: Set<String> = []
 
     init(wallpaper: Wallpaper?, daemon: Bool) {
         self.initialWallpaper = wallpaper
@@ -1073,12 +2705,17 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         if daemon {
             try? FileManager.default.createDirectory(at: runtimeDirectory,
                                                      withIntermediateDirectories: true)
+            WebAccessScope.removeStaleDirectories()
             try? "\(ProcessInfo.processInfo.processIdentifier)"
                 .write(to: pidFile, atomically: true, encoding: .utf8)
         }
         observeOcclusion()
         observeLock()
-        if let wallpaper = initialWallpaper {
+        observeSystemState()
+        if daemon {
+            installMuteHotKey()
+            reloadFromState()
+        } else if let wallpaper = initialWallpaper {
             apply(wallpaper)
         } else {
             print("daemon idle — set a wallpaper with: fresco set <path-or-workshop-id>")
@@ -1086,56 +2723,459 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     }
 
     func reloadFromConfig() {
-        guard let wallpaper = loadConfiguredWallpaper() else {
-            teardownHosts()
-            print("cleared — daemon idle")
-            return
-        }
-        apply(wallpaper)
+        reloadFromState()
     }
 
-    private func teardownHosts() {
-        for host in videoHosts {
-            host.setPaused(true)
-            host.window.orderOut(nil)
+    private func installMuteHotKey() {
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed))
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        let handlerStatus = InstallEventHandler(
+            GetApplicationEventTarget(), Self.muteHotKeyHandler, 1, &eventType,
+            context, &muteHotKeyEventHandler)
+        guard handlerStatus == noErr else {
+            print("audio: global mute shortcut unavailable (handler \(handlerStatus))")
+            return
         }
-        videoHosts.removeAll()
-        for host in webHosts {
-            host.webView.configuration.userContentController
-                .removeScriptMessageHandler(forName: "weLog")
-            host.window.orderOut(nil)
+        let hotKeyStatus = RegisterEventHotKey(
+            UInt32(kVK_ANSI_M), UInt32(controlKey | optionKey), Self.muteHotKeyID,
+            GetApplicationEventTarget(), 0, &muteHotKey)
+        guard hotKeyStatus == noErr else {
+            if let muteHotKeyEventHandler { RemoveEventHandler(muteHotKeyEventHandler) }
+            muteHotKeyEventHandler = nil
+            print("audio: global mute shortcut unavailable (registration \(hotKeyStatus))")
+            return
         }
-        webHosts.removeAll()
+        print("audio: global mute shortcut registered (control-option-M)")
+    }
+
+    private func toggleMuteFromHotKey() {
+        do {
+            var accepted: FrescoState?
+            for _ in 0..<3 {
+                let revision = try stateStore.load().state.revision
+                do {
+                    accepted = try stateStore.setMuted(nil, expectedRevision: revision)
+                    break
+                } catch FrescoStateStoreError.revisionConflict {
+                    continue
+                }
+            }
+            guard let accepted else {
+                throw FrescoStateStoreError.writeFailed(
+                    path: runtimeDirectory.appendingPathComponent("state.json").path,
+                    error: "state changed during three mute-toggle attempts")
+            }
+            reloadFromState()
+            let state = accepted.desired.controls?.muted == true ? "muted" : "unmuted"
+            print("fresco audio: \(state)")
+        } catch {
+            print("audio: mute shortcut failed: \(error)")
+        }
+    }
+
+    func reloadUserProperties() {
+        let sceneAssignments = desktopAssignments.values.compactMap {
+            $0 as? any SceneRuntimeDisplayAssignment
+        }
+        var scenePushes = 0
+        for assignment in sceneAssignments {
+            guard case let .wallpaper(target) = assignment.binding,
+                  case let .scene(root, _, _, newProperties, _)?
+                    = resolveAssignmentWallpaper(target, displayID: assignment.displayID),
+                  root.standardizedFileURL == assignment.sceneRoot else { continue }
+            let changes = changedWebProperties(from: assignment.properties, to: newProperties)
+            guard !changes.isEmpty else { continue }
+            assignment.setUserProperties(newProperties, changed: changes)
+            scenePushes += changes.count
+        }
+
+        if daemon {
+            let webAssignments = desktopAssignments.values.compactMap {
+                $0 as? any WebRuntimeDisplayAssignment
+            }
+            var webPushes = 0
+            var webReloads: [String] = []
+            for assignment in webAssignments {
+                guard case let .wallpaper(target) = assignment.binding,
+                      case let .web(_, root, newProperties)?
+                        = resolveAssignmentWallpaper(target, displayID: assignment.displayID),
+                      root.standardizedFileURL == assignment.webRoot else { continue }
+                let rawChanges = changedWebProperties(
+                    from: assignment.properties, to: newProperties)
+                guard !rawChanges.isEmpty else { continue }
+                let effectiveChanges = changedWebProperties(
+                    from: mergedProperties(project: assignment.properties),
+                    to: mergedProperties(project: newProperties))
+                let scoped = rawChanges.values.contains { rawDefinition in
+                    guard let definition = rawDefinition as? [String: Any] else { return false }
+                    let type = (definition["type"] as? String ?? "").lowercased()
+                    return type == "file" || type == "directory"
+                }
+                if scoped {
+                    webReloads.append(assignment.displayID)
+                } else {
+                    assignment.setUserProperties(newProperties, changed: effectiveChanges)
+                    webPushes += effectiveChanges.count
+                }
+            }
+            if !webReloads.isEmpty {
+                for displayID in webReloads {
+                    desktopAssignments.invalidateConfiguration(displayID: displayID)
+                }
+                reloadFromState()
+            }
+            if scenePushes + webPushes == 0 && webReloads.isEmpty {
+                print("properties: no effective state change")
+            } else {
+                print("properties: pushed \(scenePushes + webPushes) changed value(s)"
+                    + (webReloads.isEmpty ? "" : "; reloaded \(webReloads.count) display(s)"))
+            }
+            return
+        }
+
+        guard !desktopWebHosts.isEmpty, let path = configuredWallpaperPath(),
+              case .web(_, _, let newProperties)? = resolveWallpaper(path) else {
+            if scenePushes == 0 && !sceneAssignments.isEmpty {
+                print("properties: no effective state change")
+            } else if scenePushes > 0 {
+                print("properties: pushed \(scenePushes) changed scene value(s)")
+            }
+            return
+        }
+        let rawChanges = changedWebProperties(from: projectProperties, to: newProperties)
+        guard !rawChanges.isEmpty else {
+            print("properties: no effective state change")
+            if scenePushes > 0 {
+                print("properties: pushed \(scenePushes) changed scene value(s)")
+            }
+            return
+        }
+        let scopedChange = rawChanges.values.contains { rawDefinition in
+            guard let definition = rawDefinition as? [String: Any] else { return false }
+            let type = (definition["type"] as? String ?? "").lowercased()
+            return type == "file" || type == "directory"
+        }
+        if scopedChange, let wallpaper = resolveWallpaper(path) {
+            if daemon {
+                desktopAssignments.removeAll()
+                reloadFromState()
+            } else {
+                apply(wallpaper)
+            }
+            print("properties: scoped selection changed — web hosts reloaded")
+            return
+        }
+
+        let previousEffective = mergedProperties()
+        projectProperties = newProperties
+        let effectiveChanges = changedWebProperties(
+            from: previousEffective, to: mergedProperties())
+        guard !effectiveChanges.isEmpty else {
+            print("properties: state changed behind a higher-priority runtime value")
+            return
+        }
+        desktopWebHosts.forEach { $0.push(properties: effectiveChanges, includeEmptyText: true) }
+        print("properties: pushed \(effectiveChanges.count) changed web value(s)"
+            + (scenePushes > 0 ? " and \(scenePushes) changed scene value(s)" : ""))
+    }
+
+    private func teardownHosts(reconcileServices: Bool = true) {
+        desktopAssignments.removeAll()
+        if reconcileServices { reconcileWebServices() }
     }
 
     private func apply(_ wallpaper: Wallpaper) {
-        teardownHosts()
+        teardownHosts(reconcileServices: false)
         switch wallpaper {
+        case .image(let url):
+            projectProperties = [:]
+            desktopAssignments.reconcile(
+                displays: NSScreen.screens,
+                identify: FrescoMacObservation.displayID,
+                create: {
+                    ImageRuntimeAssignment(
+                        displayID: $0, binding: .wallpaper(target: url.path),
+                        screen: $1, url: url)
+                })
+            print("image wallpaper on \(desktopAssignments.count) display(s): \(url.lastPathComponent)")
         case .video(let url):
-            videoHosts = NSScreen.screens.map { VideoHost(screen: $0, url: url) }
-            print("video wallpaper on \(videoHosts.count) display(s): \(url.lastPathComponent)")
+            projectProperties = [:]
+            desktopAssignments.reconcile(
+                displays: NSScreen.screens,
+                identify: FrescoMacObservation.displayID,
+                create: {
+                    VideoRuntimeAssignment(
+                        displayID: $0, binding: .wallpaper(target: url.path),
+                        screen: $1, url: url)
+                })
+            print("video wallpaper on \(desktopAssignments.count) display(s): \(url.lastPathComponent)")
         case .web(let index, let root, let properties):
             projectProperties = properties
             let pending = mergedProperties()
-            let json = (try? JSONSerialization.data(withJSONObject: pending))
-                .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
             let mediaSnapshot = mediaFeed.snapshotJSON()
-            webHosts = NSScreen.screens.map {
-                WebHost(screen: $0, index: index, root: root, pendingPropertiesJSON: json,
-                        mediaSnapshotJSON: mediaSnapshot)
+            let accessScope = WebAccessScope(index: index, root: root, properties: pending)
+            desktopAssignments.reconcile(
+                displays: NSScreen.screens,
+                identify: FrescoMacObservation.displayID,
+                create: {
+                    DesktopWebRuntimeAssignment(
+                        displayID: $0, binding: .wallpaper(target: root.path),
+                        screen: $1, index: index, root: root,
+                        properties: properties, effectiveProperties: pending,
+                        mediaSnapshotJSON: mediaSnapshot,
+                        accessScope: accessScope)
+                })
+            print("web wallpaper on \(desktopAssignments.count) display(s): \(root.lastPathComponent)")
+        case .scene(let root, _, let preview, let properties, let runtimePropertyNames):
+            projectProperties = [:]
+            startSceneAssignments(
+                root: root, preview: preview, properties: properties,
+                runtimePropertyNames: runtimePropertyNames,
+                binding: .wallpaper(target: root.path))
+            let fallback = preview == nil ? "system wallpaper" : "Workshop preview"
+            print("scene fallback on \(desktopAssignments.count) display(s): "
+                + "\(root.lastPathComponent) (\(fallback))")
+        }
+        reconcileWebServices()
+        publishStatus()
+    }
+
+    private func reloadFromState() {
+        guard daemon else { return }
+        do {
+            let loaded = try stateStore.load()
+            reportStateDiagnostics(loaded.diagnostics)
+            let observed = observedContext()
+            let plan = FrescoStatePlanner.plan(state: loaded.state, observed: observed)
+            sceneSchedulingPolicyRevision += 1
+            let schedulingPolicyRevision = sceneSchedulingPolicyRevision
+            reconcileStatePlan(
+                plan,
+                observed: observed,
+                schedulingPolicyRevision: schedulingPolicyRevision)
+            print("state: \(plan.displays.first?.layoutMode.rawValue ?? "clone") "
+                + "revision \(loaded.state.revision) reconciled")
+            applyEffectivePolicy(
+                plan, schedulingPolicyRevision: schedulingPolicyRevision)
+            try publishStatus(observed: observedContext(), plan: plan)
+        } catch {
+            print("state: reconciliation failed (\(error))")
+            publishStatus()
+        }
+    }
+
+    private func reconcileStatePlan(
+        _ plan: FrescoEffectivePlan,
+        observed: FrescoObservedContext,
+        schedulingPolicyRevision: Int
+    ) {
+        cloneCompatibilityDisplayIDs = Set(plan.displays.compactMap {
+            $0.layoutMode == .clone ? $0.displayId : nil
+        })
+        let screens = Dictionary(
+            NSScreen.screens.map { (FrescoMacObservation.displayID(for: $0), $0) },
+            uniquingKeysWith: { first, _ in first })
+        let observedDisplays = Dictionary(
+            observed.displays.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first })
+        var requests: [RuntimeAssignmentRequest] = []
+        var wallpapers: [String: Wallpaper] = [:]
+        var unresolved: [String: String] = [:]
+        let spanDeferred = plan.displays.contains { $0.layoutMode == .span }
+
+        for display in plan.displays {
+            let configuration = observedDisplays[display.displayId].map {
+                "\($0.frame.x),\($0.frame.y),\($0.frame.width),\($0.frame.height)@\($0.scale)"
             }
-            print("web wallpaper on \(webHosts.count) display(s): \(root.lastPathComponent)")
-            if !webServicesStarted {
-                webServicesStarted = true
-                startWebServices()
+            switch display.binding {
+            case .idle where !spanDeferred:
+                continue
+            case .idle:
+                requests.append(RuntimeAssignmentRequest(
+                    displayID: display.displayId,
+                    binding: display.binding,
+                    configurationToken: configuration))
+                unresolved[display.displayId] = "span layout is deferred"
+            case .playlist:
+                requests.append(RuntimeAssignmentRequest(
+                    displayID: display.displayId,
+                    binding: display.binding,
+                    configurationToken: configuration))
+                unresolved[display.displayId] = "playlist binding is deferred"
+            case let .wallpaper(target):
+                let request = RuntimeAssignmentRequest(
+                    displayID: display.displayId,
+                    binding: display.binding,
+                    configurationToken: configuration)
+                requests.append(request)
+                if spanDeferred {
+                    unresolved[display.displayId] = "span layout is deferred"
+                } else if let wallpaper = display.layoutMode == .clone
+                    ? resolveStateWallpaper(target)
+                    : resolveStateWallpaperExact(target) {
+                    wallpapers[display.displayId] = wallpaper
+                } else {
+                    unresolved[display.displayId]
+                        = "wallpaper target did not resolve: \(target)"
+                }
             }
         }
+
+        projectProperties = [:]
+        desktopAssignments.reconcile(requests: requests, unresolved: unresolved) {
+            [weak self] request in
+            guard let self,
+                  let screen = screens[request.displayID],
+                  let wallpaper = wallpapers[request.displayID],
+                  let effective = plan.displays.first(where: {
+                      $0.displayId == request.displayID
+                  }) else {
+                preconditionFailure("resolved plan referenced an unavailable display")
+            }
+            return self.makeAssignment(
+                displayID: request.displayID,
+                binding: request.binding,
+                screen: screen,
+                wallpaper: wallpaper,
+                effective: effective,
+                policyRevision: schedulingPolicyRevision)
+        }
+        reconcileWebServices()
+    }
+
+    private func resolveAssignmentWallpaper(
+        _ target: String, displayID: String
+    ) -> Wallpaper? {
+        cloneCompatibilityDisplayIDs.contains(displayID)
+            ? resolveStateWallpaper(target)
+            : resolveStateWallpaperExact(target)
+    }
+
+    private func makeAssignment(
+        displayID: String, binding: FrescoBinding, screen: NSScreen, wallpaper: Wallpaper,
+        effective: FrescoEffectiveDisplay, policyRevision: Int
+    ) -> any RuntimeDisplayAssignment {
+        switch wallpaper {
+        case let .image(url):
+            return ImageRuntimeAssignment(
+                displayID: displayID, binding: binding, screen: screen, url: url)
+        case let .video(url):
+            return VideoRuntimeAssignment(
+                displayID: displayID, binding: binding, screen: screen, url: url)
+        case let .web(index, root, properties):
+            let pending = mergedProperties(project: properties)
+            return DesktopWebRuntimeAssignment(
+                displayID: displayID,
+                binding: binding,
+                screen: screen,
+                index: index,
+                root: root,
+                properties: properties,
+                effectiveProperties: pending,
+                mediaSnapshotJSON: mediaFeed.snapshotJSON(),
+                accessScope: WebAccessScope(index: index, root: root, properties: pending))
+        case let .scene(root, _, preview, properties, runtimePropertyNames):
+            let executable = FileManager.default.isExecutableFile(atPath: sceneHelperFile.path)
+                ? sceneHelperFile : nil
+            return DesktopSceneRuntimeAssignment(
+                displayID: displayID,
+                binding: binding,
+                screen: screen,
+                root: root,
+                preview: preview,
+                properties: properties,
+                runtimePropertyNames: runtimePropertyNames,
+                executable: executable,
+                assetRoot: configuredSceneAssetPath(),
+                fpsCeiling: effective.fpsCeiling,
+                policyRevision: policyRevision,
+                policyReasonTokens: effective.reasons.fpsCeiling,
+                onAudioSupportChanged: { [weak self] in self?.reconcileAudioTap() },
+                onEvidenceChanged: { [weak self] in self?.publishStatus() })
+        }
+    }
+
+    private func applyEffectivePolicy(
+        _ plan: FrescoEffectivePlan, schedulingPolicyRevision: Int
+    ) {
+        let byDisplay = Dictionary(uniqueKeysWithValues: plan.displays.map { ($0.displayId, $0) })
+        for assignment in desktopAssignments.values {
+            guard let effective = byDisplay[assignment.displayID] else { continue }
+            assignment.setPaused(effective.reasons.isPaused)
+            assignment.setVisible(!effective.reasons.isHidden)
+            assignment.setSchedulingPolicy(
+                fpsCeiling: effective.fpsCeiling,
+                policyRevision: schedulingPolicyRevision,
+                reasonTokens: effective.reasons.fpsCeiling)
+        }
+        applySceneAudioOwnership(plan, byDisplay: byDisplay)
+    }
+
+    private func applySceneAudioOwnership(
+        _ plan: FrescoEffectivePlan,
+        byDisplay: [String: FrescoEffectiveDisplay]
+    ) {
+        let scenes = desktopAssignments.values.compactMap {
+            $0 as? any SceneRuntimeDisplayAssignment
+        }
+        let policyMuted = Set(scenes.compactMap {
+            byDisplay[$0.displayID]?.reasons.isMuted == true ? $0.displayID : nil
+        })
+        sceneAudioCoordinator.reconcile(
+            endpoints: scenes,
+            policyMutedDisplayIDs: policyMuted)
+    }
+
+    private func startSceneAssignments(
+        root: URL, preview: URL?, properties: [String: Any],
+        runtimePropertyNames: Set<String>, binding: FrescoBinding
+    ) {
+        let executable: URL?
+        if FileManager.default.isExecutableFile(atPath: sceneHelperFile.path) {
+            executable = sceneHelperFile
+        } else {
+            executable = nil
+            print("scene: helper unavailable; run `fresco scene-build`")
+        }
+        let assetRoot = configuredSceneAssetPath()
+        if assetRoot == nil {
+            print("scene: official assets not configured; run `fresco scene-assets set <path>`")
+        }
+        desktopAssignments.reconcile(
+            displays: NSScreen.screens,
+            identify: FrescoMacObservation.displayID,
+            create: { [weak self] displayID, screen in
+                return DesktopSceneRuntimeAssignment(
+                    displayID: displayID, binding: binding, screen: screen,
+                    root: root, preview: preview, properties: properties,
+                    runtimePropertyNames: runtimePropertyNames,
+                    executable: executable, assetRoot: assetRoot,
+                    onAudioSupportChanged: { [weak self] in self?.reconcileAudioTap() },
+                    onEvidenceChanged: { [weak self] in self?.publishStatus() })
+            })
+        sceneAudioCoordinator.reconcile(
+            endpoints: desktopAssignments.values.compactMap {
+                $0 as? any SceneRuntimeDisplayAssignment
+            },
+            policyMutedDisplayIDs: [])
     }
 
     private var coverWebHosts: [WebHost] {
         coverDisplays.flatMap { [$0.backdropWeb, $0.composition].compactMap { $0 } }
     }
-    private var allWebHosts: [WebHost] { webHosts + coverWebHosts }
+    private var desktopWebHosts: [WebHost] {
+        desktopAssignments.values.compactMap {
+            ($0 as? any WebRuntimeDisplayAssignment)?.webHost
+        }
+    }
+    private var sceneSupervisors: [SceneHelperSupervisor] {
+        desktopAssignments.values.compactMap {
+            ($0 as? any SceneRuntimeDisplayAssignment)?.sceneSupervisor
+        }
+    }
+    private var allWebHosts: [WebHost] { desktopWebHosts + coverWebHosts }
 
     // MARK: Repose cover (SIGUSR2; command written by `fresco repose*`)
 
@@ -1179,6 +3219,9 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     private func attachBackdrop(_ display: inout CoverDisplay, wallpaper: Wallpaper?,
                                 livery: [String: Any], mediaSnapshot: String) {
         switch wallpaper {
+        case .image(let url)?:
+            display.backdropImage = ImageHost(screen: display.screen, url: url,
+                                              attachTo: display.panel)
         case .video(let url)?:
             display.backdropVideo = VideoHost(screen: display.screen, url: url,
                                               attachTo: display.panel)
@@ -1186,8 +3229,13 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             for (key, value) in livery { properties[key] = value }
             display.backdropWeb = WebHost(
                 screen: display.screen, index: index, root: root,
-                pendingPropertiesJSON: jsonString(properties), surface: .cover,
+                properties: properties, surface: .cover,
                 attachTo: display.panel, mediaSnapshotJSON: mediaSnapshot)
+        case .scene(_, _, let preview, _, _)?:
+            if let preview {
+                display.backdropImage = ImageHost(
+                    screen: display.screen, url: preview, attachTo: display.panel)
+            }
         case nil:
             break
         }
@@ -1198,9 +3246,12 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     }
 
     private func detachBackdrop(_ display: inout CoverDisplay) {
+        if let old = display.backdropImage {
+            old.view.removeFromSuperview()
+            display.backdropImage = nil
+        }
         if let old = display.backdropWeb {
-            old.webView.configuration.userContentController
-                .removeScriptMessageHandler(forName: "weLog")
+            old.invalidate()
             old.webView.removeFromSuperview()
             display.backdropWeb = nil
         }
@@ -1226,17 +3277,20 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         for (key, value) in reposeState.properties { properties[key] = value }
         properties["reposebackdrop"] = ["value": backdrop == nil ? "opaque" : "clear"]
         properties["reposecover"] = ["value": "on"]   // shows the key hint once
-        let json = jsonString(properties)
         let mediaSnapshot = mediaFeed.snapshotJSON()
+        let compositionAccessScope = WebAccessScope(
+            index: index, root: root, properties: properties)
 
         for screen in NSScreen.screens {
             let panel = makeCoverPanel(for: screen)
             var display = CoverDisplay(
-                panel: panel, screen: screen, backdropWeb: nil, backdropVideo: nil,
+                panel: panel, screen: screen, backdropImage: nil,
+                backdropWeb: nil, backdropVideo: nil,
                 composition: WebHost(screen: screen, index: index, root: root,
-                                     pendingPropertiesJSON: json, surface: .cover,
+                                     properties: properties, surface: .cover,
                                      attachTo: panel, mediaSnapshotJSON: mediaSnapshot,
-                                     transparent: true))
+                                     transparent: true,
+                                     accessScope: compositionAccessScope))
             attachBackdrop(&display, wallpaper: backdrop, livery: livery,
                            mediaSnapshot: mediaSnapshot)
             coverDisplays.append(display)
@@ -1267,10 +3321,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             let hidden = shell(["sketchybar", "--bar", "hidden=on"]).status == 0
             DispatchQueue.main.async { self.coverBarHidden = hidden }
         }
-        if !webServicesStarted {
-            webServicesStarted = true
-            startWebServices()
-        }
+        reconcileWebServices()
         let backdropNote = backdrop == nil ? "opaque" : "wallpaper-through"
         print("repose: cover entered (\(reposeState.look), \(reposeState.variant), "
             + "\(backdropNote)) on \(coverDisplays.count) display(s)")
@@ -1365,6 +3416,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         let hosts = coverWebHosts
         let videos = coverDisplays.compactMap { $0.backdropVideo }
         coverDisplays.removeAll()
+        reconcileWebServices()
         if coverBarHidden {
             coverBarHidden = false
             DispatchQueue.global(qos: .userInitiated).async {
@@ -1376,8 +3428,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             panels.forEach { $0.animator().alphaValue = 0 }
         }, completionHandler: {
             for host in hosts {
-                host.webView.configuration.userContentController
-                    .removeScriptMessageHandler(forName: "weLog")
+                host.invalidate()
             }
             videos.forEach { $0.setPaused(true) }
             panels.forEach { $0.orderOut(nil) }
@@ -1385,7 +3436,21 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         print("repose: cover exited")
     }
 
+    private func reconcileWebServices() {
+        if allWebHosts.isEmpty && sceneSupervisors.isEmpty {
+            stopWebServices()
+        } else if !webServicesStarted {
+            startWebServices()
+        }
+        if webServicesStarted {
+            sceneSupervisors.forEach { $0.setMediaEvents(mediaFeed.lastPayloads) }
+        }
+        reconcileAudioTap()
+    }
+
     private func startWebServices() {
+        guard !webServicesStarted else { return }
+        webServicesStarted = true
         // Initial properties ride the document-start script (applied by the
         // listener trap); the watcher re-pushes when the Look changes.
         liveryModified = liveryManifestModificationDate()
@@ -1399,34 +3464,19 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             }
         }
 
-        audioTap.onFrame = { [weak self] frame in
-            self?.allWebHosts.forEach { $0.push(audio: frame) }
-        }
-        audioTap.start()
-        if !audioTap.capturePermissionAvailable {
-            print("audio: disabled — capture permission unavailable (no prompt requested)")
-        } else {
-            print(audioTap.live ? "audio: cava launched" : "audio: cava unavailable (no audio response)")
-        }
-        if audioTap.live {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
-                guard let self else { return }
-                if self.audioTap.framesReceived == 0 {
-                    print("""
-                    audio: cava is running but no frames arrived — likely the \
-                    system-audio capture permission. Grant it to your terminal \
-                    under System Settings → Privacy & Security → Screen & \
-                    System Audio Recording, then relaunch.
-                    """)
-                } else {
-                    print("audio: tap live (\(self.audioTap.framesReceived) frames)")
-                }
+        let mouseEvents: NSEvent.EventTypeMask = [
+            .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
+            .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+            .otherMouseDown, .otherMouseUp, .scrollWheel,
+        ]
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseEvents) { [weak self] event in
+            guard let self else { return }
+            if event.type != .mouseMoved && !desktopReceives(event) { return }
+            self.desktopWebHosts.forEach { $0.push(event: event) }
+            if event.type == .leftMouseUp {
+                let location = NSEvent.mouseLocation
+                self.sceneSupervisors.forEach { $0.cursorClick(at: location) }
             }
-        }
-
-        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
-            let location = NSEvent.mouseLocation
-            self?.webHosts.forEach { $0.push(mouseAt: location) }
         }
 
         if AgentFeed.available {
@@ -1439,8 +3489,11 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
 
         if MediaFeed.available {
             mediaFeed.onEvent = { [weak self] kind, payload in
-                guard let self,
-                      let data = try? JSONSerialization.data(withJSONObject: payload),
+                guard let self else { return }
+                self.sceneSupervisors.forEach {
+                    $0.pushMediaEvent(kind: kind, payload: payload)
+                }
+                guard let data = try? JSONSerialization.data(withJSONObject: payload),
                       let json = String(data: data, encoding: .utf8) else { return }
                 for host in self.allWebHosts {
                     host.webView.evaluateJavaScript(
@@ -1454,23 +3507,78 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func mergedProperties() -> [String: Any] {
-        var merged = projectProperties
-        for (key, value) in liveryProperties() { merged[key] = value }
-        for (key, value) in agentFeed.lastProperties { merged[key] = value }
-        // Empty file/text placeholders break wallpapers (`file:///` srcs);
-        // WE's UI never applies an empty value either.
-        return merged.filter { _, value in
-            if let dict = value as? [String: Any], let text = dict["value"] as? String {
-                return !text.isEmpty
-            }
-            return true
+    private func stopWebServices() {
+        guard webServicesStarted else { return }
+        webServicesStarted = false
+        mediaFeed.stop()
+        mediaFeed.onEvent = nil
+        agentFeed.stop()
+        agentFeed.onChange = nil
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        mouseMonitor = nil
+        liveryTimer?.invalidate()
+        liveryTimer = nil
+        print("web services stopped — no web wallpaper active")
+    }
+
+    private func reconcileAudioTap() {
+        let needed = !allWebHosts.isEmpty
+            || sceneSupervisors.contains(where: \.audioSpectrumSupported)
+        if needed && !audioTapStarted {
+            startAudioTap()
+        } else if !needed && audioTapStarted {
+            audioTap.stop()
+            audioTap.onFrame = nil
+            audioTapStarted = false
+            print("audio: stopped — no compatible wallpaper active")
         }
     }
 
+    private func startAudioTap() {
+        guard !audioTapStarted else { return }
+        audioTapStarted = true
+        let initialAudioFrames = audioTap.framesReceived
+        audioTap.onFrame = { [weak self] frame in
+            guard let self else { return }
+            self.allWebHosts.forEach { $0.push(audio: frame) }
+            self.sceneSupervisors.forEach { $0.pushAudioSpectrum(frame) }
+        }
+        audioTap.start()
+        if !audioTap.capturePermissionAvailable {
+            print("audio: disabled — capture permission unavailable (no prompt requested)")
+        } else {
+            print(audioTap.live ? "audio: cava launched" : "audio: cava unavailable — sending silence")
+        }
+        if audioTap.live {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+                guard let self, self.audioTapStarted else { return }
+                if self.audioTap.framesReceived == initialAudioFrames {
+                    print("""
+                    audio: cava is running but no frames arrived — likely the \
+                    system-audio capture permission. Grant it to your terminal \
+                    under System Settings → Privacy & Security → Screen & \
+                    System Audio Recording, then relaunch.
+                    """)
+                } else {
+                    let received = self.audioTap.framesReceived - initialAudioFrames
+                    print("audio: tap live (\(received) frames)")
+                }
+            }
+        }
+    }
+
+    private func mergedProperties(project: [String: Any]? = nil) -> [String: Any] {
+        mergedWallpaperProperties(
+            project: project ?? projectProperties,
+            overlays: [liveryProperties(), agentFeed.lastProperties])
+    }
+
     private func pushProperties() {
-        let merged = mergedProperties()
-        webHosts.forEach { $0.push(properties: merged) }
+        for assignment in desktopAssignments.values.compactMap({
+            $0 as? any WebRuntimeDisplayAssignment
+        }) {
+            assignment.webHost.push(properties: mergedProperties(project: assignment.properties))
+        }
         // covers get only the Livery roles — the desktop wallpaper's own
         // project properties must not leak into the repose composition
         let livery = liveryProperties()
@@ -1483,13 +3591,17 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         ) { [weak self] notification in
             guard let self, let window = notification.object as? NSWindow else { return }
             let visible = window.occlusionState.contains(.visible)
-            for host in self.videoHosts where host.window == window { host.setPaused(!visible) }
-            for host in self.webHosts where host.window == window { host.setPaused(!visible) }
+            for assignment in self.desktopAssignments.values {
+                (assignment as? any OcclusionRuntimeDisplayAssignment)?
+                    .updateOcclusion(window: window, visible: visible)
+            }
+            self.reloadFromState()
         }
     }
 
     // Lock-screen split: the lock screen shows the desktop surface frozen,
-    // which reads as broken for live wallpapers. Hide the desktop windows
+    // which reads as broken for live wallpapers and defeats a separately
+    // pinned image behind a static desktop layer. Hide the desktop windows
     // while locked so the lock screen falls back to the static system
     // wallpaper — that picture (System Settings > Wallpaper) is thereby
     // the separate lock wallpaper. An open cover exits on lock (it's a
@@ -1508,106 +3620,88 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         guard locked != screenLocked else { return }
         screenLocked = locked
         if locked && !coverDisplays.isEmpty { exitCover() }
-        for host in videoHosts {
-            host.setPaused(locked)
-            locked ? host.window.orderOut(nil) : host.window.orderFront(nil)
-        }
-        for host in webHosts {
-            host.setPaused(locked)
-            locked ? host.window.orderOut(nil) : host.window.orderFront(nil)
+        desktopAssignments.values.forEach {
+            $0.setPaused(locked)
+            $0.setVisible(!locked)
         }
         print("lock: desktop wallpaper \(locked ? "hidden" : "restored")")
+        reloadFromState()
+    }
+
+    private func observeSystemState() {
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.addObserver(
+            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.sleeping = true
+            self?.reloadFromState()
+        }
+        workspace.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.sleeping = false
+            self?.reloadFromState()
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in self?.reloadFromState() }
+    }
+
+    private func publishStatus() {
+        guard daemon else { return }
+        do {
+            let loaded = try stateStore.load()
+            reportStateDiagnostics(loaded.diagnostics)
+            let observed = observedContext()
+            let plan = FrescoStatePlanner.plan(state: loaded.state, observed: observed)
+            try publishStatus(observed: observed, plan: plan)
+        } catch {
+            print("status: unavailable (\(error))")
+        }
+    }
+
+    private func observedContext() -> FrescoObservedContext {
+        FrescoMacObservation.context(
+            screens: NSScreen.screens,
+            generation: runtimeGeneration,
+            locked: screenLocked,
+            sleeping: sleeping,
+            occludedDisplayIDs: desktopAssignments.occludedDisplayIDs)
+    }
+
+    private func reportStateDiagnostics(_ diagnostics: [String]) {
+        guard diagnostics != lastStateDiagnostics else { return }
+        lastStateDiagnostics = diagnostics
+        for diagnostic in diagnostics { print("state: \(diagnostic)") }
+    }
+
+    private func publishStatus(
+        observed: FrescoObservedContext,
+        plan: FrescoEffectivePlan
+    ) throws {
+        let snapshot = FrescoStatusAssembler.snapshot(
+            plan: plan,
+            observed: observed,
+            assignmentEvidence: desktopAssignments.evidence)
+        try statusPublisher.publish(snapshot)
     }
 
     func shutdown() {
+        if let muteHotKey { UnregisterEventHotKey(muteHotKey) }
+        muteHotKey = nil
+        if let muteHotKeyEventHandler { RemoveEventHandler(muteHotKeyEventHandler) }
+        muteHotKeyEventHandler = nil
         // never strand a hidden bar if we die while covered
         if coverBarHidden { shell(["sketchybar", "--bar", "hidden=off"]) }
+        desktopAssignments.removeAll()
+        stopWebServices()
         audioTap.stop()
-        mediaFeed.stop()
-        agentFeed.stop()
-        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
-        liveryTimer?.invalidate()
+        audioTap.onFrame = nil
+        audioTapStarted = false
+        if daemon { statusPublisher.remove() }
         if daemon { try? FileManager.default.removeItem(at: pidFile) }
         exit(0)
     }
 }
-
-// MARK: - Bootstrap
-
-// Line-buffer stdout even when it's a log file, so daemon activity is
-// visible as it happens rather than stuck in a full buffer.
-setvbuf(stdout, nil, _IOLBF, 0)
-
-let flags = CommandLine.arguments.dropFirst().filter { $0.hasPrefix("--") }
-let positional = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("--") }
-let daemonMode = flags.contains("--daemon")
-
-if flags.contains("--self-test-agent-counts") {
-    let fixtures = [
-        ("working", "%1", 9001), // pane wins even when its pid is dead
-        ("waiting", nil, 9002),
-        ("done", "%3", 9003),
-        ("done", nil, 9004),      // dead pane-less task is evicted
-        ("working", "%gone", 9002), // missing pane wins over a live pid
-    ].map { state, pane, pid -> Data in
-        var task: [String: Any] = [
-            "kind": "codex", "state": state, "codex": ["pid": pid]
-        ]
-        if let pane { task["focus"] = ["tmux": ["pane": pane]] }
-        return try! JSONSerialization.data(withJSONObject: ["data": task])
-    }
-    let tasks = AgentFeed.tasks(from: fixtures)
-    let expected = AgentCounts(working: 1, waiting: 1, done: 1)
-    guard AgentFeed.counts(from: tasks, livePaneIDs: ["%1", "%3"],
-                           livePIDs: [9002]) == expected else {
-        fputs("agent-count self-test failed\n", stderr)
-        exit(1)
-    }
-    print("agent-count self-test passed")
-    exit(0)
-}
-
-var initialWallpaper: Wallpaper?
-if daemonMode {
-    initialWallpaper = loadConfiguredWallpaper()   // nil = idle until SIGUSR1
-} else {
-    guard let inputPath = positional.first, let wallpaper = resolveWallpaper(inputPath) else {
-        fputs("""
-        usage: fresco-worker <wallpaper> | --daemon
-          <wallpaper>: a .mp4/.mov file, or a Wallpaper Engine project folder
-                       containing project.json (type "video" or "web")
-          --daemon:    read \(configFile.path), reload on SIGUSR1,
-                       repose cover on SIGUSR2, write a pidfile
-                       (managed by fresco)
-        """ + "\n", stderr)
-        exit(64)
-    }
-    initialWallpaper = wallpaper
-}
-
-let application = NSApplication.shared
-application.setActivationPolicy(.accessory)
-let controller = RuntimeController(wallpaper: initialWallpaper, daemon: daemonMode)
-application.delegate = controller
-
-signal(SIGINT, SIG_IGN)
-let sigintSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-sigintSource.setEventHandler { controller.shutdown() }
-sigintSource.resume()
-
-signal(SIGTERM, SIG_IGN)
-let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-sigtermSource.setEventHandler { controller.shutdown() }
-sigtermSource.resume()
-
-signal(SIGUSR1, SIG_IGN)
-let sigusr1Source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
-sigusr1Source.setEventHandler { controller.reloadFromConfig() }
-sigusr1Source.resume()
-
-signal(SIGUSR2, SIG_IGN)
-let sigusr2Source = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
-sigusr2Source.setEventHandler { controller.handleReposeCommand() }
-sigusr2Source.resume()
-
-application.run()

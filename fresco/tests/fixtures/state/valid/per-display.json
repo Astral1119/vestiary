@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "revision": 12,
+  "updatedAt": "2026-07-20T18:10:00Z",
+  "displays": [
+    { "id": "display:left", "name": "Left" },
+    { "id": "display:right", "name": "Right" }
+  ],
+  "playlists": [
+    {
+      "id": "playlist:quiet",
+      "name": "Quiet rotation",
+      "entries": [
+        {
+          "id": "cat",
+          "wallpaper": { "kind": "wallpaper", "target": "3208430444" },
+          "durationSeconds": 600
+        },
+        {
+          "id": "repose",
+          "wallpaper": { "kind": "wallpaper", "target": "/Library/Fresco/Repose" },
+          "durationSeconds": 900
+        }
+      ],
+      "order": "sequential",
+      "repeat": true
+    }
+  ],
+  "profiles": [
+    {
+      "id": "profile:desk",
+      "name": "Desk",
+      "layout": {
+        "mode": "perDisplay",
+        "assignments": [
+          {
+            "displayId": "display:left",
+            "binding": { "kind": "playlist", "playlistId": "playlist:quiet" }
+          },
+          {
+            "displayId": "display:right",
+            "binding": { "kind": "wallpaper", "target": "/Library/Fresco/Repose" }
+          }
+        ],
+        "defaultBinding": { "kind": "idle" }
+      },
+      "controls": { "paused": false, "muted": true },
+      "fpsCeiling": 60
+    }
+  ],
+  "applicationRules": [
+    {
+      "id": "focus",
+      "enabled": true,
+      "priority": 20,
+      "match": {
+        "bundleIds": ["com.apple.dt.Xcode"],
+        "running": "require",
+        "frontmost": "ignore",
+        "fullscreen": "require"
+      },
+      "scope": { "kind": "affectedDisplays" },
+      "effect": { "paused": true, "fpsCeiling": 30 }
+    }
+  ],
+  "desired": { "profileId": "profile:desk" }
+}

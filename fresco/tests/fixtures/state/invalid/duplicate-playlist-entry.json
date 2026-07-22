@@ -1,0 +1,13 @@
+{
+  "schema": "state",
+  "base": "per-display.json",
+  "append": {
+    "pointer": "/playlists/0/entries",
+    "value": {
+      "id": "cat",
+      "wallpaper": { "kind": "wallpaper", "target": "3380416096" },
+      "durationSeconds": 300
+    }
+  },
+  "error": "duplicate entry ID"
+}

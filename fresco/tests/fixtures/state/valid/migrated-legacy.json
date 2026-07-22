@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "updatedAt": "2026-07-20T18:30:00Z",
+  "displays": [],
+  "playlists": [],
+  "profiles": [],
+  "applicationRules": [],
+  "desired": {
+    "layout": {
+      "mode": "clone",
+      "binding": { "kind": "wallpaper", "target": "3208430444" }
+    },
+    "controls": { "paused": false, "muted": false }
+  }
+}

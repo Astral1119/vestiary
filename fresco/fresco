@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Lifecycle control for the wallpaper runtime.
 
-  fresco set <path-or-workshop-id>   # switch wallpaper (starts if needed)
+  fresco set <path-or-workshop-id>   # switch image/live wallpaper (starts if needed)
   fresco clear                       # tear down to idle (static desktop)
   fresco repose [quiet|loud|off]     # toggle the repose cover
                                            # (explicit variant enters/switches)
@@ -26,37 +26,76 @@ subcommands and the in-cover keys (arrows scene, tab look, b visualizer, x pixel
 v variant, g/n treatments, l label) are both thin writers over it,
 applied live to an open cover.
   fresco start | stop | restart
+  fresco mute [on|off] | unmute        # toggle or set global wallpaper audio
   fresco status
   fresco build                       # (re)compile the daemon binary
+  fresco scene-build                 # (re)compile the GPL scene helper
+  fresco scene-samples               # seed the measured scene corpus into Livery
+  fresco scene-assets [status]
+  fresco scene-assets set <path>     # persist a validated owned assets root
+  fresco scene-assets validate <path>
+  fresco scene-assets clear
+  fresco audit [all|current|<id-or-path>...]
+                                      # isolated web render checks + evidence
+  fresco property [<id-or-path>] list
+  fresco property [<id-or-path>] get <name>
+  fresco property [<id-or-path>] set <name> <value>
+  fresco property [<id-or-path>] reset [<name>]
   fresco audio-permission            # show the stable app to grant once
   fresco install-agent               # launchd agent: start at login
   fresco uninstall-agent
 
-State lives in ~/.config/fresco/: `current` (wallpaper path),
-`pid`, `log`, and `bin/fresco`. A running daemon hot-swaps on
-SIGUSR1; `stop` uses launchctl when the agent is loaded so KeepAlive
-doesn't resurrect it.
+State lives in ~/.config/fresco/: `state.json` is desired policy,
+`status.json` is runtime evidence, and `current` is a compatibility projection.
+A running daemon reconciles accepted state on SIGUSR1 and refreshes persisted
+project properties on SIGHUP. `stop` uses launchctl when the agent is loaded so
+KeepAlive doesn't resurrect it.
 """
 
 import json
+import math
 import os
 import re
 import signal
 import shutil
 import subprocess
 import sys
+import tempfile
+from datetime import datetime
+from html import unescape
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SOURCE = os.path.join(SCRIPT_DIR, "Fresco.swift")
+RUNTIME_SOURCES = [
+    os.path.join(SCRIPT_DIR, name)
+    for name in (
+        "Fresco.swift",
+        "FrescoStatePlanner.swift",
+        "FrescoStateStore.swift",
+        "RuntimeAssignments.swift",
+        "FrescoObservation.swift",
+        "FrescoStatusPipeline.swift",
+        "SceneSupervisor.swift",
+        "WebWallpaperAudit.swift",
+        "FrescoMain.swift",
+    )
+]
 HOST_SOURCE = os.path.join(SCRIPT_DIR, "FrescoHost.swift")
 HOST_INFO = os.path.join(SCRIPT_DIR, "HostInfo.plist")
-STATE_DIR = os.path.expanduser("~/.config/fresco")
+STATE_DIR = os.path.abspath(os.path.expanduser(
+    os.environ.get("FRESCO_STATE_DIR", "~/.config/fresco")))
 BIN = os.path.join(STATE_DIR, "bin", "fresco")
+SCENE_SOURCE_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "fresco-scene")
+SCENE_BUILD_DIR = os.path.join(STATE_DIR, "build", "fresco-scene")
+SCENE_BIN = os.path.join(STATE_DIR, "bin", "fresco-scene")
+SCENE_ASSETS = os.path.join(STATE_DIR, "scene-assets")
+SCENE_FIXTURES = os.path.join(SCRIPT_DIR, "tests", "scene-fixtures.json")
+LIVERYCTL = os.path.join(os.path.dirname(SCRIPT_DIR), "livery", "liveryctl")
 HOST_APP = os.path.expanduser("~/Applications/Fresco.app")
 HOST_BIN = os.path.join(HOST_APP, "Contents", "MacOS", "fresco-host")
 HOST_PIDFILE = os.path.join(STATE_DIR, "host-pid")
 HOST_BUNDLE_ID = "local.vestiary.fresco"
 CONFIG = os.path.join(STATE_DIR, "current")
+STATUS = os.path.join(STATE_DIR, "status.json")
 PIDFILE = os.path.join(STATE_DIR, "pid")
 LOG = os.path.join(STATE_DIR, "log")
 LABEL = "local.fresco"
@@ -72,14 +111,259 @@ WORKSHOP_DIR = os.path.expanduser(
 def build(force=False):
     os.makedirs(os.path.dirname(BIN), exist_ok=True)
     if (not force and os.path.exists(BIN)
-            and os.path.getmtime(BIN) >= os.path.getmtime(SOURCE)):
+            and os.path.getmtime(BIN) >= max(
+                os.path.getmtime(source) for source in RUNTIME_SOURCES)):
         return
     print("compiling runtime…")
     subprocess.run(
         ["swiftc", "-O", "-warnings-as-errors",
          "-framework", "AppKit", "-framework", "WebKit",
-         "-framework", "AVFoundation", SOURCE, "-o", BIN],
+         "-framework", "AVFoundation", "-framework", "JavaScriptCore",
+         *RUNTIME_SOURCES, "-o", BIN],
         check=True)
+
+
+def scene_helper_source_mtime():
+    paths = []
+    for root, directories, names in os.walk(SCENE_SOURCE_DIR):
+        directories[:] = [name for name in directories if name != "build"]
+        paths.extend(
+            os.path.join(root, name)
+            for name in names
+            if name == "CMakeLists.txt"
+            or name.endswith((".cmake", ".c", ".cpp", ".h", ".mm")))
+    try:
+        return max(os.path.getmtime(path) for path in paths)
+    except (OSError, ValueError):
+        return 0
+
+
+def build_scene_helper(force=False):
+    if not os.path.isfile(os.path.join(SCENE_SOURCE_DIR, "CMakeLists.txt")):
+        sys.exit(f"scene-helper source unavailable: {SCENE_SOURCE_DIR}")
+    source_mtime = scene_helper_source_mtime()
+    if (not force and os.path.isfile(SCENE_BIN)
+            and os.path.getmtime(SCENE_BIN) >= source_mtime):
+        return
+
+    print("compiling scene helper…")
+    os.makedirs(SCENE_BUILD_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(SCENE_BIN), exist_ok=True)
+    try:
+        subprocess.run(
+            ["cmake", "-S", SCENE_SOURCE_DIR, "-B", SCENE_BUILD_DIR,
+             "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF",
+             "-DFRESCO_SCENE_RENDER_BACKEND=native-opengl",
+             "-DFRESCO_SCENE_BUILD_RENDERER="
+             + ("OFF" if os.environ.get("FRESCO_SCENE_INSPECTION_ONLY") else "ON"),
+             f"-DCMAKE_INSTALL_PREFIX={STATE_DIR}"],
+            check=True)
+        subprocess.run(
+            ["cmake", "--build", SCENE_BUILD_DIR, "--target", "fresco-scene",
+             "--parallel"],
+            check=True)
+        subprocess.run(
+            ["cmake", "--install", SCENE_BUILD_DIR],
+            check=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        sys.exit(f"scene-helper build failed: {error}")
+    if not os.path.isfile(SCENE_BIN) or not os.access(SCENE_BIN, os.X_OK):
+        sys.exit(f"scene-helper install missing executable: {SCENE_BIN}")
+
+
+def scene_helper_request(command):
+    build_scene_helper()
+    stop = {"protocolVersion": 1, "type": "stop",
+            "assignmentID": "fresco-cli-stop"}
+    try:
+        result = subprocess.run(
+            [SCENE_BIN],
+            input=json.dumps(command) + "\n" + json.dumps(stop) + "\n",
+            text=True,
+            capture_output=True,
+            timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        sys.exit(f"scene helper did not respond: {error}")
+    if result.returncode != 0:
+        sys.exit(result.stderr.strip() or
+                 f"scene helper exited {result.returncode}")
+    try:
+        events = [json.loads(line) for line in result.stdout.splitlines()]
+    except ValueError as error:
+        sys.exit(f"scene helper emitted invalid protocol JSON: {error}")
+    if len(events) != 2 or events[-1].get("type") != "stopped":
+        sys.exit("scene helper did not complete the request cleanly")
+    if result.stderr:
+        sys.exit(f"scene helper wrote unexpected diagnostics: {result.stderr.strip()}")
+    return events[0]
+
+
+def validate_scene_assets(path):
+    return scene_helper_request({
+        "protocolVersion": 1,
+        "type": "validate-assets",
+        "assignmentID": "fresco-cli-assets",
+        "path": os.path.abspath(os.path.expanduser(path)),
+    })
+
+
+def configured_scene_assets():
+    try:
+        value = open(SCENE_ASSETS).read().strip()
+        return value or None
+    except OSError:
+        return None
+
+
+def save_scene_assets(path):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    temporary = f"{SCENE_ASSETS}.tmp.{os.getpid()}"
+    try:
+        with open(temporary, "w") as handle:
+            handle.write(path + "\n")
+        os.replace(temporary, SCENE_ASSETS)
+    finally:
+        try:
+            if os.path.exists(temporary):
+                os.remove(temporary)
+        except OSError:
+            pass
+
+
+def scene_assets(args):
+    action = args[0] if args else "status"
+    if action == "status" and len(args) <= 1:
+        path = configured_scene_assets()
+        if not path:
+            print("scene assets: (not configured)")
+            return
+        result = validate_scene_assets(path)
+        if result.get("type") == "assets-validated":
+            print(f"scene assets: valid ({result['path']})")
+            return
+        print(f"scene assets: invalid ({path})")
+        for missing in result.get("missing", []):
+            print(f"  missing: {missing}")
+        return
+
+    if action in ("set", "validate") and len(args) == 2:
+        result = validate_scene_assets(args[1])
+        if result.get("type") != "assets-validated":
+            missing = result.get("missing", [])
+            detail = (f"missing {len(missing)} required asset(s)"
+                      if missing else result.get("message", "invalid asset root"))
+            sys.exit(f"Wallpaper Engine assets rejected: {detail}")
+        if action == "set":
+            save_scene_assets(result["path"])
+            print(f"scene assets set: {result['path']}")
+        else:
+            print(f"scene assets valid: {result['path']}")
+        return
+
+    if action == "clear" and len(args) == 1:
+        try:
+            os.remove(SCENE_ASSETS)
+            print("scene assets cleared")
+        except FileNotFoundError:
+            print("scene assets already clear")
+        return
+
+    sys.exit("usage: fresco scene-assets [status|set <path>|validate <path>|clear]")
+
+
+def scene_samples():
+    if not os.path.isfile(SCENE_FIXTURES):
+        sys.exit(f"scene fixture manifest unavailable: {SCENE_FIXTURES}")
+    if not os.path.isfile(LIVERYCTL) or not os.access(LIVERYCTL, os.X_OK):
+        sys.exit(f"livery control unavailable: {LIVERYCTL}")
+    if shutil.which("ffmpeg") is None:
+        sys.exit("scene sample extraction requires ffmpeg")
+
+    with open(SCENE_FIXTURES, encoding="utf-8") as handle:
+        fixtures = json.load(handle)["items"]
+    missing = [
+        fixture["id"]
+        for fixture in fixtures
+        if not os.path.isfile(os.path.join(WORKSHOP_DIR, fixture["id"], "project.json"))
+    ]
+    if missing:
+        sys.exit("scene sample packages missing: " + ", ".join(missing))
+
+    imported = []
+    with tempfile.TemporaryDirectory(prefix="fresco-scene-samples.") as temporary:
+        for fixture in fixtures:
+            root = os.path.join(WORKSHOP_DIR, fixture["id"])
+            with open(os.path.join(root, "project.json"), encoding="utf-8") as handle:
+                project = json.load(handle)
+            candidates = [
+                project.get("preview"),
+                "preview.gif",
+                "preview.jpg",
+                "preview.png",
+            ]
+            preview = next(
+                (
+                    os.path.join(root, candidate)
+                    for candidate in candidates
+                    if candidate and os.path.isfile(os.path.join(root, candidate))
+                ),
+                None,
+            )
+            if preview is None:
+                sys.exit(f"scene sample preview missing: {fixture['id']}")
+
+            frame = os.path.join(temporary, f"{fixture['id']}.png")
+            extraction = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-v",
+                    "error",
+                    "-i",
+                    preview,
+                    "-vf",
+                    "thumbnail=100",
+                    "-frames:v",
+                    "1",
+                    frame,
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if extraction.returncode != 0 or not os.path.isfile(frame):
+                detail = extraction.stderr.strip() or "frame extraction failed"
+                sys.exit(f"scene sample {fixture['id']}: {detail}")
+
+            coverage = fixture["picker"]
+            command = [
+                LIVERYCTL,
+                "import-wallpaper",
+                frame,
+                "--name",
+                fixture["title"],
+                "--subtitle",
+                f"scene / {coverage['status']}",
+                "--credit",
+                fixture["workshopURL"],
+                "--scene-coverage",
+                coverage["status"],
+                "--scene-note",
+                coverage["note"],
+            ]
+            if coverage["status"] != "not-yet-possible":
+                command.extend(["--live-reference", root])
+            result = subprocess.run(command, capture_output=True, text=True)
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout).strip() or "import failed"
+                sys.exit(f"scene sample {fixture['id']}: {detail}")
+            try:
+                record = json.loads(result.stdout)
+            except ValueError as error:
+                sys.exit(f"scene sample {fixture['id']}: invalid livery record: {error}")
+            imported.append(record["id"])
+            print(f"scene sample: {coverage['status']} · {fixture['title']}")
+
+    print(f"scene samples added to Livery: {len(imported)}")
 
 
 def host_valid():
@@ -158,6 +442,57 @@ def wait_for_host_exit(attempts=40):
         time.sleep(0.1)
 
 
+def wait_for_revision(revision, attempts=120):
+    import time
+    for _ in range(attempts):
+        try:
+            with open(STATUS) as handle:
+                status = json.load(handle)
+        except (OSError, ValueError, TypeError):
+            status = None
+        if isinstance(status, dict) and status.get("desiredRevision") == revision:
+            runtime = status.get("runtime", {})
+            runtime_status = runtime.get("status")
+            if runtime_status == "degraded":
+                errors = [item.get("error") for item in runtime.get("displays", [])
+                          if item.get("error")]
+                detail = "; ".join(errors) or "runtime degraded"
+                sys.exit(f"state revision {revision} did not converge: {detail}")
+            if runtime_status in ("running", "idle"):
+                return status
+        time.sleep(0.1)
+    sys.exit(f"timed out waiting for state revision {revision} to converge")
+
+
+def state_selection(target=None, legacy_path=None):
+    build()
+    command = ([BIN, "--state-select", target, legacy_path]
+               if target is not None else [BIN, "--state-clear"])
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode:
+        sys.exit(result.stderr.strip() or "state transaction failed")
+    try:
+        response = json.loads(result.stdout)
+        return int(response["revision"])
+    except (ValueError, TypeError, KeyError):
+        sys.exit("state transaction returned an invalid response")
+
+
+def state_muted(muted=None):
+    build()
+    value = "toggle" if muted is None else "true" if muted else "false"
+    result = subprocess.run(
+        [BIN, "--state-muted", value],
+        capture_output=True, text=True)
+    if result.returncode:
+        sys.exit(result.stderr.strip() or "mute state transaction failed")
+    try:
+        response = json.loads(result.stdout)
+        return int(response["revision"]), bool(response["muted"])
+    except (ValueError, TypeError, KeyError):
+        sys.exit("mute state transaction returned an invalid response")
+
+
 def runtime_stale(pid):
     """True when the daemon process predates the current binary."""
     try:
@@ -214,6 +549,434 @@ def resolve(target):
     return path
 
 
+def load_project(path):
+    try:
+        with open(os.path.join(path, "project.json")) as handle:
+            return json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def project_resolves_web(path, seen=None):
+    """Whether an installed item is a web project or a preset over one."""
+    project = load_project(path)
+    if "web" in str(project.get("type", "")).lower():
+        return True
+    dependency = project.get("dependency")
+    if dependency is None:
+        return False
+    dependency = str(dependency)
+    seen = set() if seen is None else seen
+    if dependency in seen:
+        return False
+    seen.add(dependency)
+    return project_resolves_web(os.path.join(WORKSHOP_DIR, dependency), seen)
+
+
+def installed_web_projects():
+    try:
+        names = sorted(os.listdir(WORKSHOP_DIR))
+    except OSError:
+        return []
+    return [os.path.join(WORKSHOP_DIR, name) for name in names
+            if project_resolves_web(os.path.join(WORKSHOP_DIR, name))]
+
+
+def write_json(path, value):
+    temporary = path + ".tmp"
+    with open(temporary, "w") as handle:
+        json.dump(value, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    os.replace(temporary, path)
+
+
+def audit_targets(args):
+    if not args:
+        args = ["current"]
+    if "all" in args:
+        if args != ["all"]:
+            sys.exit("usage: fresco audit [all|current|<id-or-path>...]")
+        targets = installed_web_projects()
+        if not targets:
+            sys.exit(f"no installed web projects under {WORKSHOP_DIR}")
+        return targets
+
+    targets = []
+    for target in args:
+        if target == "current":
+            try:
+                with open(CONFIG) as handle:
+                    path = handle.read().strip()
+            except OSError:
+                path = ""
+            if not path:
+                sys.exit("no current wallpaper to audit")
+        else:
+            path = resolve(target)
+        if path not in targets:
+            targets.append(path)
+    return targets
+
+
+def audit(args):
+    """Audit web projects without replacing or signaling the live wallpaper."""
+    build()
+    targets = audit_targets(args)
+    started = datetime.now().astimezone()
+    run_root = os.path.join(STATE_DIR, "audits", started.strftime("%Y%m%d-%H%M%S"))
+    candidate = run_root
+    suffix = 2
+    while os.path.exists(candidate):
+        candidate = f"{run_root}-{suffix}"
+        suffix += 1
+    run_root = candidate
+    os.makedirs(run_root)
+    summary_path = os.path.join(run_root, "summary.json")
+    summary = {
+        "schemaVersion": 1,
+        "status": "running",
+        "generatedAt": started.isoformat(timespec="seconds"),
+        "runPath": run_root,
+        "items": [],
+    }
+    write_json(summary_path, summary)
+
+    used_names = set()
+    for position, path in enumerate(targets, 1):
+        project = load_project(path)
+        title = str(project.get("title") or os.path.basename(path.rstrip(os.sep)))
+        stem = os.path.basename(path.rstrip(os.sep))
+        stem = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip("-.") or "wallpaper"
+        unique_stem = stem
+        duplicate = 2
+        while unique_stem in used_names:
+            unique_stem = f"{stem}-{duplicate}"
+            duplicate += 1
+        used_names.add(unique_stem)
+        report_path = os.path.join(run_root, unique_stem + ".json")
+        snapshot_path = os.path.join(run_root, unique_stem + ".png")
+
+        print(f"auditing {position}/{len(targets)}: {title}", flush=True)
+        worker_stdout = ""
+        worker_stderr = ""
+        worker_status = 1
+        try:
+            result = subprocess.run(
+                [BIN, "--audit-web", path, report_path, snapshot_path],
+                capture_output=True, text=True, timeout=30)
+            worker_status = result.returncode
+            worker_stdout = result.stdout.strip()
+            worker_stderr = result.stderr.strip()
+        except subprocess.TimeoutExpired as error:
+            worker_stderr = "audit worker exceeded 30 seconds"
+            if error.stderr:
+                worker_stderr += "\n" + str(error.stderr).strip()
+
+        try:
+            with open(report_path) as handle:
+                report = json.load(handle)
+        except (OSError, ValueError):
+            report = {
+                "schemaVersion": 1,
+                "wallpaperPath": path,
+                "snapshotPath": snapshot_path,
+                "verdict": "fail",
+                "failureReasons": ["audit worker did not produce a report"],
+            }
+            write_json(report_path, report)
+
+        verdict = report.get("verdict", "fail")
+        if worker_status != 0 and verdict != "fail":
+            verdict = "fail"
+            report["verdict"] = verdict
+            reasons = report.setdefault("failureReasons", [])
+            reasons.append("audit worker exited unsuccessfully")
+            write_json(report_path, report)
+        detail = report.get("failureReasons") or report.get("warnings") or []
+        suffix_text = f" — {'; '.join(detail)}" if detail else ""
+        print(f"{verdict.upper():7} {unique_stem}: {title}{suffix_text}")
+
+        item = {
+            "id": unique_stem,
+            "title": title,
+            "wallpaperPath": path,
+            "reportPath": report_path,
+            "snapshotPath": snapshot_path,
+            "verdict": verdict,
+            "workerExitStatus": worker_status,
+        }
+        if worker_stdout:
+            item["workerStdout"] = worker_stdout
+        if worker_stderr:
+            item["workerStderr"] = worker_stderr
+        summary["items"].append(item)
+        write_json(summary_path, summary)
+
+    counts = {verdict: sum(item["verdict"] == verdict for item in summary["items"])
+              for verdict in ("pass", "warning", "fail")}
+    summary["counts"] = counts
+    summary["status"] = "complete"
+    summary["completedAt"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    write_json(summary_path, summary)
+    print(f"audit summary: {summary_path}")
+    print(f"{counts['pass']} passed, {counts['warning']} warned, {counts['fail']} failed")
+    if counts["fail"]:
+        sys.exit(1)
+
+
+PROPERTY_ACTIONS = {"describe", "get", "list", "reset", "set"}
+PROPERTY_TYPES = {"bool", "color", "combo", "directory", "file",
+                  "slider", "textinput"}
+
+
+def read_current_wallpaper_path():
+    try:
+        with open(CONFIG) as handle:
+            path = handle.read().strip()
+    except OSError:
+        path = ""
+    return path
+
+
+def current_wallpaper_path():
+    path = read_current_wallpaper_path()
+    if not path:
+        sys.exit("no current wallpaper")
+    return path
+
+
+def describe_project(path):
+    build()
+    result = subprocess.run([BIN, "--describe-project", path],
+                            capture_output=True, text=True)
+    if result.returncode:
+        sys.exit(result.stderr.strip() or "wallpaper has no supported project properties")
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        sys.exit("property descriptor returned invalid JSON")
+
+
+def property_target(target):
+    return resolve(current_wallpaper_path() if target == "current" else target)
+
+
+def property_definition(description, requested_name):
+    requested = requested_name.lower()
+    matches = [item for item in description["presentation"]
+               if item.get("name", "").lower() == requested]
+    if not matches:
+        sys.exit(f"unknown property: {requested_name}")
+    return matches[0]
+
+
+def parse_property_value(definition, raw):
+    property_type = definition.get("type", "").lower()
+    name = definition.get("name", "property")
+    if property_type not in PROPERTY_TYPES:
+        sys.exit(f"property is not editable: {name} ({property_type or 'no type'})")
+
+    if property_type == "bool":
+        normalized = raw.lower()
+        if normalized in ("true", "on", "yes", "1"):
+            return True
+        if normalized in ("false", "off", "no", "0"):
+            return False
+        sys.exit(f"{name} expects true or false")
+
+    if property_type == "slider":
+        try:
+            value = float(raw)
+        except ValueError:
+            sys.exit(f"{name} expects a number")
+        if not math.isfinite(value):
+            sys.exit(f"{name} expects a finite number")
+        minimum = definition.get("min")
+        maximum = definition.get("max")
+        if minimum is not None and value < float(minimum):
+            sys.exit(f"{name} must be at least {minimum}")
+        if maximum is not None and value > float(maximum):
+            sys.exit(f"{name} must be at most {maximum}")
+        return int(value) if value.is_integer() else value
+
+    if property_type == "color":
+        if re.fullmatch(r"#[0-9A-Fa-f]{6}", raw):
+            channels = [int(raw[index:index + 2], 16) / 255
+                        for index in (1, 3, 5)]
+        else:
+            try:
+                channels = [float(channel) for channel in raw.split()]
+            except ValueError:
+                channels = []
+        if len(channels) != 3 or any(not math.isfinite(channel)
+                                     or channel < 0 or channel > 1
+                                     for channel in channels):
+            sys.exit(f"{name} expects #RRGGBB or three values from 0 to 1")
+        return " ".join(f"{channel:.6g}" for channel in channels)
+
+    if property_type == "combo":
+        try:
+            candidate = json.loads(raw)
+        except ValueError:
+            candidate = raw
+        options = definition.get("options", [])
+        for option in options:
+            option_value = option.get("value")
+            if (type(candidate) is type(option_value) and candidate == option_value
+                    or raw == str(option_value)):
+                return option_value
+        if options:
+            choices = ", ".join(str(option.get("value")) for option in options)
+            sys.exit(f"{name} expects one of: {choices}")
+        return candidate
+
+    if property_type in ("file", "directory"):
+        path = os.path.realpath(os.path.abspath(os.path.expanduser(raw)))
+        expected = os.path.isfile if property_type == "file" else os.path.isdir
+        if not expected(path):
+            sys.exit(f"{name} expects an existing {property_type}: {path}")
+        if property_type == "file":
+            file_type = str(definition.get("fileType", "")).lower()
+            extension = os.path.splitext(path)[1].lower().lstrip(".")
+            image_extensions = {"bmp", "gif", "jpeg", "jpg", "png", "pnga",
+                                "svg", "webp"}
+            video_extensions = {"m4v", "mov", "mp4", "ogg", "ogv", "webm"}
+            allowed = (video_extensions if "video" in file_type
+                       else image_extensions if "image" in file_type else None)
+            if allowed is not None and extension not in allowed:
+                sys.exit(f"{name} does not accept .{extension or '(none)'} files")
+        return path
+
+    return raw
+
+
+def property_record(description):
+    path = description["statePath"]
+    try:
+        with open(path) as handle:
+            record = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        record = {}
+    values = record.get("values")
+    if not isinstance(values, dict):
+        values = {}
+    return path, values
+
+
+def save_property_record(description, values):
+    path = description["statePath"]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    write_json(path, {
+        "schemaVersion": 1,
+        "wallpaperPath": description["wallpaperPath"],
+        "title": description["title"],
+        "updatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "values": values,
+    })
+
+
+def apply_property_state(path):
+    pid = runtime_pid()
+    if not pid:
+        print("stored; runtime is not running")
+        return
+    if runtime_stale(pid):
+        print("runtime binary is newer than the daemon — restarting")
+        os.kill(pid, signal.SIGTERM)
+        import time
+        for _ in range(30):
+            if not runtime_pid():
+                break
+            time.sleep(0.1)
+        wait_for_host_exit()
+        start()
+        print("properties loaded by restarted runtime")
+        return
+    os.kill(pid, signal.SIGHUP)
+    print("property refresh signaled")
+
+
+def clean_property_label(raw):
+    text = re.sub(r"<[^>]*>", " ", unescape(str(raw)))
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def property_list(description):
+    print(f"{description['title']} ({description['stateID']})")
+    if description.get("locale"):
+        print(f"locale: {description['locale']}")
+    for item in description["presentation"]:
+        if not item.get("editable"):
+            continue
+        active = item.get("active")
+        if not item.get("runtimeSupported", True):
+            state = "unsupported"
+        else:
+            state = "active" if active is True else "inactive" if active is False else "unknown"
+        value = json.dumps(item.get("value"), ensure_ascii=False)
+        label = clean_property_label(item.get("label") or item["name"])
+        print(f"{item['name']}\t{item['type']}\t{state}\t{value}\t{label}")
+
+
+def property_command(args):
+    usage = ("usage: fresco property [<id-or-path>] "
+             "<list|describe|get NAME|set NAME VALUE|reset [NAME]>")
+    if not args:
+        sys.exit(usage)
+    if args[0] in PROPERTY_ACTIONS:
+        target = "current"
+        action = args[0]
+        action_args = args[1:]
+    elif len(args) >= 2 and args[1] in PROPERTY_ACTIONS:
+        target = args[0]
+        action = args[1]
+        action_args = args[2:]
+    else:
+        sys.exit(usage)
+
+    path = property_target(target)
+    description = describe_project(path)
+    if action == "describe":
+        if action_args:
+            sys.exit(usage)
+        print(json.dumps(description, indent=2, sort_keys=True, ensure_ascii=False))
+        return
+    if action == "list":
+        if action_args:
+            sys.exit(usage)
+        property_list(description)
+        return
+    if action == "get":
+        if len(action_args) != 1:
+            sys.exit(usage)
+        definition = property_definition(description, action_args[0])
+        print(json.dumps(definition, indent=2, sort_keys=True, ensure_ascii=False))
+        return
+
+    _, values = property_record(description)
+    if action == "set":
+        if len(action_args) != 2:
+            sys.exit(usage)
+        definition = property_definition(description, action_args[0])
+        name = definition["name"]
+        values[name] = parse_property_value(definition, action_args[1])
+        save_property_record(description, values)
+        print(f"stored {name} = {json.dumps(values[name], ensure_ascii=False)}")
+    elif action == "reset":
+        if len(action_args) > 1:
+            sys.exit(usage)
+        if action_args:
+            definition = property_definition(description, action_args[0])
+            name = definition["name"]
+            values.pop(name, None)
+            print(f"reset {name}")
+        else:
+            values = {}
+            print("reset all persisted properties")
+        save_property_record(description, values)
+    apply_property_state(path)
+
+
 def start():
     build()
     build_host()
@@ -260,9 +1023,9 @@ def stop():
 def set_wallpaper(target):
     path = resolve(target)
     os.makedirs(STATE_DIR, exist_ok=True)
-    build()
-    with open(CONFIG, "w") as handle:
-        handle.write(path + "\n")
+    if "scene" in str(load_project(path).get("type", "")).lower():
+        build_scene_helper()
+    revision = state_selection(target, path)
     pid = runtime_pid()
     if pid and runtime_stale(pid):
         print("runtime binary is newer than the daemon — restarting")
@@ -276,10 +1039,10 @@ def set_wallpaper(target):
         pid = None
     if pid:
         os.kill(pid, signal.SIGUSR1)
-        print(f"switched: {path}")
     else:
         start()
-        print(f"set: {path}")
+    wait_for_revision(revision)
+    print(f"set revision {revision}: {path}")
 
 
 REPOSE_STATE = os.path.join(STATE_DIR, "repose.json")
@@ -534,14 +1297,29 @@ def repose_label(args):
 
 def clear():
     os.makedirs(STATE_DIR, exist_ok=True)
-    with open(CONFIG, "w") as handle:
-        handle.write("")
+    revision = state_selection()
     pid = runtime_pid()
     if pid:
         os.kill(pid, signal.SIGUSR1)
-        print("cleared (daemon idle)")
+        wait_for_revision(revision)
+        print(f"cleared at revision {revision} (daemon idle)")
     else:
-        print("cleared")
+        print(f"cleared at revision {revision}")
+
+
+def set_muted(muted=None):
+    revision, accepted_muted = state_muted(muted)
+    pid = runtime_pid()
+    if pid:
+        os.kill(pid, signal.SIGUSR1)
+        wait_for_revision(revision)
+    try:
+        with open(STATUS) as handle:
+            effective = json.load(handle)["effective"]["displays"]
+        accepted_muted = any(display["muted"] for display in effective)
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    print(f"fresco audio: {'muted' if accepted_muted else 'unmuted'}")
 
 
 def status():
@@ -553,6 +1331,7 @@ def status():
     print(f"permission app: {HOST_APP}")
     current = open(CONFIG).read().strip() if os.path.exists(CONFIG) else "(none)"
     print(f"wallpaper: {current}")
+    print(f"scene assets: {configured_scene_assets() or '(not configured)'}")
     agent = ("installed + loaded" if agent_loaded()
              else "installed" if agent_installed() else "none")
     print(f"agent: {agent}")
@@ -649,11 +1428,33 @@ def main():
     elif command == "restart":
         stop()
         start()
+    elif command == "mute" and len(args) <= 2:
+        if len(args) == 1:
+            set_muted()
+        elif args[1] == "on":
+            set_muted(True)
+        elif args[1] == "off":
+            set_muted(False)
+        else:
+            sys.exit("usage: fresco mute [on|off]")
+    elif command == "unmute" and len(args) == 1:
+        set_muted(False)
     elif command == "status":
         status()
     elif command == "build":
         build(force=True)
         print(BIN)
+    elif command == "scene-build":
+        build_scene_helper(force=True)
+        print(SCENE_BIN)
+    elif command == "scene-samples" and len(args) == 1:
+        scene_samples()
+    elif command == "scene-assets":
+        scene_assets(args[1:])
+    elif command == "audit":
+        audit(args[1:])
+    elif command == "property":
+        property_command(args[1:])
     elif command == "audio-permission":
         audio_permission()
     elif command == "install-agent":

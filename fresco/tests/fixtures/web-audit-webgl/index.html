@@ -1,0 +1,68 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WebGL audit fixture</title>
+<style>
+  html, body { height: 100%; margin: 0; background: #020617; }
+  body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px;
+    box-sizing: border-box; }
+  canvas { height: 100%; width: 100%; }
+  #loss { display: none; }
+</style>
+<canvas id="one" width="448" height="508"></canvas>
+<canvas id="two" width="448" height="508"></canvas>
+<canvas id="loss" width="8" height="8"></canvas>
+<script>
+  function render(canvas, kind, colors) {
+    const gl = canvas.getContext(kind, { preserveDrawingBuffer: true });
+    if (!gl) return false;
+    const version = kind === 'webgl2' ? '#version 300 es\n' : '';
+    const attribute = kind === 'webgl2' ? 'in' : 'attribute';
+    const output = kind === 'webgl2' ? 'out vec4 outColor;' : '';
+    const assignment = kind === 'webgl2' ? 'outColor' : 'gl_FragColor';
+    const vertex = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vertex, version + attribute +
+      ' vec2 position; void main() { gl_Position = vec4(position, 0.0, 1.0); }');
+    gl.compileShader(vertex);
+    const fragment = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fragment, version + 'precision mediump float; ' + output +
+      ' uniform vec3 color; void main() { ' + assignment + ' = vec4(color, 1.0); }');
+    gl.compileShader(fragment);
+    const program = gl.createProgram();
+    gl.attachShader(program, vertex);
+    gl.attachShader(program, fragment);
+    gl.linkProgram(program);
+    gl.useProgram(program);
+    const position = gl.getAttribLocation(program, 'position');
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1
+    ]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(position);
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+    const color = gl.getUniformLocation(program, 'color');
+    for (let band = 0; band < colors.length; band++) {
+      gl.viewport(Math.floor(canvas.width * band / colors.length), 0,
+        Math.ceil(canvas.width / colors.length), canvas.height);
+      gl.uniform3fv(color, colors[band]);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+    return true;
+  }
+  render(document.getElementById('one'), 'webgl', [
+    [0.9, 0.15, 0.12], [0.1, 0.75, 0.3], [0.1, 0.3, 0.95]
+  ]);
+  render(document.getElementById('two'), 'webgl2', [
+    [0.95, 0.75, 0.05], [0.65, 0.15, 0.9], [0.05, 0.85, 0.85]
+  ]);
+  const loss = document.getElementById('loss');
+  const lossContext = loss.getContext('webgl');
+  const extension = lossContext && lossContext.getExtension('WEBGL_lose_context');
+  if (extension) {
+    loss.addEventListener('webglcontextlost', function (event) {
+      event.preventDefault();
+      setTimeout(function () { extension.restoreContext(); }, 25);
+    });
+    extension.loseContext();
+  }
+</script>

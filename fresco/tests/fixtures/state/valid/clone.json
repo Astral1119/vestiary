@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "revision": 7,
+  "updatedAt": "2026-07-20T18:00:00Z",
+  "displays": [{ "id": "display:studio", "name": "Studio" }],
+  "playlists": [],
+  "profiles": [],
+  "applicationRules": [],
+  "desired": {
+    "layout": {
+      "mode": "clone",
+      "binding": { "kind": "wallpaper", "target": "/Library/Fresco/Aurora" }
+    },
+    "controls": { "paused": false, "muted": false }
+  }
+}

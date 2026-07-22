@@ -1,0 +1,21 @@
+{
+  "schema": "state",
+  "base": "per-display.json",
+  "append": {
+    "pointer": "/applicationRules",
+    "value": {
+      "id": "rule:scoped-profile",
+      "enabled": true,
+      "priority": 20,
+      "match": {
+        "bundleIds": ["com.apple.dt.Xcode"],
+        "running": "require",
+        "frontmost": "ignore",
+        "fullscreen": "ignore"
+      },
+      "scope": { "kind": "affectedDisplays" },
+      "effect": { "profileId": "profile:desk" }
+    }
+  },
+  "error": "profileId"
+}

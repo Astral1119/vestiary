@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Font and media audit fixture</title>
+<style>
+  @font-face { font-family: AuditTTF; src: url('audit.ttf') format('truetype'); }
+  @font-face { font-family: AuditWOFF2; src: url('audit.woff2') format('woff2'); }
+  html, body { height: 100%; margin: 0; }
+  body { background: #111827; color: #f9fafb; display: grid; place-content: center; gap: 18px;
+    text-align: center; }
+  .ttf { color: #fbbf24; font: 52px AuditTTF, serif; }
+  .woff2 { color: #a7f3d0; font: 44px AuditWOFF2, sans-serif; }
+  video { height: 96px; width: 128px; }
+</style>
+<div class="ttf">TTF evidence</div>
+<div class="woff2">WOFF2 evidence</div>
+<audio src="tone.ogg" preload="auto"></audio>
+<video src="pattern.webm" preload="auto" muted></video>
+<video src="pattern.mp4" preload="auto" muted></video>
+<script>
+  document.fonts.ready.then(function () {
+    console.info('fonts ready', document.fonts.check('16px AuditTTF'),
+      document.fonts.check('16px AuditWOFF2'));
+  });
+</script>

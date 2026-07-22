@@ -1,0 +1,9 @@
+{
+  "schema": "state",
+  "base": "span.json",
+  "replace": {
+    "pointer": "/profiles/0/layout/displayIds",
+    "value": ["display:left", "display:right"]
+  },
+  "error": "exactly one schema branch"
+}

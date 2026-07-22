@@ -1,0 +1,428 @@
+{
+  "schemaVersion": 1,
+  "acquiredAt": "2026-07-19",
+  "expandedAt": "2026-07-20",
+  "appID": 431960,
+  "redistribute": false,
+  "items": [
+    {
+      "id": "3351508588",
+      "title": "Cat In Space (Simple)",
+      "role": "simple-2d",
+      "picker": {
+        "status": "available",
+        "note": "image and particle baseline"
+      },
+      "creatorSteamID": "76561198939292876",
+      "workshopUpdatedAt": "2024-10-19T20:03:43Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=3351508588",
+      "package": {
+        "sha256": "e5d996059cc98dbeb18130043f7d5d6dc8c3147d23235f34f175b9f159f66def",
+        "bytes": 1823832,
+        "header": "PKGV0021",
+        "files": 6,
+        "objects": 2,
+        "objectTypes": {
+          "image": 1,
+          "particle": 1
+        },
+        "effects": 0,
+        "shaderFiles": 0,
+        "puppetModels": 0,
+        "audioFiles": 0,
+        "scriptValues": 0
+      }
+    },
+    {
+      "id": "1845706469",
+      "title": "NieR:Automata [Become as Gods]",
+      "role": "legacy-2d-integration",
+      "picker": {
+        "status": "available",
+        "note": "visual baseline; sound remains deferred"
+      },
+      "creatorSteamID": "76561198080986203",
+      "workshopUpdatedAt": "2019-08-26T05:04:42Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=1845706469",
+      "package": {
+        "sha256": "ea9288394603ad464f275cd1630ab3993d03e9cfa0d787983ad062a5f2f23cb8",
+        "bytes": 17608023,
+        "header": "PKGV0002",
+        "files": 67,
+        "objects": 16,
+        "objectTypes": {
+          "image": 7,
+          "particle": 8,
+          "sound": 1
+        },
+        "effects": 7,
+        "shaderFiles": 18,
+        "puppetModels": 0,
+        "audioFiles": 1,
+        "scriptValues": 0
+      }
+    },
+    {
+      "id": "1568648985",
+      "title": "Shimmering Particles",
+      "role": "particle",
+      "picker": {
+        "status": "available",
+        "note": "particle baseline"
+      },
+      "creatorSteamID": "76561197993566626",
+      "workshopUpdatedAt": "2018-11-19T00:24:47Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=1568648985",
+      "package": {
+        "sha256": "5e90132dc39522eda563b5f6d813bdd45830a725abf1e27d1362997633ed22e2",
+        "bytes": 44255,
+        "header": "PKGV0001",
+        "files": 6,
+        "objects": 1,
+        "objectTypes": {
+          "particle": 1
+        },
+        "effects": 0,
+        "shaderFiles": 2,
+        "puppetModels": 0,
+        "audioFiles": 0,
+        "scriptValues": 0
+      }
+    },
+    {
+      "id": "2999232230",
+      "title": "Clock JavaScript [Custom Color]",
+      "role": "scenescript",
+      "picker": {
+        "status": "available",
+        "note": "six text scripts update without exceptions"
+      },
+      "creatorSteamID": "76561198100480285",
+      "workshopUpdatedAt": "2023-07-05T21:19:33Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=2999232230",
+      "package": {
+        "sha256": "d62e9f4baf04c374e4302b24cfc08b5dddd106de791c242ae29dc8e437623973",
+        "bytes": 22405,
+        "header": "PKGV0018",
+        "files": 1,
+        "objects": 18,
+        "objectTypes": {
+          "image": 1,
+          "text": 17
+        },
+        "effects": 0,
+        "shaderFiles": 0,
+        "puppetModels": 0,
+        "audioFiles": 0,
+        "scriptValues": 6
+      }
+    },
+    {
+      "id": "3402326745",
+      "title": "Balatro Main Menu Shader",
+      "role": "custom-shader",
+      "picker": {
+        "status": "available",
+        "note": "custom shader baseline after its authored fade"
+      },
+      "creatorSteamID": "76561198147123104",
+      "workshopUpdatedAt": "2025-01-07T01:10:38Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=3402326745",
+      "package": {
+        "sha256": "cbd155448aa83b2acd32602e5af97c1fb5cf581af0cad5dc3a5ff6dfd21b6e87",
+        "bytes": 6575,
+        "header": "PKGV0021",
+        "files": 5,
+        "objects": 1,
+        "objectTypes": {
+          "image": 1
+        },
+        "effects": 1,
+        "shaderFiles": 2,
+        "puppetModels": 0,
+        "audioFiles": 0,
+        "scriptValues": 0
+      }
+    },
+    {
+      "id": "3477054430",
+      "title": "Cat with headphones on the roof",
+      "role": "unsupported-3d-boundary",
+      "picker": {
+        "status": "not-yet-possible",
+        "note": "five model layers and four lights require 3D"
+      },
+      "creatorSteamID": "76561198318341102",
+      "workshopUpdatedAt": "2025-05-22T22:12:31Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=3477054430",
+      "package": {
+        "sha256": "e524945b1152f50c0be83d7f40dfd4003663d86060728737ac78a615826b9dbe",
+        "bytes": 6657865,
+        "header": "PKGV0022",
+        "files": 40,
+        "objects": 15,
+        "objectTypes": {
+          "camera": 1,
+          "image": 4,
+          "light": 4,
+          "model": 5,
+          "text": 1
+        },
+        "effects": 2,
+        "shaderFiles": 4,
+        "puppetModels": 0,
+        "audioFiles": 0,
+        "scriptValues": 9
+      }
+    },
+    {
+      "id": "3509243656",
+      "title": "三体实时演算 | Three-Body problem - SYKM",
+      "role": "unsupported-3d-script-boundary",
+      "picker": {
+        "status": "not-yet-possible",
+        "note": "eight model layers and custom simulation require 3D"
+      },
+      "creatorSteamID": "76561199107908627",
+      "workshopUpdatedAt": "2026-04-15T13:54:50Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=3509243656",
+      "package": {
+        "sha256": "8c1fdc84ac3c7cd797fe4c5b7af054ff882266ca923a276b5fc7f38fbf004b77",
+        "bytes": 158528077,
+        "header": "PKGV0023",
+        "files": 146,
+        "objects": 142,
+        "objectTypes": {
+          "image": 59,
+          "text": 53,
+          "model": 8,
+          "particle": 4,
+          "camera": 1,
+          "sound": 1
+        },
+        "effects": 12,
+        "shaderFiles": 22,
+        "puppetModels": 0,
+        "audioFiles": 1,
+        "scriptValues": 191
+      }
+    },
+    {
+      "id": "3326873240",
+      "title": "【Time Variation时间变化】Elaina窗旁的伊蕾娜——夜莺Night【魔女之旅】Day Night Gradient",
+      "role": "advanced-2d-script-media",
+      "picker": {
+      "status": "reach",
+      "note": "recognizable composition, video, sound, and particles work; the prompt lifecycle and most authored property bindings remain unsupported"
+      },
+      "creatorSteamID": "76561199211352973",
+      "workshopUpdatedAt": "2026-01-02T07:43:17Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=3326873240",
+      "package": {
+        "sha256": "aca149b27aecd174ac008bbda68875c2d83e1619602605ab4f634bb91df2da5d",
+        "bytes": 246875625,
+        "header": "PKGV0023",
+        "files": 104,
+        "objects": 62,
+        "objectTypes": {
+          "image": 31,
+          "text": 19,
+          "particle": 1,
+          "camera": 1,
+          "sound": 1
+        },
+        "effects": 23,
+        "shaderFiles": 12,
+        "puppetModels": 0,
+        "audioFiles": 1,
+        "scriptValues": 105
+      }
+    },
+    {
+      "id": "3299228616",
+      "title": "Lonely Cat: Audio visualizer , Clock , Chill , Multi language",
+      "role": "advanced-2d-stress",
+      "picker": {
+        "status": "available",
+        "note": "default English composition, clock text and fixed-pitch fonts, audio response, particle children, image parents, lifecycle, and native and ANGLE performance gates pass"
+      },
+      "creatorSteamID": "76561198255437752",
+      "workshopUpdatedAt": "2025-03-30T07:22:07Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=3299228616",
+      "package": {
+        "sha256": "9e0c1e26523d1a434330f0b1d039783a8031d77715cecb0e53e23b73d7b2e346",
+        "bytes": 11448806,
+        "header": "PKGV0022",
+        "files": 111,
+        "objects": 271,
+        "objectTypes": {
+          "image": 132,
+          "particle": 42,
+          "text": 60,
+          "sound": 1,
+          "effectQuad": 6
+        },
+        "effects": 276,
+        "shaderFiles": 34,
+        "puppetModels": 0,
+        "audioFiles": 1,
+        "scriptValues": 96
+      }
+    },
+    {
+      "id": "3460973721",
+      "title": "Arknights-明日方舟-阿米娅-王冠（喜欢的话点个赞呗~）",
+      "role": "2d-integration-candidate",
+      "picker": {
+        "status": "available",
+        "note": "native and ANGLE promotion gates pass current-format parsing, image parents, three clocks, sound and property lifecycle, cursor controls, and all three particle systems; the remaining cover crop is authored"
+      },
+      "creatorSteamID": "76561199387999105",
+      "workshopUpdatedAt": "2026-07-13T12:07:22Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=3460973721",
+      "package": {
+        "sha256": "1dca928a8f1acf64e1f13aa7d2a7bc54631d452c7f613887030c1c972a2eb807",
+        "bytes": 55147785,
+        "header": "PKGV0024",
+        "files": 30,
+        "objects": 18,
+        "objectTypes": {
+          "image": 3,
+          "particle": 3,
+          "text": 3,
+          "sound": 4,
+          "effectQuad": 1
+        },
+        "effects": 6,
+        "shaderFiles": 6,
+        "puppetModels": 0,
+        "audioFiles": 3,
+        "scriptValues": 9
+      }
+    },
+    {
+      "id": "3479521040",
+      "title": "\"日向の幽霊\"/\"HyugaのGhost\" byCogecha",
+      "role": "advanced-2d-puppet-media",
+      "picker": {
+      "status": "reach",
+      "note": "recognizable composition and partial puppet rendering work; animation, media, particles, and all authored property bindings remain incomplete"
+      },
+      "creatorSteamID": "76561199645851972",
+      "workshopUpdatedAt": "2025-05-11T02:42:55Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=3479521040",
+      "package": {
+        "sha256": "c8e35f0ad9b49f882eda411fb0feada0fb1059fa7bb058db79271cae794cf147",
+        "bytes": 26304673,
+        "header": "PKGV0022",
+        "files": 138,
+        "objects": 40,
+        "objectTypes": {
+          "image": 23,
+          "particle": 8,
+          "text": 3,
+          "inactiveCamera": 1,
+          "sound": 1
+        },
+        "effects": 25,
+        "shaderFiles": 28,
+        "puppetModels": 2,
+        "audioFiles": 1,
+        "scriptValues": 3
+      }
+    },
+    {
+      "id": "3448290956",
+      "title": "【Interactions 多种互动】GBC SUBARU 安和昴486——夜莺Night【哭泣少女乐队】",
+      "role": "audio-puppet-interaction-stretch",
+      "picker": {
+        "status": "available",
+        "note": "cursor and camera scripts, named animation, audio-rate floats, sound, attachments, and independent five-bone puppet secondary motion pass on native OpenGL and ANGLE-on-Metal"
+      },
+      "creatorSteamID": "76561199211352973",
+      "workshopUpdatedAt": "2025-06-11T17:16:03Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=3448290956",
+      "package": {
+        "sha256": "4bac6871f95380c374653c44a903538cfa841a8d17abe310a092543dd9ac6ac1",
+        "bytes": 15208836,
+        "header": "PKGV0022",
+        "files": 97,
+        "objects": 40,
+        "objectTypes": {
+          "image": 28,
+          "particle": 1,
+          "text": 4,
+          "camera": 1,
+          "sound": 2
+        },
+        "effects": 11,
+        "shaderFiles": 12,
+        "puppetModels": 5,
+        "audioFiles": 2,
+        "scriptValues": 16
+      }
+    },
+    {
+      "id": "3354366708",
+      "title": "【Customize自定义】Hatsune Miku 初音未来 星河沉梦——夜莺Night   Starry River Sinking Dreams",
+      "role": "unsupported-3d-mixed",
+      "picker": {
+        "status": "not-yet-possible",
+        "note": "three model layers require 3D"
+      },
+      "creatorSteamID": "76561199211352973",
+      "workshopUpdatedAt": "2025-06-02T15:01:14Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=3354366708",
+      "package": {
+        "sha256": "d5a82590e0da9ac4191e5b03d95e9e0f4764eadeb1cea4e59d0ee614697e9371",
+        "bytes": 37531840,
+        "header": "PKGV0022",
+        "files": 135,
+        "objects": 62,
+        "objectTypes": {
+          "image": 16,
+          "particle": 10,
+          "model": 3,
+          "text": 19,
+          "camera": 1,
+          "sound": 1
+        },
+        "effects": 37,
+        "shaderFiles": 28,
+        "puppetModels": 1,
+        "audioFiles": 1,
+        "scriptValues": 55
+      }
+    },
+    {
+      "id": "3151551777",
+      "title": "Persona 3 Reload [4K + Day/Night cycle]",
+      "role": "advanced-2d-script-media-stress",
+      "picker": {
+      "status": "reach",
+      "note": "recognizable composition and sound controls work; the date cluster, composition controls, and a left-edge artifact remain unresolved"
+      },
+      "creatorSteamID": "76561198098298396",
+      "workshopUpdatedAt": "2024-11-28T07:51:40Z",
+      "workshopURL": "https://steamcommunity.com/sharedfiles/filedetails/?id=3151551777",
+      "package": {
+        "sha256": "07ff04ebf6cf05b25daa45e4430a5d76f045ca5090235aa63a2bcebf23174c1e",
+        "bytes": 70405081,
+        "header": "PKGV0021",
+        "files": 307,
+        "objects": 133,
+        "objectTypes": {
+          "image": 40,
+          "particle": 33,
+          "text": 34,
+          "sound": 18
+        },
+        "effects": 133,
+        "shaderFiles": 72,
+        "puppetModels": 0,
+        "audioFiles": 17,
+        "scriptValues": 162
+      }
+    }
+  ]
+}

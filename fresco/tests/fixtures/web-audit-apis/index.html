@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Web API audit fixture</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body { background: linear-gradient(120deg, #172554, #0e7490 55%, #67e8f9); color: white;
+    font: 32px system-ui; display: grid; place-items: center; }
+</style>
+<div id="status">testing local APIs</div>
+<script>
+  console.info('api fixture started', { version: 1 });
+  localStorage.setItem('fresco-audit-local', 'present');
+  sessionStorage.setItem('fresco-audit-session', 'present');
+
+  fetch('payload.json').then(function (response) {
+    return response.json();
+  }).then(function (payload) {
+    console.log('fetch complete', payload.fixture, payload.value);
+  }).catch(function (error) {
+    console.warn('fetch failed', error.name, error.message);
+  });
+
+  const request = new XMLHttpRequest();
+  request.open('GET', 'payload.json');
+  request.addEventListener('load', function () {
+    console.log('xhr complete', request.status, request.responseText.length);
+  });
+  request.addEventListener('error', function () {
+    console.warn('xhr failed');
+  });
+  request.send();
+
+  const databaseRequest = indexedDB.open('fresco-audit-fixture', 1);
+  window.__frescoAuditFixtureCleanup = function () {
+    localStorage.removeItem('fresco-audit-local');
+    sessionStorage.removeItem('fresco-audit-session');
+    indexedDB.deleteDatabase('fresco-audit-fixture');
+  };
+  databaseRequest.onupgradeneeded = function () {
+    databaseRequest.result.createObjectStore('evidence');
+  };
+  databaseRequest.onsuccess = function () {
+    const transaction = databaseRequest.result.transaction('evidence', 'readwrite');
+    transaction.objectStore('evidence').put('present', 'fixture');
+    transaction.oncomplete = function () {
+      console.log('indexeddb complete');
+      databaseRequest.result.close();
+    };
+  };
+  databaseRequest.onerror = function () {
+    console.warn('indexeddb failed', databaseRequest.error);
+  };
+</script>

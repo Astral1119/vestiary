@@ -1,0 +1,9 @@
+{
+  "schema": "status",
+  "base": "per-display.json",
+  "replace": {
+    "pointer": "/effective/displays/0/paused",
+    "value": false
+  },
+  "error": "does not match its reasons"
+}

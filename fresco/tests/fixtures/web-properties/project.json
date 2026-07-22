@@ -1,0 +1,70 @@
+{
+  "file": "index.html",
+  "general": {
+    "localization": {
+      "en-us": {
+        "ui_caption": "Caption",
+        "ui_mode_one": "First mode",
+        "ui_speed": "Animation speed"
+      }
+    },
+    "properties": {
+      "accent": {
+        "text": "Accent",
+        "type": "color",
+        "value": "0.1 0.2 0.3"
+      },
+      "caption": {
+        "condition": "enabled.value == true",
+        "text": "ui_caption",
+        "type": "textinput",
+        "value": "fixture"
+      },
+      "enabled": {
+        "text": "Enabled",
+        "type": "bool",
+        "value": false
+      },
+      "mode": {
+        "options": [
+          {
+            "label": "ui_mode_one",
+            "value": 1
+          },
+          {
+            "label": "Second mode",
+            "value": 2
+          }
+        ],
+        "text": "Mode",
+        "type": "combo",
+        "value": 1
+      },
+      "optionalimage": {
+        "condition": "enabled.value == true",
+        "fileType": "image",
+        "type": "file"
+      },
+      "randomslides": {
+        "fileType": "image",
+        "mode": "ondemand",
+        "type": "directory",
+        "value": ""
+      },
+      "slideshow": {
+        "fileType": "image",
+        "mode": "fetchall",
+        "type": "directory",
+        "value": ""
+      },
+      "speed": {
+        "max": 10,
+        "min": 1,
+        "text": "ui_speed",
+        "type": "slider",
+        "value": 3
+      }
+    }
+  },
+  "type": "web"
+}
