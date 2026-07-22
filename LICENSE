@@ -34,3 +34,6 @@ Third-party content:
   Not part of this repository; arm64 macs fetch an unmodified prebuilt of
   the pinned crates.io release from this project's GitHub releases, with
   the GPL license text and source pointers inside the tarball.
+- fresco-scene/ is a separately licensed GPL-3.0 executable. Its
+  license and third-party provenance are in fresco-scene/COPYING and
+  fresco-scene/THIRD_PARTY.md.
