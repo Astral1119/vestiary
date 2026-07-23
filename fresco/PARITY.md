@@ -6,7 +6,7 @@ The scene review accepted a bounded 2D helper prototype and rejected in-process
 linking, immediate Metal work, and a first-phase 3D claim.
 
 The 2026-07-22 source checkpoint qualifies the historical acceptance results
-below. The clean native renderer builds, but only 103 of 130 tests pass in the
+below. The clean native renderer builds, but only 106 of 130 tests pass in the
 current worktree. The focused SDL3 suite passes eight of eight tests, and the
 accepted lifecycle and SDL archives still verify. See the repository handoff
 for the native failure inventory. No new renderer capability should be inferred
@@ -213,7 +213,7 @@ are machine-specific and do not substitute for GPU-counter or thermal review.
 The earlier focused review passed the native transform and compositing suites;
 the native and ANGLE GBC, Arknights, and Lonely Cat promotion gates; and their
 30 and 60 FPS performance gates. The current clean native run does not reproduce
-all of those results: 27 tests fail, including three 60 FPS promotion gates.
+all of those results: 24 tests fail, including three 60 FPS promotion gates.
 Distribution packaging, sleep, real lock-screen observation, occlusion, display
 removal, GPU counters, and thermal behavior remain manual release checks.
 

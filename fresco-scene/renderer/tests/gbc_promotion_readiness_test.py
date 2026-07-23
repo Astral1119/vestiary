@@ -278,7 +278,11 @@ def exercise_generation(helper, generation, require_promotable):
         > named["namedAnimationFrameTotal"]
     ), (named, named_frame)
 
-    helper.send("audio-spectrum", values=[1.0] * 128)
+    audio_applied = helper.exchange(
+        "audio-spectrum", "audio-spectrum-applied", values=[1.0] * 128
+    )
+    assert audio_applied["changed"] is True, audio_applied
+    assert audio_applied["inputs"] == 1, audio_applied
     spectrum = helper.exchange("capture-frame-difference", "frame-difference")
     assert_common(spectrum, helper.expected_backend)
     assert set(dynamic_float_state(spectrum)) == DYNAMIC_FLOAT_KEYS, spectrum

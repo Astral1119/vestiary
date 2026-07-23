@@ -257,7 +257,12 @@ with tempfile.TemporaryDirectory(prefix="fresco-static-scheduling.") as temporar
         captured_metrics,
     )
 
-    helper.send("audio-spectrum", values=[0.0] * 128)
+    audio_applied = helper.exchange(
+        "audio-spectrum", "audio-spectrum-applied", values=[0.0] * 128
+    )
+    assert audio_applied["changed"] is True, audio_applied
+    assert audio_applied["inputs"] == 1, audio_applied
+    assert audio_applied["changes"] == 1, audio_applied
     time.sleep(0.1)
     audio_metrics = helper.exchange("metrics")
     assert audio_metrics["frames"] == captured_metrics["frames"] + 1, (

@@ -99,10 +99,12 @@ def audio_response(spectrum):
     )
     assert [event["type"] for event in events] == [
         "ready",
+        "audio-spectrum-applied",
         "frame-difference",
         "stopped",
     ], events
-    return events[1]
+    assert events[1]["inputs"] == 1, events[1]
+    return events[2]
 
 
 def particle_children_on():

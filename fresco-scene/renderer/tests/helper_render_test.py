@@ -138,6 +138,7 @@ assert [event["type"] for event in events] == [
     "warning",
     "warning",
     "warning",
+    "audio-spectrum-applied",
     "heartbeat",
     "metrics",
     "unmuted",
@@ -165,9 +166,10 @@ assert [event["type"] for event in events] == [
 malformed = events[8:11]
 wrong_assignment = events[11]
 wrong_controls = events[12:16]
-initial_metrics = events[17]
-paused_metrics = events[21]
-resumed_metrics = events[25]
+audio_applied = events[16]
+initial_metrics = events[18]
+paused_metrics = events[22]
+resumed_metrics = events[26]
 assert hello["backend"] in {"native-opengl", "angle-metal"}, hello
 expected = {
     "native-opengl": (
@@ -232,6 +234,9 @@ assert all(event["assignmentID"] == "renderer-integration" for event in malforme
 assert wrong_assignment["code"] == "assignment-mismatch", wrong_assignment
 assert wrong_assignment["assignmentID"] == "other-assignment", wrong_assignment
 assert all(event["code"] == "assignment-mismatch" for event in wrong_controls), wrong_controls
+assert audio_applied["changed"] is True, audio_applied
+assert audio_applied["inputs"] == 1, audio_applied
+assert audio_applied["changes"] == 1, audio_applied
 assert initial_metrics["muted"] is True, initial_metrics
 assert initial_metrics["paused"] is False, initial_metrics
 assert paused_metrics["paused"] is True, paused_metrics
@@ -321,9 +326,12 @@ audio_events = [json.loads(line) for line in audio_result.stdout.splitlines()]
 assert [event["type"] for event in audio_events] == [
     "ready",
     "frame-difference",
+    "audio-spectrum-applied",
     "frame-difference",
+    "audio-spectrum-applied",
     "frame-difference",
     "paused",
+    "audio-spectrum-applied",
     "metrics",
     "resumed",
     "frame-difference",
@@ -333,15 +341,27 @@ assert [event["type"] for event in audio_events] == [
 (
     audio_ready,
     silence_reference,
+    peak_audio_applied,
     audio_difference,
+    silence_audio_applied,
     restored_silence,
     _,
+    paused_audio_applied,
     paused_audio_metrics,
     _,
     resumed_audio_difference,
     reloaded_audio_ready,
     _,
 ) = audio_events
+assert peak_audio_applied["changed"] is True, peak_audio_applied
+assert peak_audio_applied["inputs"] == 1, peak_audio_applied
+assert peak_audio_applied["changes"] == 1, peak_audio_applied
+assert silence_audio_applied["changed"] is True, silence_audio_applied
+assert silence_audio_applied["inputs"] == 2, silence_audio_applied
+assert silence_audio_applied["changes"] == 2, silence_audio_applied
+assert paused_audio_applied["changed"] is True, paused_audio_applied
+assert paused_audio_applied["inputs"] == 3, paused_audio_applied
+assert paused_audio_applied["changes"] == 3, paused_audio_applied
 
 
 def dynamic_float_state(event):

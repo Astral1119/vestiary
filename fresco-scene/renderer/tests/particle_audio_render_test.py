@@ -51,14 +51,20 @@ assert not result.stderr, result.stderr
 events = [json.loads(line) for line in result.stdout.splitlines()]
 assert [event["type"] for event in events] == [
     "ready",
+    "audio-spectrum-applied",
     "frame-difference",
+    "audio-spectrum-applied",
     "frame-difference",
     "stopped",
 ], events
-ready, live, silent, _ = events
+ready, live_applied, live, silent_applied, silent, _ = events
 assert ready["backend"] in {"native-opengl", "angle-metal"}, ready
 assert ready["drawComplete"] is True, ready
 assert ready["frames"] == 60, ready
+assert live_applied["inputs"] == 1 and live_applied["changes"] == 1, live_applied
+assert silent_applied["inputs"] == 2 and silent_applied["changes"] == 2, (
+    silent_applied
+)
 assert live["drawComplete"] is True and live["changedPixels"] > 0, live
 assert silent["drawComplete"] is True and silent["changedPixels"] > 0, silent
 print(f"particle mode-3 render: {ready['backend']} live/silence passed")

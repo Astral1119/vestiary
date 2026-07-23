@@ -175,7 +175,11 @@ before_audio = helper.exchange("metrics")
 spectrum = [0.0] * 128
 spectrum[:16] = [index / 15.0 for index in range(16)]
 spectrum[64:80] = [index / 15.0 for index in range(16)]
-helper.send("audio-spectrum", values=spectrum)
+audio_applied = helper.exchange(
+    "audio-spectrum", "audio-spectrum-applied", values=spectrum
+)
+assert audio_applied["changed"] is True, audio_applied
+assert audio_applied["inputs"] == 1, audio_applied
 audio = helper.exchange("capture-frame-difference", "frame-difference")
 assert audio["audioVectorScripts"] == 17, audio
 assert audio["audioVectorScriptChanges"] == (

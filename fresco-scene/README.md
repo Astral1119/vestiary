@@ -32,8 +32,9 @@ output.
 
 The 2026-07-22 source checkpoint builds the complete native renderer, but it is
 not a green or release-ready renderer checkpoint. The current native validation
-run passes 103 of 130 tests. A scoped render-resource registration repair
-restored all five smoke-renderer tests. The 27 remaining failures span lifecycle
+run passes 106 of 130 tests. Scoped render-resource registration and explicit
+audio-spectrum acknowledgement consumption restored eight tests. The 24
+remaining failures span lifecycle
 leak acceptance, stale source-contract assertions, protocol event sequences,
 deterministic frame comparisons, and 60 FPS promotion thresholds. Treat the
 promotion descriptions below as the intended acceptance contracts, not as a
