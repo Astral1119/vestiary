@@ -23,6 +23,8 @@
 #include "WallpaperEngine/Render/RenderContext.h"
 #include "WallpaperEngine/Render/Wallpapers/CScene.h"
 
+#include "FrescoScene/RenderProgramCache.h"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -113,6 +115,35 @@ public:
 
 protected:
     void performUpdate () override { }
+};
+
+class RenderResourceContextLease final {
+public:
+    explicit RenderResourceContextLease (const void* context)
+        : m_context (context),
+          m_generation (FrescoScene::registerRenderResourceContext (context)) { }
+
+    ~RenderResourceContextLease () noexcept {
+        glFinish ();
+        bool completionSucceeded = glGetError () == GL_NO_ERROR;
+        try {
+            FrescoScene::clearRenderProgramCache (m_generation);
+        } catch (...) {
+            completionSucceeded = false;
+        }
+        FrescoScene::retireRenderResourceContext (
+            m_context, completionSucceeded
+        );
+    }
+
+    RenderResourceContextLease (const RenderResourceContextLease&) = delete;
+    RenderResourceContextLease& operator= (
+        const RenderResourceContextLease&
+    ) = delete;
+
+private:
+    const void* m_context;
+    FrescoScene::RenderResourceGeneration m_generation;
 };
 
 struct Framebuffer {
@@ -350,6 +381,7 @@ void render (
     auto renderContext = std::make_unique<WallpaperEngine::Render::RenderContext> (
         driver, app, media
     );
+    RenderResourceContextLease resourceContextLease (renderContext.get ());
     AudioContext audio;
     std::array<float, 128> spectrum;
     spectrum.fill (spectrumValue);
@@ -422,8 +454,6 @@ void render (
               << " scriptUpdates=" << scriptEngine.updateCount ()
               << " scriptTextChanges=" << scriptEngine.textChangeCount ()
               << " scriptErrors=" << scriptEngine.errorCount () << '\n';
-    scene.reset ();
-    renderContext.reset ();
 }
 
 }
