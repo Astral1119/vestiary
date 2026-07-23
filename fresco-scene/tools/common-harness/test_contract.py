@@ -1139,34 +1139,14 @@ class ContractTest(unittest.TestCase):
         )
 
     def test_profiling_subagent_role_is_rejected(self):
-        record = self.fixture.correctness()
-        record["run"]["purpose"] = "profiling"
-        record["run"]["agentRole"] = "subagent"
-        record["lifecycle"] = self.fixture.lifecycle_section()
-        record["profile"] = {
-            "valid": True,
-            "invalidReasons": [],
-            "trialOrder": ["synthetic"],
-            "rawArtifacts": ["frame"],
-        }
-        record["artifacts"].append(self.fixture.leak)
-        record["verdict"] = {
-            "accepted": True,
-            "criteriaVersion": "baseline-v1",
-            "checks": {
-                "build": True,
-                "correctness": True,
-                "lifecycle": True,
-                "diagnostics": True,
-                "performance": True,
-            },
-            "failures": [],
-        }
+        # Profiling records are no longer reserved (result version 3), but a
+        # subagent still cannot produce one. Full profiling-record validation
+        # lives in test_profiling.py; this pins the run-level invariant.
+        run = self.fixture.correctness()["run"]
+        run["purpose"] = "profiling"
+        run["agentRole"] = "subagent"
         with self.assertRaisesRegex(contract.ContractError, "subagents cannot"):
-            contract.validate_result(record)
-        record["run"]["agentRole"] = "root-agent"
-        with self.assertRaisesRegex(contract.ContractError, "reserved"):
-            contract.validate_result(record)
+            contract._validate_run(run)
 
 
 if __name__ == "__main__":
