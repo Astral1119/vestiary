@@ -32,13 +32,15 @@ output.
 
 The 2026-07-22 source checkpoint builds the complete native renderer, but it is
 not a green or release-ready renderer checkpoint. The current native validation
-run passes 116 of 130 tests. Scoped render-resource registration, explicit
+run passes 117 of 130 tests. Scoped render-resource registration, explicit
 audio-spectrum acknowledgement consumption, and distinct known-continuous
 particle lifecycle evidence, source-contract alignment, and continuous media
-preparation restored the current checkpoint. Of the 14 failures in the full
-run, two intermittent harness checks pass in isolation. The 12 persistent
-failures span text width, script state, deterministic frame comparisons, and
-promotion performance.
+preparation restored the current checkpoint. The SceneScript graph also
+preserves Elaina's finite negative text-width state through the supported
+zero-width crop. Of the 13 failures in the full run, the procedural-effect quad
+threshold passed in isolation. Eleven persistent renderer failures span script
+state, deterministic frame comparisons, and promotion performance. The common
+harness matched-control lifecycle rejection repeated in isolation.
 Treat the promotion descriptions below as the intended acceptance contracts,
 not as a claim that the current worktree satisfies every gate.
 

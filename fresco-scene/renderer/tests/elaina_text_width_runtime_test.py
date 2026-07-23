@@ -80,6 +80,7 @@ enabled = exchange(
     properties={"newproperty67": {"value": True}},
 )
 assert enabled["acceptedScriptProperties"] == 1 and enabled["ignored"] == 0
+exchange("capture-frame-difference", "frame-difference")
 exchange("media-session", "media-session-applied", kind="playback", payload={"state": 1})
 long_text = "W" * 3000
 exchange(
@@ -139,19 +140,25 @@ records = [
 ]
 for object_id in (160, 161):
     object_records = [record for record in records if record["object"] == object_id]
-    empty = next(record for record in object_records if record["maxwidth"] < 0)
-    assert empty["visible"] == 0 and empty["offset"] == empty["full"], empty
+    empty = next(
+        (record for record in object_records if record["maxwidth"] < 0), None
+    )
+    assert empty is not None, object_records
+    assert empty["visible"] == 0, empty
+    expected_offset = empty["full"] if empty["alignment"] == "right" else 0
+    assert empty["offset"] == expected_offset, empty
+    assert empty["left"] == 0.0 and empty["right"] == 0.0, empty
     positive = next(
         record
         for record in object_records
         if record["maxwidth"] > 0 and record["full"] > record["visible"] > 0
     )
-    assert positive["alignment"] == "right", positive
-    assert positive["offset"] == positive["full"] - positive["visible"], positive
-    assert positive["left"] == -positive["visible"], positive
-    assert positive["right"] == 0.0, positive
+    assert positive["alignment"] == "left", positive
+    assert positive["offset"] == 0, positive
+    assert positive["left"] == 0.0, positive
+    assert positive["right"] == positive["visible"], positive
 
 print(
     "Elaina text width runtime: finite no-space state, root-drag maxwidth update, "
-    "right-anchored hard crop, and framebuffer change"
+    "right/left hard-crop anchoring, and framebuffer change"
 )

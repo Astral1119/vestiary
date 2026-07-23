@@ -536,7 +536,7 @@ class SceneScriptLayerGraph::Impl {
                 JSValue value = property (context, object, "maxwidth");
                 double next = 0.0;
                 const bool valid = JS_ToFloat64 (context, &next, value) == 0 &&
-                                   std::isfinite (next) && next >= 0.0;
+                                   std::isfinite (next);
                 JS_FreeValue (context, value);
                 if (valid && binding.maxWidth->getFloat () !=
                                  static_cast<float> (next)) {
