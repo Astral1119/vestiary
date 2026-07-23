@@ -6,14 +6,16 @@ The scene review accepted a bounded 2D helper prototype and rejected in-process
 linking, immediate Metal work, and a first-phase 3D claim.
 
 The 2026-07-22 source checkpoint qualifies the historical acceptance results
-below. The clean native renderer builds, but only 124 of 130 tests pass in the
+below. The clean native renderer builds, but only 128 of 130 tests pass in the
 current worktree. Rejected artwork retains its exact decoded content. Session
 lifetime recovery verifies bounded time-sensitive pixel evidence and three
-retired generations before replacement. Four persistent promotion-performance
-failures remain. The focused SDL3 suite passes eight of eight tests, and the
-accepted lifecycle and SDL archives still verify. See the repository handoff
-for the native failure inventory. No new renderer capability should be inferred
-from this document until those failures are triaged.
+retired generations before replacement. Sub-millisecond coordinator wakes clear
+the Arknights, GBC, and Lonely promotion-performance gates. One persistent
+Elaina performance-accounting failure remains. The focused SDL3 suite passes
+eight of eight tests, and the accepted lifecycle and SDL archives still verify.
+See the repository handoff for the native failure inventory. No new renderer
+capability should be inferred from this document until those failures are
+triaged.
 
 ## Baseline
 

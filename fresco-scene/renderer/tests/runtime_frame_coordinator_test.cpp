@@ -68,7 +68,7 @@ void testStaticQuiescenceAndPropertyWake() {
     assert(hasReason(capped, SchedulerReasonId::fpsCeiling));
     completeNotEvaluated(coordinator, capped);
     assert(coordinator.timeUntilNextWake() == frame60);
-    assert(coordinator.pollTimeoutMilliseconds() == 17);
+    assert(coordinator.pollTimeoutMilliseconds() == 16);
 
     coordinator.setTime(frame60);
     assert(coordinator.timeUntilNextWake() == 0ns);
@@ -115,7 +115,7 @@ void testDynamicExternalFloorAndContinuousCadence() {
 
     coordinator.setTime(20ms);
     assert(coordinator.timeUntilNextWake() == 13'333'334ns);
-    assert(coordinator.pollTimeoutMilliseconds() == 14);
+    assert(coordinator.pollTimeoutMilliseconds() == 13);
 }
 
 void testSuppressionPreservesPendingRetry() {
@@ -355,7 +355,7 @@ void testFiniteParticleLeaseReleasesAtQuiescence() {
     coordinator.setParticleContinuousRequired(true);
     assert(coordinator.evidence().particleLeaseAcquisitions == 1);
     assert(coordinator.nextWake() == frame60);
-    assert(coordinator.pollTimeoutMilliseconds() == 17);
+    assert(coordinator.pollTimeoutMilliseconds() == 16);
 
     coordinator.setTime(frame60);
     const auto active = coordinator.decide();

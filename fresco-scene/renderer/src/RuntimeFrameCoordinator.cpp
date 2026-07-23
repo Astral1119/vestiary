@@ -389,10 +389,7 @@ RuntimeFrameCoordinator::pollTimeoutMilliseconds() const noexcept {
     }
     constexpr std::int64_t nanosecondsPerMillisecond = 1'000'000;
     const std::int64_t nanoseconds = remaining->count();
-    std::int64_t milliseconds = nanoseconds / nanosecondsPerMillisecond;
-    if (nanoseconds % nanosecondsPerMillisecond != 0) {
-        ++milliseconds;
-    }
+    const std::int64_t milliseconds = nanoseconds / nanosecondsPerMillisecond;
     return static_cast<int>(std::min<std::int64_t>(
         milliseconds,
         std::numeric_limits<int>::max()
