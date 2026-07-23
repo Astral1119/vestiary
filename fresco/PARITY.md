@@ -17,14 +17,18 @@ now permits one strictly newer decoded revision pending after an exactly
 acknowledged presentation. Seek acknowledgments now carry their synchronous
 deadline mutation instead of relying on a later PTS sample. Twenty consecutive
 focused media runs pass. The latest native checkpoint passes 129 of 130 tests;
-only the common-harness adapter unit failed after four audio fake
-acknowledgments timed out under load. It passed in isolation. GBC camera-control
-now uses the established 10,000 RGB-total bound for independent continuous
-scene launches; 20 focused runs and its full-load invocation pass. The focused
-SDL3 suite passes eight of eight tests, and the accepted lifecycle and SDL
-archives still verify. See the repository handoff for the native failure
-inventory. No new renderer capability should be inferred from this document
-until that failure is triaged.
+only the procedural-effect quad's load-sensitive 50× relative A/B bound failed.
+Its absolute signal and noise bounds pass, and the test passes in isolation.
+The common-harness adapter now consumes buffered helper output through a timed
+reader queue. Eight adapter suites pass concurrently and the adapter passes
+under full load. GBC camera-control uses the established 10,000 RGB-total bound
+for independent continuous-scene launches; 20 focused runs and its full-load
+invocation pass. The focused SDL3 suite passes eight of eight tests, and the
+accepted lifecycle and SDL archives still verify. See the repository handoff
+for the native failure inventory. Human review of all 14 corpus items follows a
+green native checkpoint and will revise the existing support levels and
+limitation notes. No new renderer capability should be inferred from this
+document until that review.
 
 ## Baseline
 

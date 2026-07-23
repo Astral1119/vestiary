@@ -7,7 +7,7 @@ import json
 import os
 import pathlib
 import platform
-import select
+import queue
 import shutil
 import struct
 import subprocess
@@ -501,6 +501,7 @@ class HelperProcess:
         self.commands = []
         self.stdout_lines = []
         self.stderr_chunks = []
+        self._stdout_queue = queue.Queue()
         child_environment = os.environ.copy()
         child_environment.update(environment or {})
         self.process = subprocess.Popen(
@@ -512,8 +513,18 @@ class HelperProcess:
             bufsize=1,
             env=child_environment,
         )
+        self._stdout_thread = threading.Thread(target=self._drain_stdout)
         self._stderr_thread = threading.Thread(target=self._drain_stderr)
+        self._stdout_thread.start()
         self._stderr_thread.start()
+
+    def _drain_stdout(self):
+        while True:
+            line = self.process.stdout.readline()
+            if not line:
+                self._stdout_queue.put(None)
+                return
+            self._stdout_queue.put(line)
 
     def _drain_stderr(self):
         while True:
@@ -543,13 +554,11 @@ class HelperProcess:
         return command
 
     def receive(self, expected):
-        readable, _, _ = select.select(
-            [self.process.stdout], [], [], self.timeout_seconds
-        )
-        if not readable:
+        try:
+            line = self._stdout_queue.get(timeout=self.timeout_seconds)
+        except queue.Empty:
             raise AdapterError(f"helper timed out waiting for {expected}")
-        line = self.process.stdout.readline()
-        if not line:
+        if line is None:
             raise AdapterError(f"helper exited before emitting {expected}")
         self.stdout_lines.append(line)
         try:
@@ -582,6 +591,9 @@ class HelperProcess:
             self.process.wait(timeout=self.timeout_seconds)
         except subprocess.TimeoutExpired as error:
             raise AdapterError("helper did not exit after stopped") from error
+        self._stdout_thread.join(timeout=self.timeout_seconds)
+        if self._stdout_thread.is_alive():
+            raise AdapterError("helper stdout drain did not finish")
         self._stderr_thread.join(timeout=self.timeout_seconds)
         if self._stderr_thread.is_alive():
             raise AdapterError("helper stderr drain did not finish")
@@ -597,6 +609,7 @@ class HelperProcess:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=2)
+        self._stdout_thread.join(timeout=2)
         if self.process.stdin is not None and not self.process.stdin.closed:
             self.process.stdin.close()
         if self.process.stdout is not None and not self.process.stdout.closed:

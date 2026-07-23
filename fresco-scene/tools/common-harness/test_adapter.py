@@ -105,6 +105,8 @@ for line in sys.stdin:
             "hello", assignment, backend=backend, renderer="opengl-4.1-2d",
             graphicsAPI=graphics_api, shaderTarget=shader_target,
         )
+        if MODE == "buffered-burst":
+            emit("buffered-followup", assignment, sequence=2)
     elif kind == "load":
         load_calls += 1
         target_fps = command.get("fps", 60)
@@ -1538,6 +1540,16 @@ class AdapterTest(unittest.TestCase):
                         self.configuration(self.helper(mode, pid_path)),
                     )
                 self.assert_child_reaped(pid_path)
+
+    def test_helper_receives_events_already_buffered_in_user_space(self):
+        with adapter.HelperProcess(
+            self.helper("buffered-burst"), "buffered-burst", 1.0
+        ) as helper:
+            helper.send("hello")
+            self.assertEqual(helper.receive("hello")["type"], "hello")
+            self.assertEqual(
+                helper.receive("buffered-followup")["sequence"], 2
+            )
 
     def test_lease_at_timer_before_causal_minimum_is_rejected(self):
         pid_path = self.root / "early-deadline-script.pid"
