@@ -7,10 +7,13 @@ linking, immediate Metal work, and a first-phase 3D claim.
 
 The 2026-07-22 source checkpoint qualifies the historical acceptance results
 below. The clean native renderer builds, but only 123 of 130 tests pass in the
-current worktree. The focused SDL3 suite passes eight of eight tests, and the
-accepted lifecycle and SDL archives still verify. See the repository handoff
-for the native failure inventory. No new renderer capability should be inferred
-from this document until those failures are triaged.
+current worktree. Rejected artwork retains its exact decoded content; the latest
+full run replaced that failure with a load-sensitive particle-child RSS failure
+that passed when rerun alone. Five persistent renderer failures remain. The
+focused SDL3 suite passes eight of eight tests, and the accepted lifecycle and
+SDL archives still verify. See the repository handoff for the native failure
+inventory. No new renderer capability should be inferred from this document
+until those failures are triaged.
 
 ## Baseline
 

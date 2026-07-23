@@ -40,9 +40,10 @@ preserves Elaina's finite negative text-width state through the supported
 zero-width crop. Media-properties events update hidden text layers
 synchronously, which clears the media-text and Persona promotion gates. The
 Persona generic-script tests also track the consolidated graph's deterministic
-change totals. Six persistent renderer failures span artwork and session frame
-comparisons plus promotion performance. A seventh matched-control lifecycle
-check varies between full runs.
+change totals. Rejected artwork retains its exact decoded content without using
+continuous scene motion as mutation evidence. Five persistent renderer failures
+span the session frame comparison and promotion performance. Matched-control
+lifecycle and particle-child RSS gates have varied between runs.
 Treat the promotion descriptions below as the intended acceptance contracts,
 not as a claim that the current worktree satisfies every gate.
 

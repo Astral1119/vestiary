@@ -116,9 +116,10 @@ rejected = artwork("data:image/png;base64,rejected-artwork")
 assert rejected["artworkReady"] is True, rejected
 assert rejected["artworkRevision"] == 2, rejected
 assert rejected["artworkError"] == "invalid-base64", rejected
+assert rejected["artworkRGBAHash"] == second["artworkRGBAHash"], (second, rejected)
 rejected_difference = exchange("capture-frame-difference", "frame-difference")
 assert rejected_difference["backend"] == EXPECTED_BACKEND, rejected_difference
-assert rejected_difference["maximumChannelDelta"] <= 1, rejected_difference
+assert rejected_difference["drawComplete"] is True, rejected_difference
 
 cleared = exchange(
     "media-session",
