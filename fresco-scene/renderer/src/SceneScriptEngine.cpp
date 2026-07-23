@@ -1540,19 +1540,26 @@ public:
             << "  }\n"
             << scriptBody (source) << "\n"
             << "  let __initialized = false;\n"
+            << "  function __frescoInitialize() {\n"
+            << "    if (!__initialized) { __initialized = true; if (typeof init === 'function') init(); }\n"
+            << "  }\n"
+            << "  function __frescoUpdateText() {\n"
+            << "    if (typeof update === 'function') {\n"
+            << "      const value = update(thisLayer.text);\n"
+            << "      if (typeof value === 'string') thisLayer.text = value;\n"
+            << "    }\n"
+            << "    return String(thisLayer.text);\n"
+            << "  }\n"
             << "  return {\n"
             << "    tick() {\n"
-            << "      if (!__initialized) { __initialized = true; if (typeof init === 'function') init(); }\n"
-            << "      if (typeof update === 'function') {\n"
-            << "        const value = update(thisLayer.text);\n"
-            << "        if (typeof value === 'string') thisLayer.text = value;\n"
-            << "      }\n"
-            << "      return String(thisLayer.text);\n"
+            << "      __frescoInitialize();\n"
+            << "      return __frescoUpdateText();\n"
             << "    },\n"
             << "    mediaProperties(event) {\n"
             << "      if (typeof mediaPropertiesChanged !== 'function') return false;\n"
+            << "      __frescoInitialize();\n"
             << "      mediaPropertiesChanged(event);\n"
-            << "      return true;\n"
+            << "      return __frescoUpdateText();\n"
             << "    },\n"
             << "    destroy() { if (typeof destroy === 'function') destroy(); }\n"
             << "  };\n"
@@ -1621,6 +1628,16 @@ public:
                 logException (m_context, "media-properties");
                 JS_FreeValue (m_context, result);
                 continue;
+            }
+            const char* text = JS_IsString (result)
+                ? JS_ToCString (m_context, result) : nullptr;
+            if (text != nullptr) {
+                const std::string nextText = text;
+                if (nextText != layer.text) {
+                    ++m_textChangeCount;
+                    layer.text = nextText;
+                }
+                JS_FreeCString (m_context, text);
             }
             JS_FreeValue (m_context, result);
             ++m_mediaPropertyScriptDispatches;
