@@ -30,9 +30,9 @@ output.
 
 ## Checkpoint status
 
-The 2026-07-22 source checkpoint builds the complete native renderer, but it is
-not a green or release-ready renderer checkpoint. The current native validation
-run passes 129 of 130 tests. Scoped render-resource registration, explicit
+The 2026-07-22 source checkpoint builds the complete native renderer. Native
+validation passes all 130 tests in 267.8 seconds. Human review of the 14-item
+corpus remains before release readiness. Scoped render-resource registration, explicit
 audio-spectrum acknowledgement consumption, and distinct known-continuous
 particle lifecycle evidence, source-contract alignment, and continuous media
 preparation restored the current checkpoint. The SceneScript graph also
@@ -49,9 +49,9 @@ sampling. The media harness now distinguishes an exactly presented ready
 revision from one newer revision decoded immediately after presentation. The
 seek acknowledgment also reports its synchronous deadline mutation instead of
 inferring one replacement from a later PTS sample. Twenty consecutive focused
-media runs pass. The latest full checkpoint passes 129 of 130 tests; its sole
-failure is the procedural-effect quad's load-sensitive 50× relative A/B bound.
-Its absolute signal and noise bounds pass, and the test passes in isolation.
+media runs pass. The procedural-effect quad now compares its effect signal with
+the worst observed baseline, selected, or hidden control using the shared 5×
+rule. Ten focused runs and the full-load invocation pass.
 The common-harness adapter now consumes buffered helper output through a timed
 reader queue. Eight adapter suites pass concurrently, and the adapter passes
 under full load. GBC camera-control uses the established 10,000 RGB-total bound

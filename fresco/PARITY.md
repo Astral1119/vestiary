@@ -6,8 +6,8 @@ The scene review accepted a bounded 2D helper prototype and rejected in-process
 linking, immediate Metal work, and a first-phase 3D claim.
 
 The 2026-07-22 source checkpoint qualifies the historical acceptance results
-below. The clean native renderer builds, but 129 of 130 tests pass in the
-current worktree. Rejected artwork retains its exact decoded content. Session
+below. The clean native renderer builds, and all 130 tests pass in 267.8
+seconds. Rejected artwork retains its exact decoded content. Session
 lifetime recovery verifies bounded time-sensitive pixel evidence and three
 retired generations before replacement. Sub-millisecond coordinator wakes clear
 the Arknights, GBC, and Lonely promotion-performance gates. Full-frame word
@@ -16,9 +16,9 @@ renderer failure remains from the ready-revision assertion: the media harness
 now permits one strictly newer decoded revision pending after an exactly
 acknowledged presentation. Seek acknowledgments now carry their synchronous
 deadline mutation instead of relying on a later PTS sample. Twenty consecutive
-focused media runs pass. The latest native checkpoint passes 129 of 130 tests;
-only the procedural-effect quad's load-sensitive 50× relative A/B bound failed.
-Its absolute signal and noise bounds pass, and the test passes in isolation.
+focused media runs pass. The procedural-effect quad compares its effect signal
+with the worst observed baseline, selected, or hidden control using the shared
+5× rule. Ten focused runs and the full-load invocation pass.
 The common-harness adapter now consumes buffered helper output through a timed
 reader queue. Eight adapter suites pass concurrently and the adapter passes
 under full load. GBC camera-control uses the established 10,000 RGB-total bound
