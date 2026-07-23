@@ -237,6 +237,14 @@ void testMediaFrameReadyRequiresCausalPresentation() {
     assert(evidence.lastPresentedMediaFrameReadyRevision == ready);
     assert(evidence.lastMediaFrameReadyDecisionSequence
         == readyDecision.sequence);
+
+    const auto pending = coordinator.invalidateMediaFrameReady();
+    const auto& pendingEvidence = coordinator.evidence();
+    assert(pending > ready);
+    assert(pendingEvidence.mediaFrameReadyInvalidations == 2);
+    assert(pendingEvidence.mediaFrameReadyPresentations == 1);
+    assert(pendingEvidence.lastMediaFrameReadyRevision == pending);
+    assert(pendingEvidence.lastPresentedMediaFrameReadyRevision == ready);
 }
 
 void testAudioEnvelopeDeadlineIsOneShot() {

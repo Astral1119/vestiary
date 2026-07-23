@@ -350,14 +350,20 @@ def scheduler(phase):
         ),
         "mediaFrameDeadlineActive": deadline_active,
         "mediaFrameReadyInvalidations": (
-            2 + activations if phase == 2
-            else ({3: 5, 4: 6, 5: 6}.get(phase, 0))
+            (
+                2 + activations if phase == 2
+                else ({3: 5, 4: 6, 5: 6}.get(phase, 0))
+            )
+            + (1 if MODE == "queued-ready-media" and phase >= 2 else 0)
         ),
         "mediaFrameReadyPresentations": (
             2 + activations if phase == 2
             else ({3: 5, 4: 6, 5: 6}.get(phase, 0))
         ),
-        "lastMediaFrameReadyRevision": 7 if phase >= 2 else None,
+        "lastMediaFrameReadyRevision": (
+            8 if MODE == "queued-ready-media" and phase >= 2
+            else (7 if phase >= 2 else None)
+        ),
         "lastPresentedMediaFrameReadyRevision": (
             8 if MODE == "late-ready-media" and phase >= 2
             else (7 if phase >= 2 else None)
@@ -373,6 +379,9 @@ def media(phase):
     frames_by_phase = {0: 1, 1: 1, 2: 3 + activations, 3: 8, 4: 8, 5: 8}
     uploads_by_phase = {0: 1, 1: 1, 2: 3 + activations, 3: 6, 4: 6, 5: 6}
     ready_by_phase = dict(uploads_by_phase)
+    if MODE == "queued-ready-media":
+        for queued_phase in range(2, 6):
+            ready_by_phase[queued_phase] += 1
     if MODE == "superficial-media" and phase >= 2:
         frames_by_phase[phase] += 1
     if MODE == "inactive-churn-media" and not active:
@@ -1566,7 +1575,7 @@ class AdapterTest(unittest.TestCase):
             ("missing-acquire-media", "initial media deadline lifecycle is not exact"),
             ("extra-replacement-media", "did not replace exactly one active PTS deadline"),
             ("busy-poll-media", "active pre-PTS window"),
-            ("late-ready-media", "exact ready revision"),
+            ("late-ready-media", "revisions do not match"),
         ):
             with self.subTest(mode=mode):
                 pid_path = self.root / f"{mode}.pid"
@@ -1578,6 +1587,16 @@ class AdapterTest(unittest.TestCase):
                 with self.assertRaisesRegex(adapter.AdapterError, message):
                     adapter.run_correctness("media-video", configuration)
                 self.assert_child_reaped(pid_path)
+
+    def test_media_accepts_one_queued_ready_revision(self):
+        adapter.run_correctness(
+            "media-video",
+            self.configuration(
+                self.helper("queued-ready-media"),
+                timeout=2.0,
+                media_fixture_generator=self.fixture_generator(),
+            ),
+        )
 
     def test_media_record_aggregates_all_session_execution(self):
         record, _path = adapter.run_correctness(

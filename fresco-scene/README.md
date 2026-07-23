@@ -45,8 +45,12 @@ continuous scene motion as mutation evidence. Session lifetime recovery uses
 bounded time-sensitive pixel evidence and verifies retired resource generations.
 Sub-millisecond coordinator wakes preserve the shared promotion runner's 60 FPS
 cadence. Full-frame word hashing clears Elaina's video performance gate without
-sampling. No reproducible renderer failure remains. The latest full run still
-reported a load-sensitive media acknowledgment race and GBC performance miss.
+sampling. The media harness now distinguishes an exactly presented ready
+revision from one newer revision decoded immediately after presentation. The
+focused media evidence passes, but stress exposed a separate seek-deadline
+replacement race. The latest full run still reported the superseded media
+acknowledgment failure and a load-sensitive GBC performance miss; no full
+checkpoint has run after the media correction.
 Treat the promotion descriptions below as the intended acceptance contracts,
 not as a claim that the current worktree satisfies every gate.
 

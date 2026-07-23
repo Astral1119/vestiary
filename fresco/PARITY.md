@@ -12,12 +12,15 @@ lifetime recovery verifies bounded time-sensitive pixel evidence and three
 retired generations before replacement. Sub-millisecond coordinator wakes clear
 the Arknights, GBC, and Lonely promotion-performance gates. Full-frame word
 hashing clears Elaina's video performance gate without sampling. No reproducible
-renderer failure remains, but the latest full run reported a load-sensitive
-media acknowledgment race and GBC performance miss. The focused SDL3 suite
-passes eight of eight tests, and the accepted lifecycle and SDL archives still
-verify. See the repository handoff for the native failure inventory. No new
-renderer capability should be inferred from this document until those failures
-are triaged.
+renderer failure remains from the ready-revision assertion: the media harness
+now permits one strictly newer decoded revision pending after an exactly
+acknowledged presentation. Focused stress then exposed a separate seek-deadline
+replacement race. The latest full run still reported the superseded media
+failure and a GBC performance miss, and no full checkpoint has run after the
+media correction. The focused SDL3 suite passes eight of eight tests, and the
+accepted lifecycle and SDL archives still verify. See the repository handoff
+for the native failure inventory. No new renderer capability should be inferred
+from this document until those failures are triaged.
 
 ## Baseline
 

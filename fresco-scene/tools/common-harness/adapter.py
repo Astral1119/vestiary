@@ -1553,12 +1553,40 @@ def _run_media_video(helper, configuration, trace, project, comparison_project):
              f"{media_advanced['frameReadyEvents']}")
     _require(_scheduler(advanced).get("mediaFrameDeadlineSchedules", 0) > 0,
              "future media PTS did not schedule a typed deadline")
-    _require(_scheduler(advanced).get("mediaFrameReadyPresentations", 0) > 0,
+    advanced_scheduler = _scheduler(advanced)
+    ready_presentations = advanced_scheduler.get(
+        "mediaFrameReadyPresentations", 0
+    )
+    _require(ready_presentations > 0,
              "frame-ready presentation lacks causal revision evidence")
     _require(
-        _scheduler(advanced).get("lastMediaFrameReadyRevision")
-        == _scheduler(advanced).get("lastPresentedMediaFrameReadyRevision"),
-        "presented media frame did not acknowledge its exact ready revision",
+        ready_presentations
+        - _scheduler(initial).get("mediaFrameReadyPresentations", 0)
+        == media_advanced["frameUploads"] - media_initial["frameUploads"],
+        "media uploads lack exact frame-ready presentation evidence",
+    )
+    outstanding_ready = (
+        advanced_scheduler.get("mediaFrameReadyInvalidations", 0)
+        - ready_presentations
+    )
+    _require(
+        outstanding_ready in (0, 1),
+        "media frame-ready evidence has an invalid outstanding revision count",
+    )
+    last_ready = advanced_scheduler.get("lastMediaFrameReadyRevision")
+    last_presented = advanced_scheduler.get(
+        "lastPresentedMediaFrameReadyRevision"
+    )
+    _require(
+        (
+            outstanding_ready == 0 and last_ready == last_presented
+        ) or (
+            outstanding_ready == 1
+            and isinstance(last_ready, int)
+            and isinstance(last_presented, int)
+            and last_ready > last_presented
+        ),
+        "media frame-ready revisions do not match their presentation state",
     )
 
     before_seek = advanced
