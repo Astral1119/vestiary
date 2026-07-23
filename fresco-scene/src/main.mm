@@ -2785,15 +2785,10 @@ bool handleMessage (NSDictionary* message) {
                     static_cast<long> (runtimeDeferredScriptValues)
                 ]];
             }
-            const NSInteger untrackedParticleSystems = std::max<NSInteger> (
-                inspectedParticles
-                    - static_cast<NSInteger> (
-                        initialMetrics.particles.finiteSystems
-                    ),
-                static_cast<NSInteger> (
+            const NSInteger untrackedParticleSystems
+                = static_cast<NSInteger> (
                     initialMetrics.particles.unknownSystems
-                )
-            );
+                );
             if (inspectedParticles > 0 && !trackedParticleLifecycle
                 && untrackedParticleSystems > 0) {
                 [runtimeWarnings addObject:[NSString stringWithFormat:

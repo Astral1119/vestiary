@@ -32,13 +32,13 @@ output.
 
 The 2026-07-22 source checkpoint builds the complete native renderer, but it is
 not a green or release-ready renderer checkpoint. The current native validation
-run passes 106 of 130 tests. Scoped render-resource registration and explicit
-audio-spectrum acknowledgement consumption restored eight tests. The 24
-remaining failures span lifecycle
-leak acceptance, stale source-contract assertions, protocol event sequences,
-deterministic frame comparisons, and 60 FPS promotion thresholds. Treat the
-promotion descriptions below as the intended acceptance contracts, not as a
-claim that the current worktree satisfies every gate.
+run passes 114 of 130 tests. Scoped render-resource registration, explicit
+audio-spectrum acknowledgement consumption, and distinct known-continuous
+particle lifecycle evidence restored the current checkpoint. The 16 remaining
+failures span stale source-contract assertions, media progression, script
+state, deterministic frame comparisons, and 60 FPS promotion thresholds.
+Treat the promotion descriptions below as the intended acceptance contracts,
+not as a claim that the current worktree satisfies every gate.
 
 The isolated SDL3 slice remains green: its eight focused depth, correctness,
 hostile-scheduling, and archive tests pass. Accepted lifecycle and SDL evidence

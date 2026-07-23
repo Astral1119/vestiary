@@ -1638,7 +1638,7 @@ string(REPLACE
 )
 string(REPLACE
     "    std::mt19937 m_rng;"
-    "    std::mt19937 m_rng;\n    uint64_t m_nextParticleSerial { 1 };\n    bool m_finiteLifecycle { false };\n    std::size_t m_simulationUpdates { 0 };\n    std::size_t m_catchUpFrames { 0 };\n    double m_requestedSeconds { 0.0 };\n    double m_simulatedSeconds { 0.0 };\n    double m_droppedSeconds { 0.0 };\n    double m_maximumRequestedSeconds { 0.0 };\n    double m_maximumSimulatedSeconds { 0.0 };\n    std::size_t m_peakParticleCount { 0 };\n    std::size_t m_poolResizes { 0 };\n    std::size_t m_resourceInitializations { 0 };"
+    "    std::mt19937 m_rng;\n    uint64_t m_nextParticleSerial { 1 };\n    bool m_lifecycleKnown { false };\n    bool m_finiteLifecycle { false };\n    std::size_t m_simulationUpdates { 0 };\n    std::size_t m_catchUpFrames { 0 };\n    double m_requestedSeconds { 0.0 };\n    double m_simulatedSeconds { 0.0 };\n    double m_droppedSeconds { 0.0 };\n    double m_maximumRequestedSeconds { 0.0 };\n    double m_maximumSimulatedSeconds { 0.0 };\n    std::size_t m_peakParticleCount { 0 };\n    std::size_t m_poolResizes { 0 };\n    std::size_t m_resourceInitializations { 0 };"
     particle_header
     "${particle_header}"
 )
@@ -1812,10 +1812,17 @@ string(REPLACE
 		|| renderer.name == "ropetrail" || renderer.name == "spritetrail";
 	}
     );
-    m_finiteLifecycle = finiteEmitters && m_particle.children.empty ()
+    const bool supportedEmitters = !m_particle.emitters.empty ()
+	&& std::ranges::all_of (m_particle.emitters, [] (const auto& emitter) {
+	    return (emitter.name == "boxrandom" || emitter.name == "sphererandom")
+		&& (emitter.flags & 4) == 0;
+	});
+    m_lifecycleKnown = supportedEmitters
 	&& m_emitters.size () == m_particle.emitters.size ()
 	&& m_initializers.size () == nonnullInitializers
 	&& m_operators.size () == nonnullOperators && knownRenderers;
+    m_finiteLifecycle = m_lifecycleKnown && finiteEmitters
+	&& m_particle.children.empty ();
     ++m_resourceInitializations;
 
     // Setup control points (max 8)]=]
@@ -1906,6 +1913,7 @@ FrescoScene::ParticleSystemRuntimeEvidence CParticle::runtimeEvidence () const {
     return {
 	.objectId = m_particle.id,
 	.seed = static_cast<std::uint32_t> (m_particle.id),
+	.lifecycleKnown = m_lifecycleKnown,
 	.finiteLifecycle = m_finiteLifecycle,
 	.continuousRequired = !m_finiteLifecycle || !emitted || m_particleCount > 0,
 	.quiescent = m_finiteLifecycle && emitted && m_particleCount == 0,

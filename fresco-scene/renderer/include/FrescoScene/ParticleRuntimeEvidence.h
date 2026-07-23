@@ -8,6 +8,7 @@ namespace FrescoScene {
 struct ParticleSystemRuntimeEvidence {
     int objectId = 0;
     std::uint32_t seed = 0;
+    bool lifecycleKnown = false;
     bool finiteLifecycle = false;
     bool continuousRequired = true;
     bool quiescent = false;

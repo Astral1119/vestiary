@@ -647,7 +647,7 @@ FrescoScene::ParticleRuntimeEvidence particleRuntimeEvidence (
             result.maximumSeed = std::max (result.maximumSeed, evidence.seed);
         }
         result.finiteSystems += evidence.finiteLifecycle ? 1 : 0;
-        result.unknownSystems += evidence.finiteLifecycle ? 0 : 1;
+        result.unknownSystems += evidence.lifecycleKnown ? 0 : 1;
         result.continuousRequired |= evidence.continuousRequired;
         result.quiescent &= evidence.quiescent;
         result.updates += evidence.updates;

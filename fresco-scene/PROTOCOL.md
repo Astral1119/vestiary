@@ -103,7 +103,9 @@ continuous pacing for rollback and comparison. `schedulingMode` is
 The tracked particle mode
 applies only when every
 inspected object instantiates as a recognized finite particle system. Unknown
-or mixed particle graphs retain conservative continuous scheduling.
+particle graphs retain conservative continuous scheduling and emit a warning.
+Recognized continuous emitters and mixed particle graphs also retain continuous
+scheduling, but are not reported as unknown lifecycle.
 The tracked audio mode applies only to one supported image or text object with
 one exactly classified 16-bin audio-vector scale transform and no effects,
 custom shaders, puppets, audio assets, deferred scripts, or automatic dynamic
