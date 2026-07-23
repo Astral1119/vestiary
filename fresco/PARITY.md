@@ -17,11 +17,14 @@ now permits one strictly newer decoded revision pending after an exactly
 acknowledged presentation. Seek acknowledgments now carry their synchronous
 deadline mutation instead of relying on a later PTS sample. Twenty consecutive
 focused media runs pass. The latest native checkpoint passes 129 of 130 tests;
-only GBC camera-control's load-sensitive framebuffer equality check failed, and
-it passed in isolation. The focused SDL3 suite passes eight of eight tests, and
-the accepted lifecycle and SDL archives still verify. See the repository
-handoff for the native failure inventory. No new renderer capability should be
-inferred from this document until that failure is triaged.
+only the common-harness adapter unit failed after four audio fake
+acknowledgments timed out under load. It passed in isolation. GBC camera-control
+now uses the established 10,000 RGB-total bound for independent continuous
+scene launches; 20 focused runs and its full-load invocation pass. The focused
+SDL3 suite passes eight of eight tests, and the accepted lifecycle and SDL
+archives still verify. See the repository handoff for the native failure
+inventory. No new renderer capability should be inferred from this document
+until that failure is triaged.
 
 ## Baseline
 

@@ -50,8 +50,10 @@ revision from one newer revision decoded immediately after presentation. The
 seek acknowledgment also reports its synchronous deadline mutation instead of
 inferring one replacement from a later PTS sample. Twenty consecutive focused
 media runs pass. The latest full checkpoint passes 129 of 130 tests; its sole
-failure is a load-sensitive GBC camera-control framebuffer equality check that
-passes in isolation.
+failure is the common-harness adapter unit timing out on four audio fake
+acknowledgments under load. The adapter unit passes in isolation. GBC
+camera-control now uses the established 10,000 RGB-total bound for independent
+continuous-scene launches; 20 focused runs and its full-load invocation pass.
 Treat the promotion descriptions below as the intended acceptance contracts,
 not as a claim that the current worktree satisfies every gate.
 
