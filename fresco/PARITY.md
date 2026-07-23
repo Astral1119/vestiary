@@ -10,12 +10,14 @@ below. The clean native renderer builds, but only 128 of 130 tests pass in the
 current worktree. Rejected artwork retains its exact decoded content. Session
 lifetime recovery verifies bounded time-sensitive pixel evidence and three
 retired generations before replacement. Sub-millisecond coordinator wakes clear
-the Arknights, GBC, and Lonely promotion-performance gates. One persistent
-Elaina performance-accounting failure remains. The focused SDL3 suite passes
-eight of eight tests, and the accepted lifecycle and SDL archives still verify.
-See the repository handoff for the native failure inventory. No new renderer
-capability should be inferred from this document until those failures are
-triaged.
+the Arknights, GBC, and Lonely promotion-performance gates. Full-frame word
+hashing clears Elaina's video performance gate without sampling. No reproducible
+renderer failure remains, but the latest full run reported a load-sensitive
+media acknowledgment race and GBC performance miss. The focused SDL3 suite
+passes eight of eight tests, and the accepted lifecycle and SDL archives still
+verify. See the repository handoff for the native failure inventory. No new
+renderer capability should be inferred from this document until those failures
+are triaged.
 
 ## Baseline
 

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <chrono>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -35,12 +36,20 @@ std::size_t playerDestructions = 0;
 
 std::uint64_t frameHash (const FrescoScene::MediaVideoFrame& frame) {
     std::uint64_t hash = 1469598103934665603ULL;
+    constexpr std::uint64_t prime = 1099511628211ULL;
+    const std::size_t rowBytes = static_cast<std::size_t> (frame.width) * 4U;
     for (std::uint32_t y = 0; y < frame.height; ++y) {
         const auto* row = frame.pixels.get ()
             + static_cast<std::size_t> (y) * frame.bytesPerRow;
-        for (std::uint32_t x = 0; x < frame.width * 4U; ++x) {
-            hash ^= row[x];
-            hash *= 1099511628211ULL;
+        std::size_t x = 0;
+        for (; x + sizeof (std::uint64_t) <= rowBytes;
+             x += sizeof (std::uint64_t)) {
+            std::uint64_t word = 0;
+            std::memcpy (&word, row + x, sizeof (word));
+            hash = (hash ^ word) * prime;
+        }
+        for (; x < rowBytes; ++x) {
+            hash = (hash ^ row[x]) * prime;
         }
     }
     return hash;

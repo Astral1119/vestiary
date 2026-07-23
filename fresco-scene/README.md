@@ -44,8 +44,9 @@ change totals. Rejected artwork retains its exact decoded content without using
 continuous scene motion as mutation evidence. Session lifetime recovery uses
 bounded time-sensitive pixel evidence and verifies retired resource generations.
 Sub-millisecond coordinator wakes preserve the shared promotion runner's 60 FPS
-cadence. One persistent Elaina performance-accounting failure remains. The
-matched-control lifecycle gate has varied between runs.
+cadence. Full-frame word hashing clears Elaina's video performance gate without
+sampling. No reproducible renderer failure remains. The latest full run still
+reported a load-sensitive media acknowledgment race and GBC performance miss.
 Treat the promotion descriptions below as the intended acceptance contracts,
 not as a claim that the current worktree satisfies every gate.
 

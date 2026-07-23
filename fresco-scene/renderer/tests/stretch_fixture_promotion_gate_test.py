@@ -813,13 +813,20 @@ def performance(target_fps):
         time.sleep(1.25)
         running = helper.exchange("metrics")
         elapsed = (running["elapsedMilliseconds"] - baseline["elapsedMilliseconds"]) / 1000
-        observed_fps = (running["frames"] - baseline["frames"]) / elapsed
+        measured_frames = running["frames"] - baseline["frames"]
+        observed_fps = measured_frames / elapsed
+        missed_intervals = (
+            running["missedFrameIntervals"] - baseline["missedFrameIntervals"]
+        )
         frame_budget = 1000.0 / target_fps
         resident_kib, cpu_percent = process_usage(helper.process)
         assert target_fps * 0.65 <= observed_fps <= target_fps * 1.35, running
         assert 0 < running["averageRenderMilliseconds"] < frame_budget * 1.5, running
         assert running["maximumRenderMilliseconds"] < 1000, running
-        assert running["missedFrameIntervals"] <= running["frames"] * 0.2 + 2, running
+        assert missed_intervals <= measured_frames * 0.2 + 2, (
+            baseline,
+            running,
+        )
         assert resident_kib < 1_500_000, resident_kib
         assert cpu_percent < 400, cpu_percent
         helper.stop()
@@ -828,7 +835,7 @@ def performance(target_fps):
             "observedFPS": round(observed_fps, 1),
             "averageRenderMilliseconds": round(running["averageRenderMilliseconds"], 2),
             "maximumRenderMilliseconds": round(running["maximumRenderMilliseconds"], 2),
-            "missedFrameIntervals": running["missedFrameIntervals"],
+            "missedFrameIntervals": missed_intervals,
             "residentMiB": round(resident_kib / 1024.0, 1),
             "cpuPercent": cpu_percent,
         }
