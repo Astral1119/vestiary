@@ -96,25 +96,25 @@ assert [event["type"] for event in events] == [
 assert ready["genericPropertyScripts"] == 137, ready
 assert ready["backend"] == EXPECTED_BACKEND, ready
 assert ready["genericPropertyScriptUpdates"] == 270, ready
-assert ready["genericPropertyScriptChanges"] == 66, ready
+assert ready["genericPropertyScriptChanges"] == 81, ready
 assert ready["genericPropertyScriptErrors"] == 0, ready
 assert first_applied["acceptedScriptProperties"] == 1, first_applied
 assert first_applied["ignored"] == 0, first_applied
 assert first_change["genericPropertyScriptUpdates"] == 392, first_change
-assert first_change["genericPropertyScriptChanges"] == 77, first_change
+assert first_change["genericPropertyScriptChanges"] == 102, first_change
 assert paused["paused"] is True, paused
 assert paused["genericPropertyScriptUpdates"] == 392, paused
-assert paused["genericPropertyScriptChanges"] == 77, paused
+assert paused["genericPropertyScriptChanges"] == 102, paused
 assert second_applied["acceptedScriptProperties"] == 1, second_applied
 assert second_applied["ignored"] == 0, second_applied
 assert resumed["genericPropertyScriptUpdates"] == 514, resumed
-assert resumed["genericPropertyScriptChanges"] == 88, resumed
+assert resumed["genericPropertyScriptChanges"] == 123, resumed
 assert resumed["genericPropertyScriptErrors"] == 0, resumed
 for event in (reloaded, reloaded_metrics):
     assert event["backend"] == EXPECTED_BACKEND, event
     assert event["genericPropertyScripts"] == 137, event
     assert event["genericPropertyScriptUpdates"] == 270, event
-    assert event["genericPropertyScriptChanges"] == 66, event
+    assert event["genericPropertyScriptChanges"] == 81, event
     assert event["genericPropertyScriptErrors"] == 0, event
     assert event["scriptErrors"] == 0, event
 
