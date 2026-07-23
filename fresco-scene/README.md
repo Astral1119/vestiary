@@ -32,7 +32,7 @@ output.
 
 The 2026-07-22 source checkpoint builds the complete native renderer, but it is
 not a green or release-ready renderer checkpoint. The current native validation
-run passes 128 of 130 tests. Scoped render-resource registration, explicit
+run passes 129 of 130 tests. Scoped render-resource registration, explicit
 audio-spectrum acknowledgement consumption, and distinct known-continuous
 particle lifecycle evidence, source-contract alignment, and continuous media
 preparation restored the current checkpoint. The SceneScript graph also
@@ -47,10 +47,11 @@ Sub-millisecond coordinator wakes preserve the shared promotion runner's 60 FPS
 cadence. Full-frame word hashing clears Elaina's video performance gate without
 sampling. The media harness now distinguishes an exactly presented ready
 revision from one newer revision decoded immediately after presentation. The
-focused media evidence passes, but stress exposed a separate seek-deadline
-replacement race. The latest full run still reported the superseded media
-acknowledgment failure and a load-sensitive GBC performance miss; no full
-checkpoint has run after the media correction.
+seek acknowledgment also reports its synchronous deadline mutation instead of
+inferring one replacement from a later PTS sample. Twenty consecutive focused
+media runs pass. The latest full checkpoint passes 129 of 130 tests; its sole
+failure is a load-sensitive GBC camera-control framebuffer equality check that
+passes in isolation.
 Treat the promotion descriptions below as the intended acceptance contracts,
 not as a claim that the current worktree satisfies every gate.
 

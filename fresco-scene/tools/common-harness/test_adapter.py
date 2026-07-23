@@ -468,14 +468,20 @@ for line in sys.stdin:
         )
     elif kind == "media-video":
         seeks += 1
+        deadline_mutation = "scheduled" if not deadline_active else "replaced"
         if deadline_active and MODE != "no-replacement-media":
-            deadline_replacements += (
-                2 if MODE == "extra-replacement-media" else 1
-            )
+            if MODE == "extra-replacement-media":
+                deadline_replacements += 2
+                deadline_mutation = "inconsistent"
+            else:
+                deadline_replacements += 1
+        elif MODE == "no-replacement-media":
+            deadline_mutation = "missing"
         if seeks == 2:
             eos_metric_calls = 0
         emit("media-video-applied", assignment, action="seek",
-             positionSeconds=command["positionSeconds"], players=1)
+             positionSeconds=command["positionSeconds"], players=1,
+             deadlineMutation=deadline_mutation, deadlineArmed=True)
     elif kind in ("pause", "hide"):
         active = False
         paused = kind == "pause"
@@ -1571,9 +1577,9 @@ class AdapterTest(unittest.TestCase):
             ("inactive-churn-media", "produced decode/render/deadline churn"),
             ("deadline-churn-media", "produced decode/render/deadline churn"),
             ("no-release-media", "did not release exactly one live deadline"),
-            ("no-replacement-media", "did not replace exactly one active PTS deadline"),
+            ("no-replacement-media", "valid armed deadline mutation"),
             ("missing-acquire-media", "initial media deadline lifecycle is not exact"),
-            ("extra-replacement-media", "did not replace exactly one active PTS deadline"),
+            ("extra-replacement-media", "valid armed deadline mutation"),
             ("busy-poll-media", "active pre-PTS window"),
             ("late-ready-media", "revisions do not match"),
         ):

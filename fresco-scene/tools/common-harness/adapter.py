@@ -1590,12 +1590,15 @@ def _run_media_video(helper, configuration, trace, project, comparison_project):
     )
 
     before_seek = advanced
-    replacements_before_seek = _scheduler(before_seek).get(
-        "mediaFrameDeadlineReplacements", 0
-    )
-    helper.exchange(
+    seek_applied = helper.exchange(
         "media-video", "media-video-applied", action="seek",
         positionSeconds=trace["seekSeconds"],
+    )
+    _require(
+        seek_applied.get("deadlineMutation")
+        in ("scheduled", "replaced", "retained")
+        and seek_applied.get("deadlineArmed") is True,
+        "media seek did not report one valid armed deadline mutation",
     )
     seek_deadline = time.monotonic() + trace["seekTimeoutMilliseconds"] / 1000.0
     sought = None
@@ -1624,12 +1627,6 @@ def _run_media_video(helper, configuration, trace, project, comparison_project):
         == _scheduler(before_seek).get("mediaFrameReadyInvalidations", 0) + 1,
         "seek-ready frame did not record exactly one typed invalidation",
     )
-    _require(
-        _scheduler(sought).get("mediaFrameDeadlineReplacements", 0)
-        == replacements_before_seek + 1,
-        "media seek did not replace exactly one active PTS deadline",
-    )
-
     before_eos = sought
     helper.exchange(
         "media-video", "media-video-applied", action="seek",

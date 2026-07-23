@@ -2079,10 +2079,33 @@ bool handleMessage (NSDictionary* message) {
             return true;
         }
         const std::size_t players = activeRenderer->seekMediaTextures (position);
+        NSString* deadlineMutation = @"legacy-invalidation";
+        bool deadlineArmed = false;
         if (activeFrameCoordinator != nullptr && activeTrackedMediaLifecycle) {
+            const auto before = activeFrameCoordinator->evidence ();
             activeFrameCoordinator->setMediaFrameDeadline (
                 activeFrameCoordinator->time ()
             );
+            const auto& after = activeFrameCoordinator->evidence ();
+            deadlineArmed = after.mediaFrameDeadlineActive;
+            if (after.mediaFrameDeadlineReplacements
+                == before.mediaFrameDeadlineReplacements + 1
+                && after.mediaFrameDeadlineSchedules
+                    == before.mediaFrameDeadlineSchedules) {
+                deadlineMutation = @"replaced";
+            } else if (after.mediaFrameDeadlineSchedules
+                == before.mediaFrameDeadlineSchedules + 1
+                && after.mediaFrameDeadlineReplacements
+                    == before.mediaFrameDeadlineReplacements) {
+                deadlineMutation = @"scheduled";
+            } else if (after.mediaFrameDeadlineSchedules
+                    == before.mediaFrameDeadlineSchedules
+                && after.mediaFrameDeadlineReplacements
+                    == before.mediaFrameDeadlineReplacements) {
+                deadlineMutation = @"retained";
+            } else {
+                deadlineMutation = @"inconsistent";
+            }
         } else {
             invalidateCoordinator (
                 FrescoScene::ChangeProducers::media,
@@ -2093,6 +2116,8 @@ bool handleMessage (NSDictionary* message) {
             @"action": @"seek",
             @"positionSeconds": @(position),
             @"players": @(players),
+            @"deadlineMutation": deadlineMutation,
+            @"deadlineArmed": @(deadlineArmed),
         });
 #else
         emitEvent (@"warning", assignmentID, @{
