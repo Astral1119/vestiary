@@ -10,7 +10,7 @@ import sys
 
 WORKSHOP = pathlib.Path(sys.argv[1])
 RENDERER = pathlib.Path(__file__).resolve().parents[1]
-CONVERTER_SOURCE = RENDERER / "CMakeLists.txt"
+CONVERTER_SOURCE = RENDERER / "cmake" / "GeneratedPatches.cmake"
 INSPECTOR_SOURCE = RENDERER.parent / "src" / "main.mm"
 CANONICAL_SIZE = "1000 1000"
 CANONICAL_IMAGE = "models/fresco_procedural_quad.json"

@@ -32,11 +32,11 @@ output.
 
 The 2026-07-22 source checkpoint builds the complete native renderer, but it is
 not a green or release-ready renderer checkpoint. The current native validation
-run passes 114 of 130 tests. Scoped render-resource registration, explicit
+run passes 115 of 130 tests. Scoped render-resource registration, explicit
 audio-spectrum acknowledgement consumption, and distinct known-continuous
-particle lifecycle evidence restored the current checkpoint. The 16 remaining
-failures span stale source-contract assertions, media progression, script
-state, deterministic frame comparisons, and 60 FPS promotion thresholds.
+particle lifecycle evidence, and source-contract alignment restored the current
+checkpoint. The 15 remaining failures span media progression, text width,
+script state, deterministic frame comparisons, and 60 FPS promotion thresholds.
 Treat the promotion descriptions below as the intended acceptance contracts,
 not as a claim that the current worktree satisfies every gate.
 
