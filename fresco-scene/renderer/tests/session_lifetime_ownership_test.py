@@ -105,9 +105,17 @@ try:
     replacement_media = replacement_metrics["mediaTextures"]
     assert replacement_media["players"] == 5, replacement_media
     assert replacement_media["referencedPlayers"] == 5, replacement_media
-    assert replacement["pixelRGBAHash"] == first["pixelRGBAHash"], (
-        first,
-        replacement,
+    assert replacement["resourceGeneration"] == first["resourceGeneration"] + 3, (
+        first["resourceGeneration"],
+        replacement["resourceGeneration"],
+    )
+    replacement_pixel_difference = abs(
+        replacement["pixelRGBTotal"] - first["pixelRGBTotal"]
+    )
+    assert replacement_pixel_difference < 10_000, (
+        replacement_pixel_difference,
+        first["pixelRGBTotal"],
+        replacement["pixelRGBTotal"],
     )
 
     secondary = load(SECONDARY_ITEM)

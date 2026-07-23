@@ -32,7 +32,7 @@ output.
 
 The 2026-07-22 source checkpoint builds the complete native renderer, but it is
 not a green or release-ready renderer checkpoint. The current native validation
-run passes 123 of 130 tests. Scoped render-resource registration, explicit
+run passes 124 of 130 tests. Scoped render-resource registration, explicit
 audio-spectrum acknowledgement consumption, and distinct known-continuous
 particle lifecycle evidence, source-contract alignment, and continuous media
 preparation restored the current checkpoint. The SceneScript graph also
@@ -41,9 +41,10 @@ zero-width crop. Media-properties events update hidden text layers
 synchronously, which clears the media-text and Persona promotion gates. The
 Persona generic-script tests also track the consolidated graph's deterministic
 change totals. Rejected artwork retains its exact decoded content without using
-continuous scene motion as mutation evidence. Five persistent renderer failures
-span the session frame comparison and promotion performance. Matched-control
-lifecycle and particle-child RSS gates have varied between runs.
+continuous scene motion as mutation evidence. Session lifetime recovery uses
+bounded time-sensitive pixel evidence and verifies retired resource generations.
+Four persistent renderer failures remain in promotion performance.
+Matched-control lifecycle and particle-child RSS gates have varied between runs.
 Treat the promotion descriptions below as the intended acceptance contracts,
 not as a claim that the current worktree satisfies every gate.
 
