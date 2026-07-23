@@ -970,6 +970,9 @@ public:
         if (!m_activity.active () || m_scene == nullptr) {
             return FrameRenderResult::suppressedBeforePresentation;
         }
+        if (!m_trackedMediaLifecycle) {
+            static_cast<void> (m_mediaTextureHost->prepareFrames ());
+        }
         if (m_trackedMediaLifecycle
             && !m_mediaTextureHost->hasPendingFrames ()) {
             const auto media = m_mediaTextureHost->metrics ();

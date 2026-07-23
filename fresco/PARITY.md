@@ -6,7 +6,7 @@ The scene review accepted a bounded 2D helper prototype and rejected in-process
 linking, immediate Metal work, and a first-phase 3D claim.
 
 The 2026-07-22 source checkpoint qualifies the historical acceptance results
-below. The clean native renderer builds, but only 115 of 130 tests pass in the
+below. The clean native renderer builds, but only 116 of 130 tests pass in the
 current worktree. The focused SDL3 suite passes eight of eight tests, and the
 accepted lifecycle and SDL archives still verify. See the repository handoff
 for the native failure inventory. No new renderer capability should be inferred
