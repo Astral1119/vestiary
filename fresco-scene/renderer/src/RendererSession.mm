@@ -768,6 +768,8 @@ public:
         m_pixelProbeRequests = configuration.pixelProbes;
         m_pixelRegionRequests = configuration.pixelRegions;
         m_targetFPS = configuration.framesPerSecond;
+        m_realTimeClock
+            = configuration.clockMode == RendererClockMode::RealTime;
         m_collectRenderDurationSamples = configuration.collectRenderDurationSamples;
         m_muted = true;
         m_audio.setMuted (true);
@@ -968,6 +970,12 @@ public:
     FrameRenderResult renderFrame (bool captureEvidence = false) {
         dispatchAppEvents ();
         if (!m_activity.active () || m_scene == nullptr) {
+            // Drop the frame-interval anchor while suppressed so the first frame
+            // after a pause advances the real-time clock by a nominal step
+            // rather than by the whole paused span.
+            if (m_realTimeClock) {
+                m_havePreviousFrame = false;
+            }
             return FrameRenderResult::suppressedBeforePresentation;
         }
         if (!m_trackedMediaLifecycle) {
@@ -985,16 +993,18 @@ public:
             = m_mediaTextureHost->metrics ().frameUploads;
         ScopedRendererClockActivation clockActivation (m_clock);
         const auto frameStart = std::chrono::steady_clock::now ();
+        const double nominalIntervalMs = 1'000.0 / m_targetFPS;
+        double frameIntervalMs = nominalIntervalMs;
         if (m_havePreviousFrame) {
-            const double interval = std::chrono::duration<double, std::milli> (
+            frameIntervalMs = std::chrono::duration<double, std::milli> (
                 frameStart - m_previousFrameStart
             ).count ();
-            m_totalFrameIntervalMilliseconds += interval;
+            m_totalFrameIntervalMilliseconds += frameIntervalMs;
             m_maximumFrameIntervalMilliseconds = std::max (
-                m_maximumFrameIntervalMilliseconds, interval
+                m_maximumFrameIntervalMilliseconds, frameIntervalMs
             );
             ++m_measuredFrameIntervals;
-            if (interval > 1.5 * std::chrono::duration<double, std::milli> (m_frameInterval).count ()) {
+            if (frameIntervalMs > 1.5 * std::chrono::duration<double, std::milli> (m_frameInterval).count ()) {
                 ++m_missedFrameIntervals;
             }
         }
@@ -1002,7 +1012,12 @@ public:
         m_havePreviousFrame = true;
         m_surface->makeCurrent ();
         g_TimeLast = g_Time;
-        g_Time += static_cast<float> (1.0 / m_targetFPS);
+        // Live frames advance by real elapsed time (independent of the frame-
+        // rate ceiling); evidence capture stays on the fixed step so hashes
+        // reproduce. See rendererTimeAdvanceSeconds.
+        g_Time += rendererTimeAdvanceSeconds (
+            m_realTimeClock, captureEvidence, frameIntervalMs, m_targetFPS
+        );
         m_audio.updatePlayback ();
         m_driver->dispatchEventQueue ();
         FrescoScene::beginEffectRenderFrame ();
@@ -1675,6 +1690,7 @@ public:
     std::uint64_t m_audioVectorHash = 0;
     double m_audioVectorAverage0 = 0.0;
     double m_targetFPS = 60.0;
+    bool m_realTimeClock = false;
     std::chrono::microseconds m_frameInterval = std::chrono::microseconds (16'667);
     std::chrono::steady_clock::time_point m_createdAt = std::chrono::steady_clock::now ();
     std::chrono::steady_clock::time_point m_previousFrameStart;

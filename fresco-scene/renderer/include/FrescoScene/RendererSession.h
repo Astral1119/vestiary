@@ -42,6 +42,18 @@ struct PixelRegionRequest {
     std::uint16_t topMilli = 1000;
 };
 
+enum class RendererClockMode {
+    // Advance the animation clock by a fixed 1/fps step per frame. Decoupled
+    // from wall time, so a sequence of frames is bit-for-bit reproducible.
+    // This is the default because the framebuffer-hash evidence suite depends
+    // on it; every test inherits it unless it opts out.
+    FixedStep,
+    // Advance the animation clock by the measured wall-clock interval between
+    // frames. Production uses this so shaders, particles, and puppets animate
+    // at real-world speed regardless of the frame-rate ceiling.
+    RealTime,
+};
+
 struct RendererConfiguration {
     std::filesystem::path projectRoot;
     std::filesystem::path assetRoot;
@@ -60,6 +72,7 @@ struct RendererConfiguration {
     std::vector<PixelProbeRequest> pixelProbes;
     std::vector<PixelRegionRequest> pixelRegions;
     RenderBackend backend = configuredBackend ();
+    RendererClockMode clockMode = RendererClockMode::FixedStep;
 };
 
 struct PixelProbeEvidence {

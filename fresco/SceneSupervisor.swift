@@ -510,6 +510,7 @@ final class SceneHelperSupervisor {
             "reasonTokens": desiredPolicyReasonTokens,
             "visible": desiredVisible,
             "muted": true,
+            "realtimeClock": true,
             "userProperties": desiredUserProperties,
         ])
     }

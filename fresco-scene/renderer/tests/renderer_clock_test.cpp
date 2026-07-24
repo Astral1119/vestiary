@@ -1,5 +1,6 @@
 #include "FrescoScene/RendererClock.h"
 
+#include <cmath>
 #include <stdexcept>
 
 extern float g_Time;
@@ -14,9 +15,50 @@ void require (bool condition) {
     }
 }
 
+void requireNear (float actual, float expected) {
+    require (std::fabs (actual - expected) < 1.0e-6F);
+}
+
+void checkTimeAdvance () {
+    using FrescoScene::rendererTimeAdvanceSeconds;
+
+    // Fixed step ignores the measured interval and reproduces exactly, even
+    // when the interval is wildly different from nominal.
+    require (rendererTimeAdvanceSeconds (false, false, 999.0, 60.0)
+        == static_cast<float> (1.0 / 60.0));
+    require (rendererTimeAdvanceSeconds (false, false, 1.0, 30.0)
+        == static_cast<float> (1.0 / 30.0));
+
+    // Evidence capture forces the fixed step even under a real-time clock, so
+    // framebuffer hashes stay reproducible.
+    require (rendererTimeAdvanceSeconds (true, true, 999.0, 60.0)
+        == static_cast<float> (1.0 / 60.0));
+
+    // Real-time, ordinary interval: advance by the measured wall time.
+    requireNear (
+        rendererTimeAdvanceSeconds (true, false, 16.6667, 60.0), 0.0166667F
+    );
+    requireNear (
+        rendererTimeAdvanceSeconds (true, false, 33.3333, 30.0), 0.0333333F
+    );
+
+    // Real-time, a single long stall: clamp to four nominal frames so the
+    // clock never leaps (66.667 ms at 60 fps).
+    requireNear (
+        rendererTimeAdvanceSeconds (true, false, 5000.0, 60.0), 0.0666667F
+    );
+
+    // Real-time, a short interval passes through unclamped.
+    requireNear (
+        rendererTimeAdvanceSeconds (true, false, 4.0, 60.0), 0.004F
+    );
+}
+
 }
 
 int main () {
+    checkTimeAdvance ();
+
     g_Time = 12.0F;
     g_TimeLast = 11.0F;
     g_Daytime = 0.25F;

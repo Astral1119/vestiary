@@ -1,5 +1,6 @@
 #include "FrescoScene/RendererClock.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <exception>
 #include <mutex>
@@ -15,6 +16,22 @@ std::mutex clockMutex;
 thread_local FrescoScene::RendererClock* activeClock = nullptr;
 thread_local std::size_t activationDepth = 0;
 
+}
+
+float FrescoScene::rendererTimeAdvanceSeconds (
+    bool realTime,
+    bool captureEvidence,
+    double frameIntervalMs,
+    double targetFPS
+) {
+    if (realTime && !captureEvidence) {
+        const double nominalIntervalMs = 1'000.0 / targetFPS;
+        const double advanceMs = std::min (
+            frameIntervalMs, 4.0 * nominalIntervalMs
+        );
+        return static_cast<float> (advanceMs / 1'000.0);
+    }
+    return static_cast<float> (1.0 / targetFPS);
 }
 
 FrescoScene::ScopedRendererClockActivation::ScopedRendererClockActivation (

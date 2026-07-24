@@ -72,7 +72,12 @@ without terminating the helper process.
 `visible` defaults to true; tests set it false to exercise the render path
 without ordering the window. `load.muted` defaults to true. Fresco always loads
 a supervised renderer hard-muted and changes that state only through an
-acknowledged `mute` or `unmute` command. `load.userProperties` accepts the full
+acknowledged `mute` or `unmute` command. `realtimeClock` defaults to false,
+advancing the animation clock by a fixed `1/fps` step per frame so an unpaced
+render reproduces bit-for-bit. Fresco sets it true in production so the clock
+tracks real elapsed time and animation speed stays independent of the frame-rate
+ceiling. `capture-frame-difference` evidence stays fixed-step regardless.
+`load.userProperties` accepts the full
 Wallpaper Engine property shape `{key: {value: scalar}}`, where a scalar is a
 Boolean, finite number, or string. Sound-volume bindings accept only finite
 numbers. The helper merges valid overrides with numeric defaults

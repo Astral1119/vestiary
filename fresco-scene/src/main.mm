@@ -2573,6 +2573,16 @@ bool handleMessage (NSDictionary* message) {
                 ),
                 .pixelProbes = parsePixelProbes (message[@"pixelProbes"]),
                 .pixelRegions = parsePixelRegions (message[@"pixelRegions"]),
+                // Live scenes (the supervisor sets realtimeClock) advance the
+                // animation clock by real elapsed time, so shaders, particles,
+                // and puppets run at wall-clock speed regardless of the frame-
+                // rate ceiling. Tests and evidence runs omit the field and keep
+                // the fixed step, which renders unpaced yet reproducibly. The
+                // capture-frame-difference evidence path forces fixed-step
+                // internally regardless, so hashes are unaffected either way.
+                .clockMode = messageBool (message, @"realtimeClock", false)
+                    ? FrescoScene::RendererClockMode::RealTime
+                    : FrescoScene::RendererClockMode::FixedStep,
             };
             auto renderer = std::make_unique<FrescoScene::RendererSession> (configuration);
             const FrescoScene::FrameEvidence evidence = renderer->firstFrameEvidence ();
