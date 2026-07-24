@@ -10,8 +10,8 @@
       "title": "Cat In Space (Simple)",
       "role": "simple-2d",
       "picker": {
-        "status": "available",
-        "note": "image and particle baseline"
+        "status": "reach",
+        "note": "image layer faithful; particle field diverges from WE reference — fewer, faster particles, confirmed at matched 60 fps"
       },
       "creatorSteamID": "76561198939292876",
       "workshopUpdatedAt": "2024-10-19T20:03:43Z",
@@ -39,7 +39,7 @@
       "role": "legacy-2d-integration",
       "picker": {
         "status": "available",
-        "note": "visual baseline; sound remains deferred"
+        "note": "composition and audio faithful vs WE; time-driven shaders run fast — mist notably faster (sunbeams possibly); minor color wash is the Windows panel, not Fresco"
       },
       "creatorSteamID": "76561198080986203",
       "workshopUpdatedAt": "2019-08-26T05:04:42Z",
@@ -68,7 +68,7 @@
       "role": "particle",
       "picker": {
         "status": "available",
-        "note": "particle baseline"
+        "note": "matches WE reference at 60 fps; WE perhaps marginally denser (uncertain); minor color difference, likely a property/setting"
       },
       "creatorSteamID": "76561197993566626",
       "workshopUpdatedAt": "2018-11-19T00:24:47Z",
@@ -94,8 +94,8 @@
       "title": "Clock JavaScript [Custom Color]",
       "role": "scenescript",
       "picker": {
-        "status": "available",
-        "note": "six text scripts update without exceptions"
+        "status": "reach",
+        "note": "scripts run without exceptions but the render is wrong vs WE — text is blurry and clock elements appear in reverse order"
       },
       "creatorSteamID": "76561198100480285",
       "workshopUpdatedAt": "2023-07-05T21:19:33Z",
@@ -123,7 +123,7 @@
       "role": "custom-shader",
       "picker": {
         "status": "available",
-        "note": "custom shader baseline after its authored fade"
+        "note": "shader matches WE; animation runs slightly fast — same fast-timing pattern as NieR/Cat In Space, but less noticeable here"
       },
       "creatorSteamID": "76561198147123104",
       "workshopUpdatedAt": "2025-01-07T01:10:38Z",
@@ -212,8 +212,8 @@
       "title": "【Time Variation时间变化】Elaina窗旁的伊蕾娜——夜莺Night【魔女之旅】Day Night Gradient",
       "role": "advanced-2d-script-media",
       "picker": {
-      "status": "reach",
-      "note": "recognizable composition, video, sound, and particles work; the prompt lifecycle and most authored property bindings remain unsupported"
+        "status": "not-yet-possible",
+        "note": "main character/video layer does not render on Fresco — only prompt and clock text show, so the composition is not recognizable vs WE"
       },
       "creatorSteamID": "76561199211352973",
       "workshopUpdatedAt": "2026-01-02T07:43:17Z",
@@ -244,7 +244,7 @@
       "role": "advanced-2d-stress",
       "picker": {
         "status": "available",
-        "note": "default English composition, clock text and fixed-pitch fonts, audio response, particle children, image parents, lifecycle, and native and ANGLE performance gates pass"
+        "note": "composition, audio response, and particles reproduce well vs WE; clock text diverges — time and date render near-equal size (WE enlarges the time), possible font substitution"
       },
       "creatorSteamID": "76561198255437752",
       "workshopUpdatedAt": "2025-03-30T07:22:07Z",
@@ -274,8 +274,8 @@
       "title": "Arknights-明日方舟-阿米娅-王冠（喜欢的话点个赞呗~）",
       "role": "2d-integration-candidate",
       "picker": {
-        "status": "available",
-        "note": "native and ANGLE promotion gates pass current-format parsing, image parents, three clocks, sound and property lifecycle, cursor controls, and all three particle systems; the remaining cover crop is authored"
+        "status": "reach",
+        "note": "renders but multiple deviations vs WE — shaders much faster (fast-timing pattern), clock/date fonts wrong; sunbeam position and visualizer width are likely aspect-ratio (Mac 3:2 vs Windows 16:9), not confirmed defects"
       },
       "creatorSteamID": "76561199387999105",
       "workshopUpdatedAt": "2026-07-13T12:07:22Z",
@@ -305,8 +305,8 @@
       "title": "\"日向の幽霊\"/\"HyugaのGhost\" byCogecha",
       "role": "advanced-2d-puppet-media",
       "picker": {
-      "status": "reach",
-      "note": "recognizable composition and partial puppet rendering work; animation, media, particles, and all authored property bindings remain incomplete"
+        "status": "not-yet-possible",
+        "note": "badly broken vs WE — most animations dead (hair, balloons, clouds), leaf shaders and clock/date text missing, corrupted look, plus a spurious particle shader not present in WE"
       },
       "creatorSteamID": "76561199645851972",
       "workshopUpdatedAt": "2025-05-11T02:42:55Z",
@@ -336,8 +336,8 @@
       "title": "【Interactions 多种互动】GBC SUBARU 安和昴486——夜莺Night【哭泣少女乐队】",
       "role": "audio-puppet-interaction-stretch",
       "picker": {
-        "status": "available",
-        "note": "cursor and camera scripts, named animation, audio-rate floats, sound, attachments, and independent five-bone puppet secondary motion pass on native OpenGL and ANGLE-on-Metal"
+        "status": "reach",
+        "note": "elements render and animate but are badly mis-positioned — many layers pile toward one side of the face vs WE reference; native/ANGLE promotion measured consistency, not correctness"
       },
       "creatorSteamID": "76561199211352973",
       "workshopUpdatedAt": "2025-06-11T17:16:03Z",
@@ -399,8 +399,8 @@
       "title": "Persona 3 Reload [4K + Day/Night cycle]",
       "role": "advanced-2d-script-media-stress",
       "picker": {
-      "status": "reach",
-      "note": "recognizable composition and sound controls work; the date cluster, composition controls, and a left-edge artifact remain unresolved"
+        "status": "not-yet-possible",
+        "note": "not reproduced vs WE — character figures absent, date/time render as black boxes, day/night cycle wrong (too bright for night) and colors off"
       },
       "creatorSteamID": "76561198098298396",
       "workshopUpdatedAt": "2024-11-28T07:51:40Z",
