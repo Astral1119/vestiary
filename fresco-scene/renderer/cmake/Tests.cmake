@@ -276,6 +276,19 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        fresco-scene-renderer-text-raster-size
+        tests/text_raster_size_test.cpp
+        src/TextRasterSize.cpp
+    )
+    target_include_directories(
+        fresco-scene-renderer-text-raster-size PRIVATE include
+    )
+    add_test(
+        NAME fresco-scene-renderer-text-raster-size
+        COMMAND fresco-scene-renderer-text-raster-size
+    )
+
+    add_executable(
         fresco-scene-renderer-text-width-limit
         tests/text_width_limit_test.cpp
         src/TextWidthLimit.cpp

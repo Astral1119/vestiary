@@ -710,7 +710,7 @@ fresco_require_generated_patch(
 )
 string(REPLACE
     "#include \"CText.h\""
-    "#include \"WallpaperEngine/Render/Objects/CText.h\"\n#include \"FrescoScene/Camera2DControl.h\"\n#include \"FrescoScene/MacSystemFontResolver.h\"\n#include \"FrescoScene/SceneObjectModelTransform.h\"\n#include \"FrescoScene/TextEffectRenderer.h\"\n#include \"FrescoScene/TextWidthLimit.h\"\n#include \"WallpaperEngine/Render/CFBO.h\""
+    "#include \"WallpaperEngine/Render/Objects/CText.h\"\n#include \"FrescoScene/Camera2DControl.h\"\n#include \"FrescoScene/MacSystemFontResolver.h\"\n#include \"FrescoScene/SceneObjectModelTransform.h\"\n#include \"FrescoScene/TextEffectRenderer.h\"\n#include \"FrescoScene/TextRasterSize.h\"\n#include \"FrescoScene/TextWidthLimit.h\"\n#include \"WallpaperEngine/Render/CFBO.h\""
     text_source
     "${text_source}"
 )
@@ -757,7 +757,7 @@ fresco_require_generated_patch(
 )
 string(REPLACE
     "    const bool firstUpload = (m_texture == 0);"
-    "    int uploadWidth = width;\n    int visibleWidth = width;\n    std::vector<uint8_t> uploadPixels = std::move (pixels);\n    m_quadLeft = -static_cast<float> (width) * 0.5f;\n    m_quadRight = static_cast<float> (width) * 0.5f;\n    const float maxWidth = m_text.maxWidth->value->getFloat ();\n    if (m_text.limitWidth) {\n\tconst float pointSize = std::max (1.0f, m_text.pointSize->value->getFloat ());\n\tconst double scaledWidth = static_cast<double> (maxWidth)\n\t    * static_cast<double> (m_lastPixelSize) / pointSize;\n\tconst int maxWidthPixels = std::isfinite (scaledWidth) && scaledWidth >= 0.0\n\t    && scaledWidth <= static_cast<double> (std::numeric_limits<int>::max ())\n\t    ? static_cast<int> (std::floor (scaledWidth)) : -1;\n\tconst auto limit = FrescoScene::computeTextWidthLimit ({\n\t    .limitWidth = m_text.limitWidth,\n\t    .limitRows = m_text.limitRows,\n\t    .useEllipsis = m_text.limitUseEllipsis,\n\t    .maxRows = m_text.maxRows,\n\t    .fullWidthPixels = width,\n\t    .maxWidthPixels = maxWidthPixels,\n\t    .alignment = m_text.alignment,\n\t});\n\tif (!limit.supported) {\n\t    if (!m_widthLimitDiagnosticReported) {\n\t\tsLog.error (\"CText width limit rejected for object \", m_text.id, \": \", limit.diagnostic);\n\t\tm_widthLimitDiagnosticReported = true;\n\t    }\n\t    uploadWidth = 1;\n\t    visibleWidth = 0;\n\t    uploadPixels.assign (static_cast<std::size_t> (height), 0);\n\t    m_quadLeft = 0.0f;\n\t    m_quadRight = 0.0f;\n\t} else {\n\t    m_widthLimitDiagnosticReported = false;\n\t    visibleWidth = limit.widthPixels;\n\t    uploadWidth = std::max (1, visibleWidth);\n\t    std::vector<uint8_t> cropped (\n\t\tstatic_cast<std::size_t> (uploadWidth) * height, 0\n\t    );\n\t    if (visibleWidth > 0) {\n\t\tfor (int row = 0; row < height; ++row) {\n\t\t    std::copy_n (\n\t\t\tuploadPixels.begin () + static_cast<std::size_t> (row) * width\n\t\t\t    + limit.sourceOffsetPixels,\n\t\t\tvisibleWidth,\n\t\t\tcropped.begin () + static_cast<std::size_t> (row) * uploadWidth\n\t\t    );\n\t\t}\n\t    }\n\t    uploadPixels = std::move (cropped);\n\t    m_quadLeft = limit.quadLeft;\n\t    m_quadRight = limit.quadRight;\n\t    if (std::getenv (\"FRESCO_SCENE_TRACE_TEXT_WIDTH\") != nullptr) {\n\t\tstd::fprintf (\n\t\t    stderr,\n\t\t    \"text-width object=%d full=%d offset=%d visible=%d left=%.1f right=%.1f alignment=%s maxwidth=%.3f\\n\",\n\t\t    m_text.id, width, limit.sourceOffsetPixels, visibleWidth,\n\t\t    m_quadLeft, m_quadRight, m_text.alignment.c_str (), maxWidth\n\t\t);\n\t    }\n\t}\n    }\n\n    const bool firstUpload = (m_texture == 0);"
+    "    int uploadWidth = width;\n    int visibleWidth = width;\n    std::vector<uint8_t> uploadPixels = std::move (pixels);\n    m_quadLeft = -static_cast<float> (width) * 0.5f;\n    m_quadRight = static_cast<float> (width) * 0.5f;\n    const float maxWidth = m_text.maxWidth->value->getFloat ();\n    if (m_text.limitWidth) {\n\tconst float pointSize = std::max (1.0f, m_text.pointSize->value->getFloat ());\n\tconst double scaledWidth = static_cast<double> (maxWidth)\n\t    * static_cast<double> (m_lastPixelSize) / pointSize;\n\tconst int maxWidthPixels = std::isfinite (scaledWidth) && scaledWidth >= 0.0\n\t    && scaledWidth <= static_cast<double> (std::numeric_limits<int>::max ())\n\t    ? static_cast<int> (std::floor (scaledWidth)) : -1;\n\tconst auto limit = FrescoScene::computeTextWidthLimit ({\n\t    .limitWidth = m_text.limitWidth,\n\t    .limitRows = m_text.limitRows,\n\t    .useEllipsis = m_text.limitUseEllipsis,\n\t    .maxRows = m_text.maxRows,\n\t    .fullWidthPixels = width,\n\t    .maxWidthPixels = maxWidthPixels,\n\t    .alignment = m_text.alignment,\n\t});\n\tif (!limit.supported) {\n\t    if (!m_widthLimitDiagnosticReported) {\n\t\tsLog.error (\"CText width limit rejected for object \", m_text.id, \": \", limit.diagnostic);\n\t\tm_widthLimitDiagnosticReported = true;\n\t    }\n\t    uploadWidth = 1;\n\t    visibleWidth = 0;\n\t    uploadPixels.assign (static_cast<std::size_t> (height), 0);\n\t    m_quadLeft = 0.0f;\n\t    m_quadRight = 0.0f;\n\t} else {\n\t    m_widthLimitDiagnosticReported = false;\n\t    visibleWidth = limit.widthPixels;\n\t    uploadWidth = std::max (1, visibleWidth);\n\t    std::vector<uint8_t> cropped (\n\t\tstatic_cast<std::size_t> (uploadWidth) * height, 0\n\t    );\n\t    if (visibleWidth > 0) {\n\t\tfor (int row = 0; row < height; ++row) {\n\t\t    std::copy_n (\n\t\t\tuploadPixels.begin () + static_cast<std::size_t> (row) * width\n\t\t\t    + limit.sourceOffsetPixels,\n\t\t\tvisibleWidth,\n\t\t\tcropped.begin () + static_cast<std::size_t> (row) * uploadWidth\n\t\t    );\n\t\t}\n\t    }\n\t    uploadPixels = std::move (cropped);\n\t    m_quadLeft = limit.quadLeft;\n\t    m_quadRight = limit.quadRight;\n\t    if (std::getenv (\"FRESCO_SCENE_TRACE_TEXT_WIDTH\") != nullptr) {\n\t\tstd::fprintf (\n\t\t    stderr,\n\t\t    \"text-width object=%d full=%d offset=%d visible=%d left=%.1f right=%.1f alignment=%s maxwidth=%.3f\\n\",\n\t\t    m_text.id, measuredWidth, limit.sourceOffsetPixels, visibleWidth,\n\t\t    m_quadLeft, m_quadRight, m_text.alignment.c_str (), maxWidth\n\t\t);\n\t    }\n\t}\n    }\n\n    const bool firstUpload = (m_texture == 0);"
     text_source
     "${text_source}"
 )
@@ -828,6 +828,18 @@ string(REPLACE
     "${text_source}"
 )
 string(REPLACE
+    "    const int width = std::max (1, penX);\n    const int height = std::max (1, maxAscent + maxDescent);"
+    "    GLint maximumTextureExtent = 0;\n    glGetIntegerv (GL_MAX_TEXTURE_SIZE, &maximumTextureExtent);\n    const int measuredWidth = std::max (1, penX);\n    const int width = FrescoScene::boundedGlyphAtlasExtent (\n\tpenX, static_cast<int> (maximumTextureExtent)\n    );\n    const int height = FrescoScene::boundedGlyphAtlasExtent (\n\tmaxAscent + maxDescent, static_cast<int> (maximumTextureExtent)\n    );"
+    text_source
+    "${text_source}"
+)
+string(REPLACE
+    "    // WE text objects often come with scale ~0.09 that, combined with a modest\n    // pointsize, would rasterize glyphs to ~2px on screen (invisible). Rasterize\n    // at higher resolution so that after the model scale is applied in render()\n    // the on-screen size matches the intended pointsize.\n    const glm::vec3 initialScale = m_text.scale->value->getVec3 ();\n    const float avgScale = (initialScale.x + initialScale.y) * 0.5f;\n    const float compensate = (avgScale > 0.0f && avgScale < 1.0f) ? std::min (1.0f / avgScale, 32.0f) : 1.0f;\n    return std::max<unsigned int> (1u, static_cast<unsigned int> (m_text.pointSize->value->getFloat () * compensate));"
+    "    // Wallpaper Engine rasterizes text at 300 DPI against a 72-point em and\n    // applies the layer transform separately in render (), so the raster size\n    // follows the authored pointsize alone. Deriving it from the layer scale\n    // instead rendered scale-1 text about four times too small.\n    return FrescoScene::textRasterPixelSize (m_text.pointSize->value->getFloat ());"
+    text_source
+    "${text_source}"
+)
+string(REPLACE
     "bool CText::loadSystemFont () {\n    std::string fontPath;"
     "bool CText::loadSystemFont () {\n    std::string fontPath;\n#ifdef __APPLE__\n    const auto resolved = FrescoScene::resolveMacSystemFont (m_text.font);\n    if (resolved.has_value ()) {\n\tfontPath = resolved->path;\n\tif (FT_New_Face (m_ftLibrary, fontPath.c_str (), 0, &m_ftFace) == 0) {\n\t    if (std::getenv (\"FRESCO_SCENE_TRACE_TEXT_FONT\") != nullptr) {\n\t\tstd::fprintf (stderr, \"text-font object=%d requested=%s resolved=%s substituted=%d fixed=%d path=%s\\n\",\n\t\t    m_text.id, resolved->requestedFamily.c_str (),\n\t\t    resolved->resolvedFamily.c_str (), resolved->substituted ? 1 : 0,\n\t\t    resolved->fixedPitch ? 1 : 0, resolved->path.c_str ());\n\t    }\n\t    return true;\n\t}\n\tsLog.error (\"CText: FT_New_Face failed for resolved system font \", fontPath);\n    }\n    fontPath.clear ();\n#endif"
     text_source
@@ -880,6 +892,16 @@ fresco_require_generated_patch(
     text_source
     "FRESCO_SCENE_TRACE_TEXT_WIDTH"
     "text width visual evidence"
+)
+fresco_require_generated_patch(
+    text_source
+    "FrescoScene::textRasterPixelSize"
+    "authored text raster size"
+)
+fresco_require_generated_patch(
+    text_source
+    "FrescoScene::boundedGlyphAtlasExtent"
+    "glyph bitmap texture extent bound"
 )
 fresco_write_generated(
     "${CMAKE_CURRENT_BINARY_DIR}/generated/CText.cpp"

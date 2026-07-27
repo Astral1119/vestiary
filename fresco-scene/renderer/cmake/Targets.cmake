@@ -87,6 +87,7 @@ set(fresco_scene_text_effect_system_sources
     src/TextEffectChainDecision.cpp
     src/TextEffectRenderer.cpp
     src/TextEffectRegistry.cpp
+    src/TextRasterSize.cpp
     src/TextWidthLimit.cpp)
 set(fresco_scene_effect_system_sources
     src/Camera2DControl.cpp
