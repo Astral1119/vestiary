@@ -1537,6 +1537,7 @@ public:
             .elapsedMilliseconds = std::chrono::duration<double, std::milli> (
                 std::chrono::steady_clock::now () - m_createdAt
             ).count (),
+            .sceneClockSeconds = static_cast<double> (m_clock.current),
             .averageFrameIntervalMilliseconds = m_measuredFrameIntervals == 0
                 ? 0.0
                 : m_totalFrameIntervalMilliseconds / m_measuredFrameIntervals,

@@ -346,7 +346,11 @@ revision, and reason tokens. It does not imply a draw.
 `metrics` contains backend, graphics API, shader target, target FPS, elapsed
 time, frame count, average and maximum frame interval, average and maximum
 render submission time, missed interval count, text-script counters, and the
-current pause, mute, and visibility states. The `muted` field reports the
+current pause, mute, and visibility states. `elapsedMilliseconds` is session
+wall time; `sceneClockSeconds` is the scene animation clock that drives
+shaders, particles, and puppets. Comparing the two over an interval measures
+whether scene time runs at wall rate, which is what distinguishes a clock
+defect from one in what consumes the clock. The `muted` field reports the
 helper's current hard-mute state. The render timings include host
 submission and buffer flush work. They are not GPU hardware counters. It also
 contains `soundVolumeBindings`, `soundVolumeProperties`, and the current

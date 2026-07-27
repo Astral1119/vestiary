@@ -240,6 +240,10 @@ struct RendererMetrics {
     uint32_t frames = 0;
     double targetFPS = 0.0;
     double elapsedMilliseconds = 0.0;
+    // The scene animation clock (g_Time) driving shaders, particles, and
+    // puppets. Reported beside elapsedMilliseconds, which is session wall time,
+    // so the two can be compared to see whether scene time runs at wall rate.
+    double sceneClockSeconds = 0.0;
     double averageFrameIntervalMilliseconds = 0.0;
     double maximumFrameIntervalMilliseconds = 0.0;
     double averageRenderMilliseconds = 0.0;

@@ -3172,6 +3172,7 @@ bool handleMessage (NSDictionary* message) {
                 @"schedulingEvidence": activeFrameCoordinator != nullptr
                     ? coordinatorEvidencePayload () : [NSNull null],
                 @"elapsedMilliseconds": @(metrics.elapsedMilliseconds),
+                @"sceneClockSeconds": @(metrics.sceneClockSeconds),
                 @"averageFrameIntervalMilliseconds": @(
                     metrics.averageFrameIntervalMilliseconds
                 ),
