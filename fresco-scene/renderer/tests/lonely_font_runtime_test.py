@@ -64,7 +64,7 @@ font_pattern = re.compile(
     r"substituted=([01]) fixed=([01]) path=(.+)$"
 )
 glyph_pattern = re.compile(
-    r"^text-glyphs object=(\d+) bytes=(\d+) covered=(\d+) "
+    r"^text-glyphs object=(\d+) chars=(\d+) covered=(\d+) "
     r"missing=(\d+) family=(.+)$"
 )
 fonts = {}
@@ -96,9 +96,9 @@ for object_id, (requested, resolved, substituted, fixed, path) in fonts.items():
 for object_id, samples in glyphs.items():
     rendered = [sample for sample in samples if sample[0] > 1]
     assert rendered, (object_id, samples)
-    for byte_count, covered, missing in rendered:
-        assert missing == 0, (object_id, byte_count, covered, missing)
-        assert covered == byte_count, (object_id, byte_count, covered, missing)
+    for char_count, covered, missing in rendered:
+        assert missing == 0, (object_id, char_count, covered, missing)
+        assert covered == char_count, (object_id, char_count, covered, missing)
 
 print(
     "Lonely font runtime: active clock/date use fixed-pitch resolved fonts "

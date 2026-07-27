@@ -715,7 +715,7 @@ fresco_require_generated_patch(
 )
 string(REPLACE
     "#include \"CText.h\""
-    "#include \"WallpaperEngine/Render/Objects/CText.h\"\n#include \"FrescoScene/Camera2DControl.h\"\n#include \"FrescoScene/MacSystemFontResolver.h\"\n#include \"FrescoScene/SceneObjectModelTransform.h\"\n#include \"FrescoScene/TextEffectRenderer.h\"\n#include \"FrescoScene/TextRasterSize.h\"\n#include \"FrescoScene/TextWidthLimit.h\"\n#include \"WallpaperEngine/Render/CFBO.h\""
+    "#include \"WallpaperEngine/Render/Objects/CText.h\"\n#include \"FrescoScene/Camera2DControl.h\"\n#include \"FrescoScene/MacSystemFontResolver.h\"\n#include \"FrescoScene/SceneObjectModelTransform.h\"\n#include \"FrescoScene/TextCodepoints.h\"\n#include \"FrescoScene/TextEffectRenderer.h\"\n#include \"FrescoScene/TextRasterSize.h\"\n#include \"FrescoScene/TextWidthLimit.h\"\n#include \"WallpaperEngine/Render/CFBO.h\""
     text_source
     "${text_source}"
 )
@@ -751,7 +751,7 @@ string(REPLACE
 )
 string(REPLACE
     "    int penX = 0;\n    int maxAscent = 0;\n    int maxDescent = 0;"
-    "    int penX = 0;\n    int maxAscent = 0;\n    int maxDescent = 0;\n    size_t coveredGlyphs = 0;\n    size_t missingGlyphs = 0;\n    for (const unsigned char character : rasterText) {\n\tif (FT_Get_Char_Index (m_ftFace, static_cast<FT_ULong> (character)) == 0) {\n\t    ++missingGlyphs;\n\t} else {\n\t    ++coveredGlyphs;\n\t}\n    }\n    if (std::getenv (\"FRESCO_SCENE_TRACE_TEXT_FONT\") != nullptr) {\n\tstd::fprintf (stderr, \"text-glyphs object=%d bytes=%zu covered=%zu missing=%zu family=%s\\n\",\n\t    m_text.id, rasterText.size (), coveredGlyphs, missingGlyphs,\n\t    m_ftFace->family_name == nullptr ? \"<unknown>\" : m_ftFace->family_name);\n    }"
+    "    int penX = 0;\n    int maxAscent = 0;\n    int maxDescent = 0;\n    size_t coveredGlyphs = 0;\n    size_t missingGlyphs = 0;\n    for (const char32_t character : codepoints) {\n\tif (character < 0x20) {\n\t    continue;\n\t}\n\tif (FT_Get_Char_Index (m_ftFace, static_cast<FT_ULong> (character)) == 0) {\n\t    ++missingGlyphs;\n\t} else {\n\t    ++coveredGlyphs;\n\t}\n    }\n    if (std::getenv (\"FRESCO_SCENE_TRACE_TEXT_FONT\") != nullptr) {\n\tstd::fprintf (stderr, \"text-glyphs object=%d chars=%zu covered=%zu missing=%zu family=%s\\n\",\n\t    m_text.id, coveredGlyphs + missingGlyphs, coveredGlyphs, missingGlyphs,\n\t    m_ftFace->family_name == nullptr ? \"<unknown>\" : m_ftFace->family_name);\n    }"
     text_source
     "${text_source}"
 )
@@ -840,13 +840,19 @@ string(REPLACE
 )
 string(REPLACE
     "    FT_GlyphSlot slot = m_ftFace->glyph;"
-    "    // An embedded wallpaper font may lack the characters its own scripted\n    // text produces, and FreeType renders those as .notdef boxes. Resolve one\n    // fallback face through Core Text's cascade from the first uncovered\n    // character and draw the uncovered glyphs from it.\n    auto faceForCharacter = [this] (FT_ULong codepoint) -> FT_Face {\n\tif (m_ftFace == nullptr || FT_Get_Char_Index (m_ftFace, codepoint) != 0) {\n\t    return m_ftFace;\n\t}\n\tif (!m_fallbackFaceResolved) {\n\t    m_fallbackFaceResolved = true;\n\t    const auto fallbackPath = FrescoScene::resolveMacFallbackFontPath (\n\t\tstatic_cast<char32_t> (codepoint)\n\t    );\n\t    if (!fallbackPath.has_value ()\n\t\t|| FT_New_Face (\n\t\t    m_ftLibrary, fallbackPath->c_str (), 0, &m_fallbackFace\n\t\t) != 0) {\n\t\tm_fallbackFace = nullptr;\n\t\tsLog.error (\n\t\t    \"CText: no fallback face for object \", m_text.id,\n\t\t    \" codepoint \", static_cast<unsigned long> (codepoint)\n\t\t);\n\t    }\n\t}\n\tif (m_fallbackFace == nullptr\n\t    || FT_Get_Char_Index (m_fallbackFace, codepoint) == 0) {\n\t    return m_ftFace;\n\t}\n\tFT_Set_Pixel_Sizes (\n\t    m_fallbackFace, 0, static_cast<FT_UInt> (m_lastPixelSize)\n\t);\n\treturn m_fallbackFace;\n    };"
+    "    // An embedded wallpaper font may lack the characters its own scripted\n    // text produces, and FreeType renders those as .notdef boxes. Resolve one\n    // fallback face through Core Text's cascade from the first uncovered\n    // character and draw the uncovered glyphs from it.\n    auto faceForCharacter = [this] (FT_ULong codepoint) -> FT_Face {\n\tif (m_ftFace == nullptr || FT_Get_Char_Index (m_ftFace, codepoint) != 0) {\n\t    return m_ftFace;\n\t}\n\tif (!m_fallbackFaceResolved) {\n\t    m_fallbackFaceResolved = true;\n\t    const auto fallbackPath = FrescoScene::resolveMacFallbackFontPath (\n\t\tstatic_cast<char32_t> (codepoint)\n\t    );\n\t    if (!fallbackPath.has_value ()\n\t\t|| FT_New_Face (\n\t\t    m_ftLibrary, fallbackPath->c_str (), 0, &m_fallbackFace\n\t\t) != 0) {\n\t\tm_fallbackFace = nullptr;\n\t\tsLog.error (\n\t\t    \"CText: no fallback face for object \", m_text.id,\n\t\t    \" codepoint \", static_cast<unsigned long> (codepoint)\n\t\t);\n\t    }\n\t}\n\tif (m_fallbackFace == nullptr\n\t    || FT_Get_Char_Index (m_fallbackFace, codepoint) == 0) {\n\t    return m_ftFace;\n\t}\n\tFT_Set_Pixel_Sizes (\n\t    m_fallbackFace, 0, static_cast<FT_UInt> (m_lastPixelSize)\n\t);\n\treturn m_fallbackFace;\n    };\n    // Wallpaper text is UTF-8. Iterating it as bytes rasterized each byte as a\n    // separate Latin-1 character.\n    const std::vector<char32_t> codepoints = FrescoScene::decodeUtf8 (rasterText);"
+    text_source
+    "${text_source}"
+)
+string(REPLACE
+    "    for (unsigned char c : rasterText) {"
+    "    for (const char32_t c : codepoints) {"
     text_source
     "${text_source}"
 )
 string(REPLACE
     "\tif (FT_Load_Char (m_ftFace, static_cast<FT_ULong> (c), FT_LOAD_RENDER) != 0) {\n\t    continue;\n\t}"
-    "\tFT_Face face = faceForCharacter (static_cast<FT_ULong> (c));\n\tif (face == nullptr\n\t    || FT_Load_Char (face, static_cast<FT_ULong> (c), FT_LOAD_RENDER) != 0) {\n\t    continue;\n\t}\n\tconst FT_GlyphSlot slot = face->glyph;"
+    "\t// No glyph carries a control character, and rasterization is still\n\t// single-row, so an authored newline would draw .notdef rather than wrap.\n\tif (c < 0x20) {\n\t    continue;\n\t}\n\tFT_Face face = faceForCharacter (static_cast<FT_ULong> (c));\n\tif (face == nullptr\n\t    || FT_Load_Char (face, static_cast<FT_ULong> (c), FT_LOAD_RENDER) != 0) {\n\t    continue;\n\t}\n\tconst FT_GlyphSlot slot = face->glyph;"
     text_source
     "${text_source}"
 )
@@ -941,6 +947,16 @@ fresco_require_generated_patch(
     text_source
     "FrescoScene::resolveMacFallbackFontPath"
     "missing-glyph font fallback"
+)
+fresco_require_generated_patch(
+    text_source
+    "FrescoScene::decodeUtf8"
+    "UTF-8 text decoding"
+)
+fresco_require_generated_patch(
+    text_source
+    "for (const char32_t c : codepoints)"
+    "codepoint text rasterization"
 )
 fresco_require_generated_patch(
     text_source
