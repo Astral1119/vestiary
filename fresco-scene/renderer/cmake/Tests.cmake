@@ -1499,6 +1499,19 @@ if(BUILD_TESTING
             fresco-scene-renderer-lonely-parent-image-render
             PROPERTIES TIMEOUT 180
         )
+        add_test(
+            NAME fresco-scene-renderer-persona-hidden-at-construction-render
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/persona_hidden_at_construction_render_test.py"
+                "$<TARGET_FILE:fresco-scene-render-smoke>"
+                "${FRESCO_SCENE_WORKSHOP_ROOT}"
+                "${FRESCO_SCENE_ASSETS}"
+        )
+        set_tests_properties(
+            fresco-scene-renderer-persona-hidden-at-construction-render
+            PROPERTIES TIMEOUT 300
+        )
     endif()
     add_test(
         NAME fresco-scene-renderer-gbc-cursor-transform-script

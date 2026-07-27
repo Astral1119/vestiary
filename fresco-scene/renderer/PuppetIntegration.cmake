@@ -746,6 +746,30 @@ fresco_require_generated_patch(
     "configureLayers (layers)"
     "per-frame puppet animation inputs"
 )
+set(puppet_final_pass_before [=[    if (!isLastPass || !this->getImage ().visible->value->getBool ()) {
+	return false;
+    }
+]=])
+set(puppet_final_pass_after [=[    // Pass wiring is structural and decided once, in setupPasses, while visible
+    // is a dynamic property. Reading it here latched any layer that was hidden
+    // at construction into drawing to its own ping-pong FBO for the lifetime of
+    // the scene, so it stayed invisible after its script turned it on. Nothing
+    // draws while hidden regardless: CImage::render skips the whole pass list.
+    if (!isLastPass) {
+	return false;
+    }
+]=])
+string(REPLACE
+    "${puppet_final_pass_before}"
+    "${puppet_final_pass_after}"
+    puppet_image_source
+    "${puppet_image_source}"
+)
+fresco_require_generated_patch(
+    puppet_image_source
+    "Pass wiring is structural and decided once"
+    "dynamic visibility final-pass wiring"
+)
 fresco_write_generated(
     "${CMAKE_CURRENT_BINARY_DIR}/generated/CImage.cpp"
     puppet_image_source
