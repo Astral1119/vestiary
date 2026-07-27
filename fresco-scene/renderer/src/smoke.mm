@@ -24,6 +24,7 @@
 #include "WallpaperEngine/Render/Wallpapers/CScene.h"
 
 #include "FrescoScene/RenderProgramCache.h"
+#include "FrescoScene/SceneObjectModelTransform.h"
 
 #include <algorithm>
 #include <array>
@@ -33,9 +34,11 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <vector>
 
 float g_Time = 1.0f;
@@ -362,6 +365,135 @@ WallpaperEngine::Audio::UserPropertyBatch projectUserProperties (const JSON& pro
     return batch;
 }
 
+int g_traceFrame = -1;
+
+// Watches one object's visible value and reports every write with its source,
+// which attributes a value that a script sets but something later overwrites.
+void watchObjectVisibility (
+    const WallpaperEngine::Render::Wallpapers::CScene& scene
+) {
+    using namespace WallpaperEngine::Data::Model;
+
+    const char* watched = std::getenv ("FRESCO_SCENE_VISIBILITY_WATCH");
+    if (watched == nullptr) {
+        return;
+    }
+    const int watchedId = std::atoi (watched);
+    for (const auto* object : scene.getObjectsByRenderOrder ()) {
+        if (object == nullptr || object->getObject ().id != watchedId) {
+            continue;
+        }
+        const auto& model = object->getObject ();
+        if (!model.is<Image> ()) {
+            continue;
+        }
+        auto* value = model.as<Image> ()->visible->value.get ();
+        static_cast<void> (value->listen (
+            [watchedId] (const DynamicValue& updated, DynamicValue::UpdateSource source) {
+                std::cout << "visibilityWatch frame=" << g_traceFrame
+                          << " id=" << watchedId
+                          << " bool=" << (updated.getBool () ? 1 : 0)
+                          << " type=" << static_cast<int> (updated.getType ())
+                          << " source=" << static_cast<int> (source) << '\n';
+            }
+        ));
+    }
+}
+
+bool visibilityTraceEnabled () {
+    return std::getenv ("FRESCO_SCENE_VISIBILITY_TRACE") != nullptr;
+}
+
+// Reports every frame in which an object's own visibility differs from the
+// previous frame, which separates a value that settles from one that flips.
+void traceVisibilityFlips (
+    const WallpaperEngine::Render::Wallpapers::CScene& scene,
+    int frame,
+    const char* phase,
+    std::map<int, bool>& previous
+) {
+    if (!visibilityTraceEnabled ()) {
+        return;
+    }
+    for (const auto* object : scene.getObjectsByRenderOrder ()) {
+        if (object == nullptr) {
+            continue;
+        }
+        const auto& model = object->getObject ();
+        const bool visible = FrescoScene::sceneObjectVisible (model);
+        const auto prior = previous.find (model.id);
+        if (prior != previous.end () && prior->second == visible) {
+            continue;
+        }
+        if (prior != previous.end ()) {
+            std::cout << "visibilityFlip frame=" << frame << " phase=" << phase
+                      << " id=" << model.id << " own=" << (visible ? 1 : 0)
+                      << " name=" << model.name << '\n';
+        }
+        previous.insert_or_assign (model.id, visible);
+    }
+}
+
+// Reports each rendered object's own and parent-resolved visibility, so a
+// missing subject can be attributed to its own property, an ancestor, or
+// neither. Off unless FRESCO_SCENE_VISIBILITY_TRACE is set.
+void traceVisibility (const WallpaperEngine::Render::Wallpapers::CScene& scene) {
+    using namespace WallpaperEngine::Data::Model;
+
+    if (!visibilityTraceEnabled ()) {
+        return;
+    }
+    for (const auto* object : scene.getObjectsByRenderOrder ()) {
+        if (object == nullptr) {
+            continue;
+        }
+        const auto& model = object->getObject ();
+        const char* kind = model.is<Image> () ? "image"
+            : model.is<Particle> ()           ? "particle"
+            : model.is<Text> ()               ? "text"
+            : model.is<Sound> ()              ? "sound"
+                                              : "group";
+        std::cout << "visibility id=" << model.id << " parent="
+                  << (model.parent.has_value () ? std::to_string (*model.parent) : "-")
+                  << " kind=" << kind
+                  << " own=" << (FrescoScene::sceneObjectVisible (model) ? 1 : 0)
+                  << " resolved="
+                  << (FrescoScene::sceneObjectVisibleWithParents (scene, model) ? 1 : 0)
+                  << " name=" << model.name;
+        if (model.is<Image> ()) {
+            std::cout << " value="
+                      << static_cast<const void*> (
+                             model.as<Image> ()->visible->value.get ()
+                         );
+        }
+        std::cout << '\n';
+    }
+    const auto& scriptEngine = scene.getScriptEngine ();
+    std::cout << "scriptCounts generic=" << scriptEngine.genericPropertyScriptCount ()
+              << " property=" << scriptEngine.propertyScriptCount ()
+              << " deferred=" << scriptEngine.deferredScriptCount ()
+              << " genericUpdates=" << scriptEngine.genericPropertyScriptUpdateCount ()
+              << " genericChanges=" << scriptEngine.genericPropertyScriptChangeCount ()
+              << " genericErrors=" << scriptEngine.genericPropertyScriptErrorCount () << '\n';
+    for (const auto& evidence : scriptEngine.genericPropertyScriptEvidence ()) {
+        std::cout << "genericScript key=" << evidence.key
+                  << " profile=" << evidence.profile
+                  << " object=" << evidence.objectId
+                  << " property=" << evidence.property
+                  << " updates=" << evidence.updates
+                  << " changes=" << evidence.changes << '\n';
+    }
+    for (const auto& evidence : scriptEngine.propertyScriptEvidence ()) {
+        std::cout << "propertyScript key=" << evidence.key
+                  << " profile=" << evidence.profile
+                  << " object=" << evidence.objectId
+                  << " property=" << evidence.property
+                  << " value=" << (evidence.value ? 1 : 0)
+                  << " initialized=" << (evidence.initialized ? 1 : 0)
+                  << " updates=" << evidence.updates << '\n';
+    }
+}
+
 void render (
     const std::filesystem::path& projectRoot,
     const std::filesystem::path& assetRoot,
@@ -410,6 +542,25 @@ void render (
     }
 
     WallpaperApplication app;
+    if (const char* filter = std::getenv ("FRESCO_SCENE_OBJECT_FILTER");
+        filter != nullptr) {
+        app.getContext ().settings.render.debug.objectFilter = std::atoi (filter);
+    }
+    if (const char* skipped = std::getenv ("FRESCO_SCENE_SKIP_OBJECTS");
+        skipped != nullptr) {
+        std::string list (skipped);
+        std::size_t start = 0;
+        while (start < list.size ()) {
+            const auto end = list.find (',', start);
+            app.getContext ().settings.render.debug.skipObjects.push_back (
+                std::atoi (list.substr (start, end - start).c_str ())
+            );
+            if (end == std::string::npos) {
+                break;
+            }
+            start = end + 1;
+        }
+    }
     auto& loadedProject = app.addBackground ("proof", std::move (project));
     app.setDestinationFramebuffer (output.framebuffer);
 
@@ -437,25 +588,40 @@ void render (
     } catch (const std::exception& error) {
         throw std::runtime_error ("scene construction failed: " + std::string (error.what ()));
     }
-    scene->getScriptEngine ().setInitialUserProperties (
-        projectUserProperties (projectJSON)
-    );
+    const auto seededProperties = projectUserProperties (projectJSON);
+    if (visibilityTraceEnabled ()) {
+        std::cout << "seededUserProperties count=" << seededProperties.values.size ();
+        const auto character = seededProperties.values.find ("character");
+        if (character != seededProperties.values.end ()) {
+            const auto* text = std::get_if<std::string> (&character->second);
+            std::cout << " character=" << (text != nullptr ? *text : "(non-string)");
+        }
+        std::cout << '\n';
+    }
+    watchObjectVisibility (*scene);
+    scene->getScriptEngine ().setInitialUserProperties (seededProperties);
     scene->setDestinationFramebuffer (output.framebuffer);
     if (frameCount < 1 || frameCount > 3600) {
         throw std::runtime_error ("frame count must be between 1 and 3600");
     }
+    std::map<int, bool> visibilityHistory;
     for (int frame = 0; frame < frameCount; ++frame) {
         g_TimeLast = g_Time;
         g_Time += 1.0f / 60.0f;
         driver.dispatchEventQueue ();
+        g_traceFrame = frame;
+        traceVisibilityFlips (*scene, frame, "pre", visibilityHistory);
         try {
             scene->render ({ 0, 0, width, height }, true);
+            traceVisibilityFlips (*scene, frame, "post", visibilityHistory);
         } catch (const std::exception& error) {
             throw std::runtime_error (
                 "frame " + std::to_string (frame) + " failed: " + error.what ()
             );
         }
     }
+
+    traceVisibility (*scene);
 
     glBindFramebuffer (GL_FRAMEBUFFER, output.framebuffer);
     std::vector<uint8_t> pixels (static_cast<std::size_t> (width) * height * 4);

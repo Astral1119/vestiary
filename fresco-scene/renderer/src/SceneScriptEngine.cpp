@@ -1882,6 +1882,23 @@ public:
         return m_genericPropertyScripts.size ();
     }
 
+    [[nodiscard]] std::vector<GenericPropertyScriptEvidence>
+    genericPropertyScriptEvidence () const {
+        std::vector<GenericPropertyScriptEvidence> result;
+        result.reserve (m_genericPropertyScripts.size ());
+        for (const auto& [key, script] : m_genericPropertyScripts) {
+            result.push_back ({
+                .key = key,
+                .profile = script.profile,
+                .objectId = script.objectId,
+                .property = script.propertyName,
+                .updates = script.updates,
+                .changes = script.changes,
+            });
+        }
+        return result;
+    }
+
     [[nodiscard]] std::size_t continuousGenericPropertyScriptCount () const {
         return std::ranges::count_if (
             m_genericPropertyScripts,
@@ -3644,6 +3661,11 @@ std::size_t ScriptEngine::propertyScriptErrorCount () const {
 
 std::size_t ScriptEngine::propertyScriptCount () const {
     return m_impl->propertyScriptCount ();
+}
+
+std::vector<ScriptEngine::GenericPropertyScriptEvidence>
+ScriptEngine::genericPropertyScriptEvidence () const {
+    return m_impl->genericPropertyScriptEvidence ();
 }
 
 std::size_t ScriptEngine::genericPropertyScriptCount () const {

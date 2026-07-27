@@ -47,6 +47,15 @@ public:
         std::size_t updates = 0;
     };
 
+    struct GenericPropertyScriptEvidence {
+        std::string key;
+        std::string profile;
+        int objectId = 0;
+        std::string property;
+        std::size_t updates = 0;
+        std::size_t changes = 0;
+    };
+
     ScriptEngine (Render::Wallpapers::CScene&, Media::MediaSource&);
     ~ScriptEngine ();
 
@@ -116,6 +125,8 @@ public:
     [[nodiscard]] std::size_t propertyScriptUpdateCount () const;
     [[nodiscard]] std::size_t propertyScriptErrorCount () const;
     [[nodiscard]] std::size_t propertyScriptCount () const;
+    [[nodiscard]] std::vector<GenericPropertyScriptEvidence>
+    genericPropertyScriptEvidence () const;
     [[nodiscard]] std::size_t genericPropertyScriptCount () const;
     [[nodiscard]] std::size_t continuousGenericPropertyScriptCount () const;
     [[nodiscard]] std::size_t genericPropertyScriptUpdateCount () const;
