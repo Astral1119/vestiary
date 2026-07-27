@@ -100,26 +100,26 @@ assert sunset_applied["acceptedScriptProperties"] == 1, sunset_applied
 assert sunset_applied["ignored"] == 0, sunset_applied
 assert (ready["genericPropertyScriptUpdates"], ready["genericPropertyScriptChanges"]) == (
     270,
-    81,
+    54,
 ), ready
 assert (night["genericPropertyScriptUpdates"], night["genericPropertyScriptChanges"]) == (
     392,
-    129,
+    91,
 ), night
 assert paused["paused"] is True, paused
 assert (paused["genericPropertyScriptUpdates"], paused["genericPropertyScriptChanges"]) == (
     392,
-    129,
+    91,
 ), paused
 assert (sunset["genericPropertyScriptUpdates"], sunset["genericPropertyScriptChanges"]) == (
     514,
-    207,
+    155,
 ), sunset
 for event in (reloaded, reloaded_metrics):
     assert (
         event["genericPropertyScriptUpdates"],
         event["genericPropertyScriptChanges"],
-    ) == (270, 81), event
+    ) == (270, 54), event
 
 print(
     f"SceneScript shared state passed: {EXPECTED_BACKEND} Persona consumers=59; "

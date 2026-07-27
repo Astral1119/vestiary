@@ -35,6 +35,14 @@ for fixture in FIXTURES:
                 "load",
                 path=str(WORKSHOP / fixture),
                 assetRoot=str(ASSETS),
+                # Persona's eventspawn child rides its night star layers, so
+                # its clock is pinned rather than left on the authored "99"
+                # cycle. The other two fixtures have no timeofday property.
+                userProperties=(
+                    {"timeofday": {"value": "2"}}
+                    if fixture == "3151551777"
+                    else {}
+                ),
                 width=320,
                 height=180,
                 visible=True,

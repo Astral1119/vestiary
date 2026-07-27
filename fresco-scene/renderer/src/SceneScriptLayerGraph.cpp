@@ -96,6 +96,19 @@ void setProperty (JSContext *context, JSValueConst object, const char *name,
     }
 }
 
+// The values last mirrored into the JS layer object. applyToScene writes a
+// property back only when the graph script moved it away from this, so a
+// property another writer owns is not reverted to the pre-tick snapshot.
+struct BindingMirror {
+    glm::vec3 origin {};
+    glm::vec3 scale {};
+    glm::vec3 angles {};
+    glm::vec3 color {};
+    bool visible = false;
+    float alpha = 0.0f;
+    float maxWidth = 0.0f;
+};
+
 struct Binding {
     int id = 0;
     std::string name;
@@ -110,6 +123,7 @@ struct Binding {
     glm::vec2 size{};
     std::string *horizontalAlign = nullptr;
     std::string *verticalAlign = nullptr;
+    BindingMirror mirrored {};
 };
 
 DynamicValue *
@@ -395,17 +409,20 @@ class SceneScriptLayerGraph::Impl {
         JS_FreeAtom (context, atom);
     }
 
-    void syncBinding (const Binding &binding) {
+    void syncBinding (Binding &binding) {
         JSValue object = layer (binding.id);
         if (binding.origin != nullptr) {
+            binding.mirrored.origin = binding.origin->getVec3 ();
             setProperty (context, object, "origin",
                          vector3 (context, binding.origin->getVec3 ()));
         }
         if (binding.scale != nullptr) {
+            binding.mirrored.scale = binding.scale->getVec3 ();
             setProperty (context, object, "scale",
                          vector3 (context, binding.scale->getVec3 ()));
         }
         if (binding.angles != nullptr) {
+            binding.mirrored.angles = binding.angles->getVec3 ();
             setProperty (context, object, "angles",
                          vector3 (context, binding.angles->getVec3 ()));
         } else {
@@ -414,18 +431,22 @@ class SceneScriptLayerGraph::Impl {
             );
         }
         if (binding.visible != nullptr) {
+            binding.mirrored.visible = binding.visible->getBool ();
             setProperty (context, object, "visible",
                          JS_NewBool (context, binding.visible->getBool ()));
         }
         if (binding.alpha != nullptr) {
+            binding.mirrored.alpha = binding.alpha->getFloat ();
             setProperty (context, object, "alpha",
                          JS_NewFloat64 (context, binding.alpha->getFloat ()));
         }
         if (binding.color != nullptr) {
+            binding.mirrored.color = binding.color->getVec3 ();
             setProperty (context, object, "color",
                          vector3 (context, binding.color->getVec3 ()));
         }
         if (binding.maxWidth != nullptr) {
+            binding.mirrored.maxWidth = binding.maxWidth->getFloat ();
             setProperty (context, object, "maxwidth",
                          JS_NewFloat64 (context, binding.maxWidth->getFloat ()));
         }
@@ -443,7 +464,7 @@ class SceneScriptLayerGraph::Impl {
     }
 
     void syncFromScene () {
-        for (const auto &binding : bindings) {
+        for (auto &binding : bindings) {
             syncBinding (binding);
         }
     }
@@ -468,24 +489,31 @@ class SceneScriptLayerGraph::Impl {
         }
         JSValue object = layer (binding->id);
         if (propertyName == "origin" && binding->origin != nullptr) {
+            binding->mirrored.origin = binding->origin->getVec3 ();
             setProperty (context, object, "origin",
                          vector3 (context, binding->origin->getVec3 ()));
         } else if (propertyName == "scale" && binding->scale != nullptr) {
+            binding->mirrored.scale = binding->scale->getVec3 ();
             setProperty (context, object, "scale",
                          vector3 (context, binding->scale->getVec3 ()));
         } else if (propertyName == "angles" && binding->angles != nullptr) {
+            binding->mirrored.angles = binding->angles->getVec3 ();
             setProperty (context, object, "angles",
                          vector3 (context, binding->angles->getVec3 ()));
         } else if (propertyName == "visible" && binding->visible != nullptr) {
+            binding->mirrored.visible = binding->visible->getBool ();
             setProperty (context, object, "visible",
                          JS_NewBool (context, binding->visible->getBool ()));
         } else if (propertyName == "alpha" && binding->alpha != nullptr) {
+            binding->mirrored.alpha = binding->alpha->getFloat ();
             setProperty (context, object, "alpha",
                          JS_NewFloat64 (context, binding->alpha->getFloat ()));
         } else if (propertyName == "color" && binding->color != nullptr) {
+            binding->mirrored.color = binding->color->getVec3 ();
             setProperty (context, object, "color",
                          vector3 (context, binding->color->getVec3 ()));
         } else if (propertyName == "maxwidth" && binding->maxWidth != nullptr) {
+            binding->mirrored.maxWidth = binding->maxWidth->getFloat ();
             setProperty (context, object, "maxwidth",
                          JS_NewFloat64 (context, binding->maxWidth->getFloat ()));
         }
@@ -494,31 +522,40 @@ class SceneScriptLayerGraph::Impl {
 
     std::size_t applyToScene () {
         std::size_t changes = 0;
-        for (const auto &binding : bindings) {
+        for (auto &binding : bindings) {
             JSValue object = layer (binding.id);
-            const auto applyVector = [&] (const char *name, DynamicValue *target) {
+            const auto applyVector = [&] (
+                const char *name, DynamicValue *target, glm::vec3 &mirrored
+            ) {
                 if (target == nullptr) {
                     return;
                 }
                 JSValue value = property (context, object, name);
                 const auto next = vector3 (context, value);
                 JS_FreeValue (context, value);
-                if (next.has_value () && target->getVec3 () != *next) {
+                if (!next.has_value () || *next == mirrored) {
+                    return;
+                }
+                mirrored = *next;
+                if (target->getVec3 () != *next) {
                     updateVector (target, *next);
                     ++changes;
                 }
             };
-            applyVector ("origin", binding.origin);
-            applyVector ("scale", binding.scale);
-            applyVector ("angles", binding.angles);
-            applyVector ("color", binding.color);
+            applyVector ("origin", binding.origin, binding.mirrored.origin);
+            applyVector ("scale", binding.scale, binding.mirrored.scale);
+            applyVector ("angles", binding.angles, binding.mirrored.angles);
+            applyVector ("color", binding.color, binding.mirrored.color);
             if (binding.visible != nullptr) {
                 JSValue value = property (context, object, "visible");
                 const bool next = JS_ToBool (context, value) != 0;
                 JS_FreeValue (context, value);
-                if (binding.visible->getBool () != next) {
-                    updateBoolean (binding.visible, next);
-                    ++changes;
+                if (next != binding.mirrored.visible) {
+                    binding.mirrored.visible = next;
+                    if (binding.visible->getBool () != next) {
+                        updateBoolean (binding.visible, next);
+                        ++changes;
+                    }
                 }
             }
             if (binding.alpha != nullptr) {
@@ -527,9 +564,12 @@ class SceneScriptLayerGraph::Impl {
                 const bool valid =
                     JS_ToFloat64 (context, &next, value) == 0 && std::isfinite (next);
                 JS_FreeValue (context, value);
-                if (valid && binding.alpha->getFloat () != static_cast<float> (next)) {
-                    updateFloat (binding.alpha, static_cast<float> (next));
-                    ++changes;
+                if (valid && static_cast<float> (next) != binding.mirrored.alpha) {
+                    binding.mirrored.alpha = static_cast<float> (next);
+                    if (binding.alpha->getFloat () != static_cast<float> (next)) {
+                        updateFloat (binding.alpha, static_cast<float> (next));
+                        ++changes;
+                    }
                 }
             }
             if (binding.maxWidth != nullptr) {
@@ -538,10 +578,12 @@ class SceneScriptLayerGraph::Impl {
                 const bool valid = JS_ToFloat64 (context, &next, value) == 0 &&
                                    std::isfinite (next);
                 JS_FreeValue (context, value);
-                if (valid && binding.maxWidth->getFloat () !=
-                                 static_cast<float> (next)) {
-                    updateFloat (binding.maxWidth, static_cast<float> (next));
-                    ++changes;
+                if (valid && static_cast<float> (next) != binding.mirrored.maxWidth) {
+                    binding.mirrored.maxWidth = static_cast<float> (next);
+                    if (binding.maxWidth->getFloat () != static_cast<float> (next)) {
+                        updateFloat (binding.maxWidth, static_cast<float> (next));
+                        ++changes;
+                    }
                 }
             }
             changes += applyString (object, "horizontalalign", binding.horizontalAlign);

@@ -53,10 +53,10 @@ assert ready["deferredScriptValues"] == 0, ready
 for event, phase in ((down, "down"), (move, "move"), (up, "up"), (paused_move, "move")):
     assert (event["phase"], event["handled"]) == (phase, 6), event
 assert (ready["genericPropertyScriptUpdates"], ready["genericPropertyScriptChanges"]) == (108, 30), ready
-assert (dragged["genericPropertyScriptUpdates"], dragged["genericPropertyScriptChanges"]) == (144, 42), dragged
-assert (bouncing["genericPropertyScriptUpdates"], bouncing["genericPropertyScriptChanges"]) == (180, 54), bouncing
+assert (dragged["genericPropertyScriptUpdates"], dragged["genericPropertyScriptChanges"]) == (144, 36), dragged
+assert (bouncing["genericPropertyScriptUpdates"], bouncing["genericPropertyScriptChanges"]) == (180, 42), bouncing
 assert paused["paused"] is True, paused
-assert (paused["genericPropertyScriptUpdates"], paused["genericPropertyScriptChanges"]) == (180, 54), paused
-assert (resumed["genericPropertyScriptUpdates"], resumed["genericPropertyScriptChanges"]) == (216, 66), resumed
+assert (paused["genericPropertyScriptUpdates"], paused["genericPropertyScriptChanges"]) == (180, 42), paused
+assert (resumed["genericPropertyScriptUpdates"], resumed["genericPropertyScriptChanges"]) == (216, 48), resumed
 
 print(f"SceneScript cursor drag passed: {EXPECTED_BACKEND} Lonely consumers=6")

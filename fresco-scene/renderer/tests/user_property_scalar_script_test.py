@@ -104,26 +104,26 @@ for event in (aigis_applied, protagonist_applied):
     assert event["ignored"] == 0, event
 assert (ready["genericPropertyScriptUpdates"], ready["genericPropertyScriptChanges"]) == (
     270,
-    81,
+    54,
 ), ready
 assert (aigis["genericPropertyScriptUpdates"], aigis["genericPropertyScriptChanges"]) == (
     392,
-    95,
+    66,
 ), aigis
 assert paused["paused"] is True, paused
 assert (paused["genericPropertyScriptUpdates"], paused["genericPropertyScriptChanges"]) == (
     392,
-    95,
+    66,
 ), paused
 assert (
     protagonist["genericPropertyScriptUpdates"],
     protagonist["genericPropertyScriptChanges"],
-) == (514, 120), protagonist
+) == (514, 83), protagonist
 for event in (reloaded, reloaded_metrics):
     assert (
         event["genericPropertyScriptUpdates"],
         event["genericPropertyScriptChanges"],
-    ) == (270, 81), event
+    ) == (270, 54), event
 
 print(
     f"SceneScript user scalars passed: {EXPECTED_BACKEND} Persona consumers=18; "

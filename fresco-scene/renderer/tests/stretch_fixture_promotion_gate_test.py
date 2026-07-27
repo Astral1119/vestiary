@@ -49,16 +49,19 @@ FIXTURES = {
         "sha256": "07ff04ebf6cf05b25daa45e4430a5d76f045ca5090235aa63a2bcebf23174c1e",
         "genericScripts": 137,
         "mediaPropertyScripts": 12,
+        # timeofday is pinned rather than left on "99" (Cycle): the night star
+        # layers carry the eventspawn particle child, so a cycling clock would
+        # make the particle-children evidence depend on the hour of the run.
         "initialProperties": {
             "character": {"value": "1"},
-            "timeofday": {"value": "99"},
+            "timeofday": {"value": "2"},
             "music": {"value": "2"},
             "musicvolume": {"value": 0.3},
             "trainsfxvolume": {"value": 0.8},
         },
         "changedProperties": {
             "character": {"value": "3"},
-            "timeofday": {"value": "2"},
+            "timeofday": {"value": "0"},
             "bgaudiobarsybounds": {"value": 0.25},
             "music": {"value": "1"},
         },

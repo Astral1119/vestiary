@@ -28,6 +28,9 @@ def render(disabled):
             "assignmentID": ASSIGNMENT,
             "path": str(PERSONA),
             "assetRoot": str(ASSETS),
+            # The eventspawn child rides Persona's night star layers, so the
+            # clock is pinned rather than left on the authored "99" cycle.
+            "userProperties": {"timeofday": {"value": "2"}},
             "width": 320,
             "height": 180,
             "visible": False,

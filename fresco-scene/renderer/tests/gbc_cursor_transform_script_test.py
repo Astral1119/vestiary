@@ -60,11 +60,11 @@ assert not any("SceneScript" in warning for warning in ready["warnings"]), ready
 for event in (moved, paused_move):
     assert (event["phase"], event["handled"]) == ("move", 4), event
 assert (ready["genericPropertyScriptUpdates"], ready["genericPropertyScriptChanges"]) == (29, 8), ready
-assert (cursor_difference["genericPropertyScriptUpdates"], cursor_difference["genericPropertyScriptChanges"]) == (39, 14), cursor_difference
+assert (cursor_difference["genericPropertyScriptUpdates"], cursor_difference["genericPropertyScriptChanges"]) == (39, 11), cursor_difference
 assert cursor_difference["changedPixels"] > 0, cursor_difference
 assert paused["paused"] is True, paused
-assert (paused["genericPropertyScriptUpdates"], paused["genericPropertyScriptChanges"]) == (39, 14), paused
-assert (resumed["genericPropertyScriptUpdates"], resumed["genericPropertyScriptChanges"]) == (49, 20), resumed
+assert (paused["genericPropertyScriptUpdates"], paused["genericPropertyScriptChanges"]) == (39, 11), paused
+assert (resumed["genericPropertyScriptUpdates"], resumed["genericPropertyScriptChanges"]) == (49, 14), resumed
 assert resumed["changedPixels"] > 0, resumed
 for event in (reloaded, reloaded_metrics):
     assert (event["genericPropertyScriptUpdates"], event["genericPropertyScriptChanges"]) == (29, 8), event
