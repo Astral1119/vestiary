@@ -28,9 +28,15 @@ inline SceneObjectTransform2D composeSceneObjectTransform (
 ) {
     const float cosine = std::cos (parent.angle);
     const float sine = std::sin (parent.angle);
+    // Scene origins run bottom-up, so a child's local Y adds to its parent's
+    // rather than subtracting from it. Negating it here placed text and
+    // particle children on opposite sides of their parent, because CText mapped
+    // the resolved origin as `y - h/2` while CParticle used `h/2 - y`. The two
+    // errors cancel whenever the root ancestor sits at the scene centre, which
+    // is common enough to have hidden this.
     const glm::vec2 scaled {
         local.origin.x * parent.scale.x,
-        -local.origin.y * parent.scale.y,
+        local.origin.y * parent.scale.y,
     };
     const glm::vec2 rotated {
         scaled.x * cosine - scaled.y * sine,

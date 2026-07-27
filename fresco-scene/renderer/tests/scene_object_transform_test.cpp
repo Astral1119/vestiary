@@ -27,7 +27,9 @@ void testCompositionOrder () {
         .angle = -0.25f,
     };
     const auto result = FrescoScene::composeSceneObjectTransform (parent, local);
-    assert (near (result.origin.x, 115.0f));
+    // Local Y adds to the parent's. Under the parent's quarter turn that puts
+    // the scaled local Y on -x, where negating it used to put it on +x.
+    assert (near (result.origin.x, 85.0f));
     assert (near (result.origin.y, 220.0f));
     assert (near (result.origin.z, 11.0f));
     assert (near (result.scale.x, 1.0f));
