@@ -144,4 +144,59 @@ std::optional<MacSystemFontResolution> resolveMacSystemFont (
     };
 }
 
+std::optional<std::string> resolveMacFallbackFontPath (char32_t codepoint) {
+    UniChar units[2];
+    CFIndex unitCount = 0;
+    if (codepoint <= 0xFFFF) {
+        if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {
+            return std::nullopt;
+        }
+        units[0] = static_cast<UniChar> (codepoint);
+        unitCount = 1;
+    } else if (codepoint <= 0x10FFFF) {
+        const char32_t offset = codepoint - 0x10000;
+        units[0] = static_cast<UniChar> (0xD800 + (offset >> 10));
+        units[1] = static_cast<UniChar> (0xDC00 + (offset & 0x3FF));
+        unitCount = 2;
+    } else {
+        return std::nullopt;
+    }
+
+    CFStringRef text = CFStringCreateWithCharacters (
+        kCFAllocatorDefault, units, unitCount
+    );
+    if (text == nullptr) {
+        return std::nullopt;
+    }
+    CTFontRef base = CTFontCreateUIFontForLanguage (
+        kCTFontUIFontSystem, 12.0, nullptr
+    );
+    if (base == nullptr) {
+        CFRelease (text);
+        return std::nullopt;
+    }
+    // CTFontCreateForString walks the cascade list and returns the base font
+    // itself when nothing covers the character, so the coverage check has to be
+    // made against the font it hands back.
+    CTFontRef covering = CTFontCreateForString (
+        base, text, CFRangeMake (0, unitCount)
+    );
+    CFRelease (text);
+    CFRelease (base);
+    if (covering == nullptr) {
+        return std::nullopt;
+    }
+
+    CGGlyph glyphs[2] = {0, 0};
+    const bool covered = CTFontGetGlyphsForCharacters (
+        covering, units, glyphs, unitCount
+    );
+    std::string path = covered ? fontPath (covering) : std::string {};
+    CFRelease (covering);
+    if (path.empty ()) {
+        return std::nullopt;
+    }
+    return path;
+}
+
 }

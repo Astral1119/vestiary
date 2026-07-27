@@ -667,7 +667,7 @@ file(READ
 )
 string(REPLACE
     "    glm::vec2 m_quadSize = { 0.0f, 0.0f };"
-    "    glm::vec2 m_quadSize = { 0.0f, 0.0f };\n    float m_quadLeft = 0.0f;\n    float m_quadRight = 0.0f;\n    float m_lastMaxWidth = -1.0f;\n    std::string m_lastAlignment;\n    bool m_widthLimitDiagnosticReported = false;"
+    "    glm::vec2 m_quadSize = { 0.0f, 0.0f };\n    float m_quadLeft = 0.0f;\n    float m_quadRight = 0.0f;\n    float m_lastMaxWidth = -1.0f;\n    std::string m_lastAlignment;\n    bool m_widthLimitDiagnosticReported = false;\n    FT_Face m_fallbackFace = nullptr;\n    bool m_fallbackFaceResolved = false;"
     text_header_source
     "${text_header_source}"
 )
@@ -675,6 +675,11 @@ fresco_require_generated_patch(
     text_header_source
     "m_lastMaxWidth"
     "bounded text width-limit render state"
+)
+fresco_require_generated_patch(
+    text_header_source
+    "m_fallbackFace"
+    "missing-glyph fallback face state"
 )
 file(MAKE_DIRECTORY
     "${CMAKE_CURRENT_BINARY_DIR}/generated/include/WallpaperEngine/Render/Objects"
@@ -828,6 +833,24 @@ string(REPLACE
     "${text_source}"
 )
 string(REPLACE
+    "    FT_GlyphSlot slot = m_ftFace->glyph;"
+    "    // An embedded wallpaper font may lack the characters its own scripted\n    // text produces, and FreeType renders those as .notdef boxes. Resolve one\n    // fallback face through Core Text's cascade from the first uncovered\n    // character and draw the uncovered glyphs from it.\n    auto faceForCharacter = [this] (FT_ULong codepoint) -> FT_Face {\n\tif (m_ftFace == nullptr || FT_Get_Char_Index (m_ftFace, codepoint) != 0) {\n\t    return m_ftFace;\n\t}\n\tif (!m_fallbackFaceResolved) {\n\t    m_fallbackFaceResolved = true;\n\t    const auto fallbackPath = FrescoScene::resolveMacFallbackFontPath (\n\t\tstatic_cast<char32_t> (codepoint)\n\t    );\n\t    if (!fallbackPath.has_value ()\n\t\t|| FT_New_Face (\n\t\t    m_ftLibrary, fallbackPath->c_str (), 0, &m_fallbackFace\n\t\t) != 0) {\n\t\tm_fallbackFace = nullptr;\n\t\tsLog.error (\n\t\t    \"CText: no fallback face for object \", m_text.id,\n\t\t    \" codepoint \", static_cast<unsigned long> (codepoint)\n\t\t);\n\t    }\n\t}\n\tif (m_fallbackFace == nullptr\n\t    || FT_Get_Char_Index (m_fallbackFace, codepoint) == 0) {\n\t    return m_ftFace;\n\t}\n\tFT_Set_Pixel_Sizes (\n\t    m_fallbackFace, 0, static_cast<FT_UInt> (m_lastPixelSize)\n\t);\n\treturn m_fallbackFace;\n    };"
+    text_source
+    "${text_source}"
+)
+string(REPLACE
+    "\tif (FT_Load_Char (m_ftFace, static_cast<FT_ULong> (c), FT_LOAD_RENDER) != 0) {\n\t    continue;\n\t}"
+    "\tFT_Face face = faceForCharacter (static_cast<FT_ULong> (c));\n\tif (face == nullptr\n\t    || FT_Load_Char (face, static_cast<FT_ULong> (c), FT_LOAD_RENDER) != 0) {\n\t    continue;\n\t}\n\tconst FT_GlyphSlot slot = face->glyph;"
+    text_source
+    "${text_source}"
+)
+string(REPLACE
+    "    if (m_ftFace != nullptr) {\n\tFT_Done_Face (m_ftFace);\n    }"
+    "    if (m_fallbackFace != nullptr) {\n\tFT_Done_Face (m_fallbackFace);\n    }\n    if (m_ftFace != nullptr) {\n\tFT_Done_Face (m_ftFace);\n    }"
+    text_source
+    "${text_source}"
+)
+string(REPLACE
     "    const int width = std::max (1, penX);\n    const int height = std::max (1, maxAscent + maxDescent);"
     "    GLint maximumTextureExtent = 0;\n    glGetIntegerv (GL_MAX_TEXTURE_SIZE, &maximumTextureExtent);\n    const int measuredWidth = std::max (1, penX);\n    const int width = FrescoScene::boundedGlyphAtlasExtent (\n\tpenX, static_cast<int> (maximumTextureExtent)\n    );\n    const int height = FrescoScene::boundedGlyphAtlasExtent (\n\tmaxAscent + maxDescent, static_cast<int> (maximumTextureExtent)\n    );"
     text_source
@@ -902,6 +925,16 @@ fresco_require_generated_patch(
     text_source
     "FrescoScene::boundedGlyphAtlasExtent"
     "glyph bitmap texture extent bound"
+)
+fresco_require_generated_patch(
+    text_source
+    "FrescoScene::resolveMacFallbackFontPath"
+    "missing-glyph font fallback"
+)
+fresco_require_generated_patch(
+    text_source
+    "FT_Done_Face (m_fallbackFace)"
+    "fallback face teardown"
 )
 fresco_write_generated(
     "${CMAKE_CURRENT_BINARY_DIR}/generated/CText.cpp"
