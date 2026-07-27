@@ -28,7 +28,9 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -324,6 +326,42 @@ std::unique_ptr<Container> createContainer (
     return container;
 }
 
+// The authored defaults from project.json, seeded the way RendererSession
+// seeds them. Without these `engine.userProperties` is empty and every script
+// comparing against one resolves its fallback branch.
+WallpaperEngine::Audio::UserPropertyBatch projectUserProperties (const JSON& project) {
+    WallpaperEngine::Audio::UserPropertyBatch batch;
+    const auto general = project.find ("general");
+    if (general == project.end () || !general->is_object ()) {
+        return batch;
+    }
+    const auto properties = general->find ("properties");
+    if (properties == general->end () || !properties->is_object ()) {
+        return batch;
+    }
+    for (const auto& [key, property] : properties->items ()) {
+        if (!property.is_object ()) {
+            continue;
+        }
+        const auto value = property.find ("value");
+        if (value == property.end ()) {
+            continue;
+        }
+        if (value->is_boolean ()) {
+            batch.values.insert_or_assign (key, value->get<bool> ());
+        } else if (value->is_string ()) {
+            batch.values.insert_or_assign (key, value->get<std::string> ());
+        } else if (value->is_number ()) {
+            const double numeric = value->get<double> ();
+            if (std::isfinite (numeric)) {
+                batch.values.insert_or_assign (key, numeric);
+            }
+        }
+    }
+    batch.received = batch.values.size ();
+    return batch;
+}
+
 void render (
     const std::filesystem::path& projectRoot,
     const std::filesystem::path& assetRoot,
@@ -399,6 +437,9 @@ void render (
     } catch (const std::exception& error) {
         throw std::runtime_error ("scene construction failed: " + std::string (error.what ()));
     }
+    scene->getScriptEngine ().setInitialUserProperties (
+        projectUserProperties (projectJSON)
+    );
     scene->setDestinationFramebuffer (output.framebuffer);
     if (frameCount < 1 || frameCount > 3600) {
         throw std::runtime_error ("frame count must be between 1 and 3600");
