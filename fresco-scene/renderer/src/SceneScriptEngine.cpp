@@ -65,6 +65,87 @@ using namespace WallpaperEngine::Scripting;
 
 namespace {
 
+/*
+ * The wall clock a scene text script sees.
+ *
+ * Wallpapers read the clock through `new Date()`, so an unpinned one makes
+ * every render of a scene with a clock in it differ from the last. `pinned` is
+ * set when any of the three environment overrides is present; the whole reading
+ * is then frozen at construction, because a `Date` whose hour is pinned and
+ * whose minute still runs is not a time anyone can reason about.
+ */
+struct ScriptClock {
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+    bool pinned = false;
+    long long epochMilliseconds = 0;
+};
+
+std::optional<int> clockOverride (const char* variable, int limit) {
+    const char* injected = std::getenv (variable);
+    if (injected == nullptr) {
+        return std::nullopt;
+    }
+    char* end = nullptr;
+    const long value = std::strtol (injected, &end, 10);
+    if (end == injected || *end != '\0' || value < 0 || value > limit) {
+        return std::nullopt;
+    }
+    return static_cast<int> (value);
+}
+
+ScriptClock scriptClock () {
+    const std::time_t now = std::time (nullptr);
+    std::tm local = {};
+    localtime_r (&now, &local);
+
+    const auto hour = clockOverride ("FRESCO_SCENE_SCRIPT_CLOCK_HOUR", 23);
+    const auto minute = clockOverride ("FRESCO_SCENE_SCRIPT_CLOCK_MINUTE", 59);
+    const auto second = clockOverride ("FRESCO_SCENE_SCRIPT_CLOCK_SECOND", 59);
+
+    local.tm_hour = hour.value_or (local.tm_hour);
+    local.tm_min = minute.value_or (local.tm_min);
+    local.tm_sec = second.value_or (local.tm_sec);
+    local.tm_isdst = -1;
+
+    // mktime normalizes, so a pinned reading that a DST jump makes impossible
+    // comes back as the hour the zone actually has rather than as a rejection.
+    const std::time_t pinned = std::mktime (&local);
+    return ScriptClock {
+        .hour = local.tm_hour,
+        .minute = local.tm_min,
+        .second = local.tm_sec,
+        .pinned = hour.has_value () || minute.has_value () || second.has_value (),
+        .epochMilliseconds = static_cast<long long> (pinned) * 1000,
+    };
+}
+
+/*
+ * A `Date` shim for the scene text-script scope, or nothing when the clock runs
+ * free.
+ *
+ * It subclasses the real Date at a fixed instant rather than stubbing the three
+ * getters a clock wallpaper happens to call, because the date scripts in the
+ * same corpus read getDay and getMonth off the same object and those have to
+ * agree with the time beside them. The native Date comes off `globalThis`: the
+ * `class Date` below is a lexical binding in the scope this string lands in, so
+ * reading the bare name here would land in its dead zone and fail every text
+ * script in the scene.
+ */
+std::string pinnedDateShim (const ScriptClock& clock) {
+    if (!clock.pinned) {
+        return "";
+    }
+    const std::string instant = std::to_string (clock.epochMilliseconds);
+    return "  const __frescoNativeDate = globalThis.Date;\n"
+           "  class Date extends __frescoNativeDate {\n"
+           "    constructor(...values) { if (values.length === 0) super("
+           + instant + "); else super(...values); }\n"
+           "    static now() { return " + instant + "; }\n"
+           "  }\n";
+}
+
 bool usesSceneLayerGraph (std::string_view profile) {
     constexpr std::array profiles = {
         std::string_view ("generic-media-thumbnail-color-v1"),
@@ -1514,6 +1595,7 @@ public:
         std::ostringstream wrapper;
         wrapper
             << "(function () {\n"
+            << pinnedDateShim (scriptClock ())
             << "  const __properties = Object.assign({}, globalThis.__frescoSeedProperties || {});\n"
             << "  const thisLayer = { text: String(globalThis.__frescoSeedText || '') };\n"
             << "  const thisScene = {\n"
@@ -2329,18 +2411,7 @@ public:
 
 private:
     [[nodiscard]] static int scriptClockHour () {
-        const char* injected = std::getenv ("FRESCO_SCENE_SCRIPT_CLOCK_HOUR");
-        if (injected != nullptr) {
-            char* end = nullptr;
-            const long value = std::strtol (injected, &end, 10);
-            if (end != injected && *end == '\0' && value >= 0 && value <= 23) {
-                return static_cast<int> (value);
-            }
-        }
-        const std::time_t now = std::time (nullptr);
-        std::tm local = {};
-        localtime_r (&now, &local);
-        return local.tm_hour;
+        return scriptClock ().hour;
     }
 
     struct DynamicFloat {

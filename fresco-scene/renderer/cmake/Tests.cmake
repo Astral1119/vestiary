@@ -1565,6 +1565,19 @@ if(BUILD_TESTING
             PROPERTIES TIMEOUT 300
         )
         add_test(
+            NAME fresco-scene-renderer-persona-script-clock-determinism
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/persona_script_clock_determinism_test.py"
+                "$<TARGET_FILE:fresco-scene-render-smoke>"
+                "${FRESCO_SCENE_WORKSHOP_ROOT}"
+                "${FRESCO_SCENE_ASSETS}"
+        )
+        set_tests_properties(
+            fresco-scene-renderer-persona-script-clock-determinism
+            PROPERTIES TIMEOUT 300
+        )
+        add_test(
             NAME fresco-scene-renderer-persona-text-authored-z-render
             COMMAND
                 "${Python3_EXECUTABLE}"
