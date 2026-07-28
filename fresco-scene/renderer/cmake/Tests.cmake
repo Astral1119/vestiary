@@ -1526,6 +1526,20 @@ if(BUILD_TESTING
             PROPERTIES TIMEOUT 300
         )
         add_test(
+            NAME fresco-scene-renderer-persona-dependency-render-order
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/persona_dependency_render_order_test.py"
+                "$<TARGET_FILE:fresco-scene-render-smoke>"
+                "${FRESCO_SCENE_WORKSHOP_ROOT}"
+                "${FRESCO_SCENE_ASSETS}"
+                "${CMAKE_CURRENT_BINARY_DIR}/evidence/persona-dependency-render-order"
+        )
+        set_tests_properties(
+            fresco-scene-renderer-persona-dependency-render-order
+            PROPERTIES TIMEOUT 300
+        )
+        add_test(
             NAME fresco-scene-renderer-persona-composition-layer-resolution-render
             COMMAND
                 "${Python3_EXECUTABLE}"
