@@ -507,11 +507,16 @@ void TextEffectRenderer::updateScreenMVP () {
     // the effect FBO's content is centred. Without it, right-aligned text sat
     // half its width too far right: Persona's song, artist and album lines
     // landed on top of the album cover instead of ending to its left.
+    // Measured against the raster rather than the padded texture. The quad is
+    // padded texture wide and the glyphs sit in its middle, so offsetting by
+    // half the texture put the right edge of the glyphs a padding short of the
+    // authored origin — 10 capture pixels for Persona's 626, whose direct-path
+    // extent ends at 1118 against the composited 1108.
     float alignmentOffset = 0.0f;
     if (m_text.alignment == "right") {
-        alignmentOffset = -static_cast<float> (m_textureSize.x) * 0.5f;
+        alignmentOffset = -static_cast<float> (m_rasterSize.x) * 0.5f;
     } else if (m_text.alignment == "left") {
-        alignmentOffset = static_cast<float> (m_textureSize.x) * 0.5f;
+        alignmentOffset = static_cast<float> (m_rasterSize.x) * 0.5f;
     }
 
     const glm::vec3 glOrigin {
@@ -537,6 +542,7 @@ void TextEffectRenderer::renderEffects (
 ) {
     const int padding = std::max (m_text.padding, 0);
     const glm::ivec2 effectSize = textureSize + glm::ivec2 (padding * 2);
+    m_rasterSize = glm::max (textureSize, glm::ivec2 (1));
     if (effectSize != m_textureSize || m_passes.empty ()
         || decision.compositedEffectIds != m_activeEffects) {
         m_activeEffects = decision.compositedEffectIds;

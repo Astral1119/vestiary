@@ -77,6 +77,10 @@ private:
     std::shared_ptr<const WallpaperEngine::Render::CFBO> m_mainFBO;
     std::shared_ptr<const WallpaperEngine::Render::CFBO> m_subFBO;
     glm::ivec2 m_textureSize = { 0, 0 };
+    // The glyph raster inside m_textureSize, which is that raster plus the
+    // authored padding on each side. Alignment is measured against the raster:
+    // right-aligned text ends at its origin, and the padding is margin.
+    glm::ivec2 m_rasterSize = { 0, 0 };
 
     GLuint m_scenePosition = GL_NONE;
     GLuint m_passPosition = GL_NONE;

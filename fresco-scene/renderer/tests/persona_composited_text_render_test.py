@@ -56,11 +56,14 @@ COMPOSITED = (392, 626, 646)
 # re-authored position is a real failure rather than a boundary graze.
 REGION = (880, 0, 1280, 220)
 
-# Pixels each chain draws when rendered alone, measured after the clip-space
-# fix. Compared against half these numbers, because the point is to separate
-# "draws" from "draws nothing" — the exact counts move whenever the raster or
-# the blur changes, and the horizontal clipping defect will move them again.
-DRAWN = {392: 281, 626: 1224, 646: 439}
+# Pixels each chain draws when rendered alone, measured after the source raster
+# was centred in its FBO. Compared against half these numbers, because the point
+# is to separate "draws" from "draws nothing" — the exact counts move whenever
+# the raster or the blur changes. Centring moved 626 from 1,224 to 1,720, which
+# is the third of its raster that used to fall off the left edge of the source;
+# 646 is unchanged at 439, and 392 varies by a few pixels between runs because
+# its text is a clock.
+DRAWN = {392: 278, 626: 1720, 646: 439}
 
 
 def render(directory, name, composited):
