@@ -2,7 +2,6 @@ import AppKit
 import Carbon
 import WebKit
 import AVFoundation
-import CryptoKit
 import JavaScriptCore
 import Darwin
 import notify
@@ -231,8 +230,7 @@ enum Wallpaper {
         root: URL,
         package: URL,
         preview: URL?,
-        properties: [String: Any],
-        runtimePropertyNames: Set<String>
+        properties: [String: Any]
     )
 }
 
@@ -340,93 +338,6 @@ func effectiveProjectProperties(
     return properties
 }
 
-private func packageUInt32(_ handle: FileHandle, fileSize: UInt64) -> UInt32? {
-    guard handle.offsetInFile <= fileSize, fileSize - handle.offsetInFile >= 4 else { return nil }
-    let data = handle.readData(ofLength: 4)
-    guard data.count == 4 else { return nil }
-    return data.enumerated().reduce(UInt32(0)) {
-        $0 | UInt32($1.element) << UInt32($1.offset * 8)
-    }
-}
-
-private func packageString(_ handle: FileHandle, fileSize: UInt64) -> String? {
-    guard let length = packageUInt32(handle, fileSize: fileSize),
-          UInt64(length) <= fileSize - handle.offsetInFile else { return nil }
-    let data = handle.readData(ofLength: Int(length))
-    guard data.count == Int(length) else { return nil }
-    return String(data: data, encoding: .utf8)
-}
-
-private final class ScenePropertyNameCacheEntry: NSObject {
-    let names: Set<String>
-    init(_ names: Set<String>) { self.names = names }
-}
-
-private let scenePropertyNameCache = NSCache<NSString, ScenePropertyNameCacheEntry>()
-
-func sceneRuntimePropertyNames(package: URL) -> Set<String> {
-    guard let attributes = try? FileManager.default.attributesOfItem(atPath: package.path),
-          let size = attributes[.size] as? NSNumber else { return [] }
-    let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
-    let cacheKey = "\(package.standardizedFileURL.path)|\(size.uint64Value)|\(modified)" as NSString
-    if let cached = scenePropertyNameCache.object(forKey: cacheKey) { return cached.names }
-    guard let handle = try? FileHandle(forReadingFrom: package) else { return [] }
-    defer { try? handle.close() }
-    let fileSize = size.uint64Value
-    guard packageString(handle, fileSize: fileSize) != nil,
-          let count = packageUInt32(handle, fileSize: fileSize), count <= 1_000_000 else {
-        return []
-    }
-    struct Entry { let name: String; let offset: UInt32; let length: UInt32 }
-    var entries: [Entry] = []
-    for _ in 0..<count {
-        guard let name = packageString(handle, fileSize: fileSize),
-              let entryOffset = packageUInt32(handle, fileSize: fileSize),
-              let length = packageUInt32(handle, fileSize: fileSize) else { return [] }
-        entries.append(Entry(name: name, offset: entryOffset, length: length))
-    }
-    let base = handle.offsetInFile
-    guard let entry = entries.first(where: { $0.name == "scene.json" }),
-          entry.length <= 64 * 1024 * 1024 else { return [] }
-    let lower = base + UInt64(entry.offset)
-    let upper = lower + UInt64(entry.length)
-    guard lower >= base, upper >= lower, upper <= fileSize else { return [] }
-    handle.seek(toFileOffset: lower)
-    let data = handle.readData(ofLength: Int(entry.length))
-    guard data.count == Int(entry.length),
-          let scene = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let objects = scene["objects"] as? [[String: Any]] else { return [] }
-    var names = Set<String>(objects.compactMap { object in
-        guard object["sound"] is [Any],
-              let volume = object["volume"] as? [String: Any],
-              let name = volume["user"] as? String, !name.isEmpty else { return nil }
-        return name
-    })
-    let propertyScriptProfiles: [(objectID: Int, bytes: Int, sha256: String)] = [
-        (95, 3900, "43803a4cc38a86451269dbab6737616b114680d24daa4ee2c0240d1691334cbf"),
-        (460, 1774, "cef79c36a0edddf40c2633723541c659007e4d5c4065053de837c817ecd6d4d5"),
-    ]
-    for profile in propertyScriptProfiles {
-        guard let object = objects.first(where: {
-                  ($0["id"] as? NSNumber)?.intValue == profile.objectID
-              }),
-              let visible = object["visible"] as? [String: Any],
-              visible["value"] is Bool,
-              let source = visible["script"] as? String,
-              source.utf8.count == profile.bytes,
-              source.contains("export function init()"),
-              source.contains("export function applyUserProperties("),
-              source.contains("thisScene.getLayer("),
-              !source.contains("export function cursorClick(") else { continue }
-        let digest = SHA256.hash(data: Data(source.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-        if digest == profile.sha256 { names.insert("music") }
-    }
-    scenePropertyNameCache.setObject(ScenePropertyNameCacheEntry(names), forKey: cacheKey)
-    return names
-}
-
 func dependencyID(from project: [String: Any]) -> String? {
     if let dependency = project["dependency"] as? String, !dependency.isEmpty {
         return dependency
@@ -496,8 +407,7 @@ private func resolveWallpaperManifest(at url: URL, includePersisted: Bool = true
             preview: preview,
             properties: effectiveProjectProperties(
                 project: project, root: url, includePersisted: includePersisted
-            ),
-            runtimePropertyNames: sceneRuntimePropertyNames(package: package)
+            )
         )
     }
 
@@ -569,7 +479,7 @@ func localizedWebText(_ raw: Any?, strings: [String: Any]) -> Any? {
 func webPropertyPresentation(
     properties: [String: Any],
     strings: [String: Any],
-    runtimePropertyNames: Set<String>? = nil
+    runtimeSupportedTypes: Set<String>? = nil
 ) -> [[String: Any]] {
     let context = JSContext()!
     let identifierPattern = "^[A-Za-z_$][A-Za-z0-9_$]*$"
@@ -586,7 +496,7 @@ func webPropertyPresentation(
         guard let definition = rawDefinition as? [String: Any] else { continue }
         var item = definition
         let type = (definition["type"] as? String ?? "").lowercased()
-        let runtimeSupported = runtimePropertyNames?.contains(name) ?? true
+        let runtimeSupported = runtimeSupportedTypes?.contains(type) ?? true
         item["name"] = name
         item["type"] = type
         item["runtimeSupported"] = runtimeSupported
@@ -627,21 +537,21 @@ func wallpaperProjectDescription(_ path: String) -> [String: Any]? {
     let root: URL
     let index: URL
     let properties: [String: Any]
-    let runtimePropertyNames: Set<String>?
+    let runtimeSupportedTypes: Set<String>?
     let kind: String
     switch wallpaper {
     case let .web(webIndex, webRoot, webProperties):
         root = webRoot
         index = webIndex
         properties = webProperties
-        runtimePropertyNames = nil
+        runtimeSupportedTypes = nil
         kind = "web"
-    case let .scene(sceneRoot, package, _, sceneProperties, supportedNames):
+    case let .scene(sceneRoot, package, _, sceneProperties):
         guard dependencyID(from: targetProject) == nil else { return nil }
         root = sceneRoot
         index = package
         properties = sceneProperties
-        runtimePropertyNames = supportedNames
+        runtimeSupportedTypes = sceneEditableUserPropertyTypes
         kind = "scene"
     default:
         return nil
@@ -664,7 +574,7 @@ func wallpaperProjectDescription(_ path: String) -> [String: Any]? {
         "presentation": webPropertyPresentation(
             properties: properties,
             strings: selected.strings,
-            runtimePropertyNames: runtimePropertyNames),
+            runtimeSupportedTypes: runtimeSupportedTypes),
         "overrides": persistedPropertyValues(for: target.path),
     ]
 }
@@ -795,6 +705,20 @@ func sceneUserProperties(from properties: [String: Any]) -> [String: Any] {
         result[name] = ["value": value]
     }
     return result
+}
+
+private let sceneEditableUserPropertyTypes = Set([
+    "bool", "color", "combo", "slider", "textinput",
+])
+
+func sceneEditableUserProperties(from properties: [String: Any]) -> [String: Any] {
+    sceneUserProperties(from: properties.filter { _, rawDefinition in
+        guard let definition = rawDefinition as? [String: Any],
+              let type = (definition["type"] as? String)?.lowercased() else {
+            return false
+        }
+        return sceneEditableUserPropertyTypes.contains(type)
+    })
 }
 
 func scopedWebProperties(_ properties: [String: Any],
@@ -2461,7 +2385,6 @@ private final class DesktopSceneRuntimeAssignment: SceneRuntimeDisplayAssignment
     let sceneSupervisor: SceneHelperSupervisor?
     let sceneRoot: URL
     private(set) var properties: [String: Any]
-    private let runtimePropertyNames: Set<String>
     private let fallback: ImageHost?
     private let target: String
     private var ready = false
@@ -2475,8 +2398,8 @@ private final class DesktopSceneRuntimeAssignment: SceneRuntimeDisplayAssignment
     private let onEvidenceChanged: () -> Void
 
     init(displayID: String, binding: FrescoBinding, screen: NSScreen, root: URL, preview: URL?,
-         properties: [String: Any], runtimePropertyNames: Set<String>,
-         executable: URL?, assetRoot: String?, fpsCeiling: Int? = nil,
+         properties: [String: Any], executable: URL?, assetRoot: String?,
+         fpsCeiling: Int? = nil,
          policyRevision: Int = 0, policyReasonTokens: [String] = [],
          onAudioSupportChanged: @escaping () -> Void,
          onEvidenceChanged: @escaping () -> Void) {
@@ -2484,7 +2407,6 @@ private final class DesktopSceneRuntimeAssignment: SceneRuntimeDisplayAssignment
         self.binding = binding
         sceneRoot = root.standardizedFileURL
         self.properties = properties
-        self.runtimePropertyNames = runtimePropertyNames
         target = root.path
         self.onEvidenceChanged = onEvidenceChanged
         fallback = preview.map { ImageHost(screen: screen, url: $0) }
@@ -2502,8 +2424,7 @@ private final class DesktopSceneRuntimeAssignment: SceneRuntimeDisplayAssignment
             fpsCeiling: fpsCeiling,
             policyRevision: policyRevision,
             policyReasonTokens: policyReasonTokens,
-            userProperties: Self.supportedUserProperties(
-                from: properties, names: runtimePropertyNames))
+            userProperties: sceneEditableUserProperties(from: properties))
         sceneSupervisor = supervisor
         supervisor.setMuted(true)
         supervisor.onEvent = { [weak self, weak supervisor] event in
@@ -2574,9 +2495,8 @@ private final class DesktopSceneRuntimeAssignment: SceneRuntimeDisplayAssignment
     func setUserProperties(_ properties: [String: Any], changed: [String: Any]) {
         self.properties = properties
         sceneSupervisor?.setUserProperties(
-            Self.supportedUserProperties(from: properties, names: runtimePropertyNames),
-            changed: Self.supportedUserProperties(
-                from: changed, names: runtimePropertyNames))
+            sceneEditableUserProperties(from: properties),
+            changed: sceneEditableUserProperties(from: changed))
     }
     func setVisible(_ visible: Bool) {
         self.visible = visible
@@ -2628,11 +2548,6 @@ private final class DesktopSceneRuntimeAssignment: SceneRuntimeDisplayAssignment
         visible && !ready ? fallback.window.orderFront(nil) : fallback.window.orderOut(nil)
     }
 
-    private static func supportedUserProperties(
-        from source: [String: Any], names: Set<String>
-    ) -> [String: Any] {
-        sceneUserProperties(from: source.filter { names.contains($0.key) })
-    }
 }
 
 // MARK: - Controller
@@ -2782,7 +2697,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         var scenePushes = 0
         for assignment in sceneAssignments {
             guard case let .wallpaper(target) = assignment.binding,
-                  case let .scene(root, _, _, newProperties, _)?
+                  case let .scene(root, _, _, newProperties)?
                     = resolveAssignmentWallpaper(target, displayID: assignment.displayID),
                   root.standardizedFileURL == assignment.sceneRoot else { continue }
             let changes = changedWebProperties(from: assignment.properties, to: newProperties)
@@ -2928,11 +2843,10 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
                         accessScope: accessScope)
                 })
             print("web wallpaper on \(desktopAssignments.count) display(s): \(root.lastPathComponent)")
-        case .scene(let root, _, let preview, let properties, let runtimePropertyNames):
+        case .scene(let root, _, let preview, let properties):
             projectProperties = [:]
             startSceneAssignments(
                 root: root, preview: preview, properties: properties,
-                runtimePropertyNames: runtimePropertyNames,
                 binding: .wallpaper(target: root.path))
             let fallback = preview == nil ? "system wallpaper" : "Workshop preview"
             print("scene fallback on \(desktopAssignments.count) display(s): "
@@ -3076,7 +2990,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
                 effectiveProperties: pending,
                 mediaSnapshotJSON: mediaFeed.snapshotJSON(),
                 accessScope: WebAccessScope(index: index, root: root, properties: pending))
-        case let .scene(root, _, preview, properties, runtimePropertyNames):
+        case let .scene(root, _, preview, properties):
             let executable = FileManager.default.isExecutableFile(atPath: sceneHelperFile.path)
                 ? sceneHelperFile : nil
             return DesktopSceneRuntimeAssignment(
@@ -3086,7 +3000,6 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
                 root: root,
                 preview: preview,
                 properties: properties,
-                runtimePropertyNames: runtimePropertyNames,
                 executable: executable,
                 assetRoot: configuredSceneAssetPath(),
                 fpsCeiling: effective.fpsCeiling,
@@ -3130,7 +3043,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
 
     private func startSceneAssignments(
         root: URL, preview: URL?, properties: [String: Any],
-        runtimePropertyNames: Set<String>, binding: FrescoBinding
+        binding: FrescoBinding
     ) {
         let executable: URL?
         if FileManager.default.isExecutableFile(atPath: sceneHelperFile.path) {
@@ -3150,7 +3063,6 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
                 return DesktopSceneRuntimeAssignment(
                     displayID: displayID, binding: binding, screen: screen,
                     root: root, preview: preview, properties: properties,
-                    runtimePropertyNames: runtimePropertyNames,
                     executable: executable, assetRoot: assetRoot,
                     onAudioSupportChanged: { [weak self] in self?.reconcileAudioTap() },
                     onEvidenceChanged: { [weak self] in self?.publishStatus() })
@@ -3231,7 +3143,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
                 screen: display.screen, index: index, root: root,
                 properties: properties, surface: .cover,
                 attachTo: display.panel, mediaSnapshotJSON: mediaSnapshot)
-        case .scene(_, _, let preview, _, _)?:
+        case .scene(_, _, let preview, _)?:
             if let preview {
                 display.backdropImage = ImageHost(
                     screen: display.screen, url: preview, attachTo: display.panel)
