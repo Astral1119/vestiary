@@ -246,10 +246,24 @@ void TextEffectRenderer::createGeometry () {
     const float height = static_cast<float> (m_textureSize.y);
     const float halfWidth = width * 0.5f;
     const float halfHeight = height * 0.5f;
+    // The quad stays centred because the source FBO is rendered centred too —
+    // renderEffects builds its MVP as ortho(-w/2, w/2, -h/2, h/2). Reshaping
+    // this quad to the alignment extents instead samples half the texture and
+    // clips the glyphs; alignment is applied as an origin offset in
+    // updateScreenMVP, which keeps quad and content in agreement.
+    const float quadLeft = -halfWidth;
+    const float quadRight = halfWidth;
+
+    // Vertex order must correspond to `texcoord` below, which every pass shares.
+    // This used to run bottom-left, bottom-right, top-right… against texcoords
+    // ordered top-left, bottom-left, top-right, so the composited result was
+    // mirrored in both axes — a 180 degree rotation of the glyphs. `pass` is the
+    // reference order: it pairs with the same texcoords and its intermediate
+    // results are upright.
     const GLfloat scene[] = {
-        -halfWidth, -halfHeight, 0.0f, halfWidth, -halfHeight, 0.0f,
-        halfWidth, halfHeight, 0.0f, -halfWidth, -halfHeight, 0.0f,
-        halfWidth, halfHeight, 0.0f, -halfWidth, halfHeight, 0.0f,
+        quadLeft, halfHeight, 0.0f, quadLeft, -halfHeight, 0.0f,
+        quadRight, halfHeight, 0.0f, quadRight, halfHeight, 0.0f,
+        quadLeft, -halfHeight, 0.0f, quadRight, -halfHeight, 0.0f,
     };
     const GLfloat copy[] = {
         0.0f, height, 0.0f, 0.0f, 0.0f, 0.0f, width, height, 0.0f,
@@ -375,6 +389,19 @@ void TextEffectRenderer::configurePasses () {
         }
 
         const bool rendersToScene = last && !writesTarget;
+
+        // A pass that composites onto the scene has to blend. BlendingMode_Normal
+        // is a straight replace — CPass maps it to glBlendFuncSeparate(GL_ONE,
+        // GL_ZERO) — so the transparent margin around the glyphs overwrites the
+        // scene with the source FBO's cleared black. That is what made Persona's
+        // shadow and media text render as opaque black rectangles rather than
+        // text. The direct glyph path always blends SRC_ALPHA/ONE_MINUS_SRC_ALPHA,
+        // which is BlendingMode_Translucent, so matching it keeps the two paths
+        // consistent. An authored Additive or Translucent mode is left alone.
+        if (rendersToScene && pass->getBlendingMode () == BlendingMode_Normal) {
+            pass->setBlendingMode (BlendingMode_Translucent);
+        }
+
         pass->setDestination (destination);
         pass->setInput (input);
         pass->setPreviousInput (inTargetSequence ? effectInput : nullptr);
@@ -410,9 +437,35 @@ void TextEffectRenderer::updateScreenMVP () {
     const glm::vec3 scale = transform.scale;
     const float sceneWidth = getScene ().getCamera ().getWidth ();
     const float sceneHeight = getScene ().getCamera ().getHeight ();
+    // Scene origins run bottom-up, and this must match the direct glyph path in
+    // the CText patch block, which maps Y as `scene_h * 0.5 - origin.y`. This
+    // expression was the sign mirror of it, so every text whose active effect
+    // chain composites rendered at `sceneHeight - origin.y` — a reflection
+    // about the scene's horizontal centre, growing with distance from it.
+    //
+    // It survived because nothing measured it. `renderTextEffects` only
+    // composites when a TextEffectRegistrySession is active, and only
+    // RendererSession creates one, so the smoke tool never takes this path at
+    // all: a Persona render with FRESCO_SCENE_TEXT_EFFECTS_DISABLED set and
+    // unset differs by 39 pixels against a 67-pixel same-build noise floor.
+    // Verify changes here against a helper session or a window capture of the
+    // live desktop; a green smoke suite says nothing about this line.
+    // The composited quad is centred on its origin, so the authored alignment
+    // has to be applied here as an offset — the same intent as m_quadLeft and
+    // m_quadRight on the direct glyph path, expressed as a translation because
+    // the effect FBO's content is centred. Without it, right-aligned text sat
+    // half its width too far right: Persona's song, artist and album lines
+    // landed on top of the album cover instead of ending to its left.
+    float alignmentOffset = 0.0f;
+    if (m_text.alignment == "right") {
+        alignmentOffset = -static_cast<float> (m_textureSize.x) * 0.5f;
+    } else if (m_text.alignment == "left") {
+        alignmentOffset = static_cast<float> (m_textureSize.x) * 0.5f;
+    }
+
     const glm::vec3 glOrigin {
-        origin.x - sceneWidth * 0.5f,
-        origin.y - sceneHeight * 0.5f,
+        origin.x + alignmentOffset - sceneWidth * 0.5f,
+        sceneHeight * 0.5f - origin.y,
         getScene ().getCamera ().isOrthogonal () ? 0.0f : origin.z,
     };
     glm::mat4 model = glm::translate (glm::mat4 (1.0f), glOrigin);
