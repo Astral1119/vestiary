@@ -88,7 +88,7 @@ with tempfile.TemporaryDirectory() as temporary:
             ),
             definition(
                 "tint", "color", value="1 1 1", editable=True,
-                runtimeSupported=False, active=True,
+                runtimeSupported=True, active=True,
             ),
         ],
     }

@@ -918,7 +918,7 @@ enum FrescoMain {
 
     if flags.contains("--self-test-scene-resolution") {
         guard let path = positional.first,
-              case .scene(let root, let package, let preview, _, _)? = resolveWallpaper(path),
+              case .scene(let root, let package, let preview, _)? = resolveWallpaper(path),
               root.lastPathComponent == "scene-project",
               package.lastPathComponent == "scene.pkg",
               preview == nil else {
@@ -945,7 +945,8 @@ enum FrescoMain {
                     "type": "slider", "value": 0.5, "min": 0, "max": 1,
                     "text": "<b>Music volume</b>", "order": 4,
                 ],
-                "tint": ["type": "color", "value": "1 1 1"],
+                "tint": ["type": "COLOR", "value": "1 1 1"],
+                "texture": ["type": "scenetexture", "value": "foreground"],
             ]],
         ]
         let local: [String: Any] = ["musicvolume": 0.75, "unknown": 4]
@@ -954,28 +955,7 @@ enum FrescoMain {
         try? JSONSerialization.data(withJSONObject: local).write(
             to: root.appendingPathComponent("properties.local.json"))
 
-        let scene: [String: Any] = ["objects": [[
-            "sound": ["music.ogg"],
-            "volume": ["user": "musicvolume", "value": 0.5],
-        ]]]
-        let sceneData = try! JSONSerialization.data(withJSONObject: scene)
-        func appendUInt32(_ value: UInt32, to data: inout Data) {
-            var littleEndian = value.littleEndian
-            withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
-        }
-        func appendString(_ value: String, to data: inout Data) {
-            let bytes = Data(value.utf8)
-            appendUInt32(UInt32(bytes.count), to: &data)
-            data.append(bytes)
-        }
-        var package = Data()
-        appendString("PKGV0001", to: &package)
-        appendUInt32(1, to: &package)
-        appendString("scene.json", to: &package)
-        appendUInt32(0, to: &package)
-        appendUInt32(UInt32(sceneData.count), to: &package)
-        package.append(sceneData)
-        try? package.write(to: root.appendingPathComponent("scene.pkg"))
+        try? Data().write(to: root.appendingPathComponent("scene.pkg"))
 
         try? FileManager.default.createDirectory(
             at: propertyStateDirectory, withIntermediateDirectories: true)
@@ -986,12 +966,20 @@ enum FrescoMain {
         try? JSONSerialization.data(withJSONObject: record).write(
             to: propertyStateURL(for: root.path))
 
-        let sceneProjection = sceneUserProperties(from: [
+        let sceneProjection = sceneEditableUserProperties(from: [
+            "enabled": ["type": "bool", "value": true],
+            "mode": ["type": "combo", "value": "calm"],
             "musicvolume": [
                 "type": "slider", "value": 0.25, "text": "Music volume",
                 "min": 0, "max": 1, "order": 4,
             ],
-            "invalid": ["value": [1, 2, 3]],
+            "tint": ["type": "COLOR", "value": "1 1 1"],
+            "caption": ["type": "textinput", "value": "hello"],
+            "label": ["type": "text", "value": "Label"],
+            "section": ["type": "group", "value": "Section"],
+            "texture": ["type": "scenetexture", "value": "foreground"],
+            "asset": ["type": "file", "value": "image.png"],
+            "folder": ["type": "directory", "value": "assets"],
         ])
         let projectedMusic = sceneProjection["musicvolume"] as? [String: Any]
 
@@ -1007,8 +995,7 @@ enum FrescoMain {
         try? JSONSerialization.data(withJSONObject: preset).write(
             to: presetRoot.appendingPathComponent("project.json"))
 
-        guard case let .scene(_, _, _, properties, names)? = resolveWallpaper(root.path),
-              names == Set(["musicvolume"]),
+        guard case let .scene(_, _, _, properties)? = resolveWallpaper(root.path),
               let music = properties["musicvolume"] as? [String: Any],
               (music["value"] as? NSNumber)?.doubleValue == 0.25,
               properties["unknown"] == nil,
@@ -1016,12 +1003,17 @@ enum FrescoMain {
               description["kind"] as? String == "scene",
               let presentation = description["presentation"] as? [[String: Any]],
               let supported = presentation.first(where: {
-                  $0["name"] as? String == "musicvolume"
+                  $0["name"] as? String == "tint"
               }),
               supported["runtimeSupported"] as? Bool == true,
-              let unsupported = presentation.first(where: { $0["name"] as? String == "tint" }),
+              let unsupported = presentation.first(where: {
+                  $0["name"] as? String == "texture"
+              }),
               unsupported["runtimeSupported"] as? Bool == false,
-              Set(sceneProjection.keys) == Set(["musicvolume"]),
+              sceneProjection["texture"] == nil,
+              Set(sceneProjection.keys) == Set([
+                  "enabled", "mode", "musicvolume", "tint", "caption",
+              ]),
               Set(projectedMusic?.keys.map { $0 } ?? []) == Set(["value"]),
               (projectedMusic?["value"] as? NSNumber)?.doubleValue == 0.25,
               wallpaperProjectDescription(presetRoot.path) == nil else {
