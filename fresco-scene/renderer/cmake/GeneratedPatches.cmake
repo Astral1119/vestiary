@@ -821,6 +821,12 @@ string(REPLACE
     "${text_source}"
 )
 string(REPLACE
+    "\torigin.z,\n    };"
+    "\tgetScene ().getCamera ().isOrthogonal () ? 0.0f : origin.z,\n    };"
+    text_source
+    "${text_source}"
+)
+string(REPLACE
     "    const glm::vec3 scale = m_text.scale->value->getVec3 ();\n    const glm::vec3 origin = m_text.origin->value->getVec3 ();"
     "    const auto transform = FrescoScene::resolveSceneObjectTransform (getScene (), m_text);\n    const glm::vec3 scale = transform.scale;\n    const glm::vec3 origin = transform.origin;"
     text_source
@@ -912,6 +918,11 @@ fresco_require_generated_patch(
     text_source
     "scene_h * 0.5f - origin.y"
     "bottom-up text origin mapping"
+)
+fresco_require_generated_patch(
+    text_source
+    "getScene ().getCamera ().isOrthogonal () ? 0.0f : origin.z"
+    "orthographic text origin z removal"
 )
 fresco_require_generated_patch(
     text_source
