@@ -1090,6 +1090,17 @@ file(READ
     pass_source
 )
 string(REPLACE
+    "    this->addUniform (\"g_Brightness\", renderable.getBrightness ());\n    this->addUniform (\"g_UserAlpha\", renderable.getUserAlpha ());\n    this->addUniform (\"g_Alpha\", renderable.getAlpha ());\n    this->addUniform (\"g_Color\", renderable.getColor ());\n    this->addUniform (\"g_Color4\", renderable.getColor4 ());"
+    "    this->addUniform (\"g_Brightness\", &renderable.getBrightness ());\n    this->addUniform (\"g_UserAlpha\", &renderable.getUserAlpha ());\n    this->addUniform (\"g_Alpha\", &renderable.getAlpha ());\n    this->addUniform (\"g_Color\", &renderable.getColor ());\n    this->addUniform (\"g_Color4\", &renderable.getColor4 ());"
+    pass_source
+    "${pass_source}"
+)
+fresco_require_generated_patch(
+    pass_source
+    "this->addUniform (\"g_Brightness\", &renderable.getBrightness ());\n    this->addUniform (\"g_UserAlpha\", &renderable.getUserAlpha ());\n    this->addUniform (\"g_Alpha\", &renderable.getAlpha ());\n    this->addUniform (\"g_Color\", &renderable.getColor ());\n    this->addUniform (\"g_Color4\", &renderable.getColor4 ());"
+    "live object brightness, alpha, and color uniforms"
+)
+string(REPLACE
     "#include \"CPass.h\""
     "#include \"WallpaperEngine/Render/Objects/Effects/CPass.h\"\n#include \"FrescoScene/EffectRenderEvidence.h\"\n#include \"FrescoScene/ProceduralEffectCompositing.h\"\n#include \"FrescoScene/RenderProgramCache.h\"\n#include \"FrescoScene/TextureAnimationScript.h\"\n#include <map>\n#include <memory>\n#include <tuple>\n#include <vector>"
     pass_source
