@@ -5,6 +5,14 @@
 Persona's date root resolves to z=50 through its origin script. The direct
 clock child inherits that z, while the date root renders through the text
 effect compositor. Both used to land outside the orthographic camera volume.
+
+Both objects are rendered on the direct glyph path here. That is what this test
+has always measured — the smoke tool had no TextEffectRegistrySession when it
+was written, so object 626 could not composite even though the docstring above
+says it does. The session exists now, and object 626 composites to a uniform
+frame under an object filter while the direct path draws 1,258 varying pixels,
+so leaving the switch off would turn an open compositing defect into a failure
+of the z assertion. Drop the environment variable once composited text draws.
 """
 
 import json
@@ -83,6 +91,7 @@ with tempfile.TemporaryDirectory(prefix="fresco-persona-text-z-") as directory:
         environment = os.environ.copy()
         environment["FRESCO_SCENE_AUDIO_DISABLED"] = "1"
         environment["FRESCO_SCENE_OBJECT_FILTER"] = str(object_id)
+        environment["FRESCO_SCENE_TEXT_EFFECTS_DISABLED"] = "1"
         result = subprocess.run(
             [RENDERER, PERSONA, ASSETS, output, str(FRAMES)],
             capture_output=True,

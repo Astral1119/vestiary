@@ -25,6 +25,8 @@
 
 #include "FrescoScene/RenderProgramCache.h"
 #include "FrescoScene/SceneObjectModelTransform.h"
+#include "FrescoScene/TextEffectRegistry.h"
+#include "FrescoScene/TextEffectRenderer.h"
 
 #include <algorithm>
 #include <array>
@@ -177,6 +179,31 @@ public:
 private:
     const void* m_context;
     FrescoScene::RenderResourceGeneration m_generation;
+};
+
+// Composited text renderers are cached in a process-global map keyed by scene,
+// and each one owns passes that release GL programs on destruction. Left in the
+// map they are destroyed at `exit`, by which point the program cache's mutex has
+// already been destroyed by static teardown and the process aborts. So the cache
+// is dropped here while the context is still current, which is what
+// `RendererSession::retireResources` does.
+class TextEffectRendererLease final {
+public:
+    explicit TextEffectRendererLease (
+        const WallpaperEngine::Render::Wallpapers::CScene* scene
+    ) : m_scene (scene) { }
+
+    ~TextEffectRendererLease () noexcept {
+        try {
+            FrescoScene::clearTextEffectRenderers (m_scene);
+        } catch (...) { }
+    }
+
+    TextEffectRendererLease (const TextEffectRendererLease&) = delete;
+    TextEffectRendererLease& operator= (const TextEffectRendererLease&) = delete;
+
+private:
+    const WallpaperEngine::Render::Wallpapers::CScene* m_scene;
 };
 
 int environmentDimension (const char* name, int fallback) {
@@ -476,6 +503,43 @@ void traceVisibilityFlips (
     }
 }
 
+// Reports what each text object's effect chain decided: whether it composited
+// through TextEffectRenderer, fell back to direct glyphs, or was rejected, and
+// which effect blocked it. The composited path is otherwise unobservable from a
+// capture alone — a chain that silently falls back renders plausible text — so
+// a test that means to cover compositing asserts on these lines rather than on
+// pixels only. Off unless FRESCO_SCENE_TEXT_EFFECT_TRACE is set.
+void traceTextEffectChains (
+    const WallpaperEngine::Render::Wallpapers::CScene& scene
+) {
+    if (std::getenv ("FRESCO_SCENE_TEXT_EFFECT_TRACE") == nullptr) {
+        return;
+    }
+    for (const auto& evidence : FrescoScene::textEffectChainEvidence (&scene)) {
+        std::cout << "textEffectChain id=" << evidence.objectId
+                  << " mode=" << FrescoScene::textEffectChainModeName (evidence.mode)
+                  << " active=" << evidence.activeEffectIds.size ()
+                  << " supported=" << evidence.supportedActiveEffects
+                  << " blocking=" << evidence.blockingEffectIds.size ()
+                  << " stage="
+                  << FrescoScene::textEffectBlockerStageName (
+                         evidence.firstBlockingStage
+                     )
+                  << " reason=" << evidence.reason << '\n';
+    }
+}
+
+std::size_t compositedTextEffectChains (
+    const WallpaperEngine::Render::Wallpapers::CScene& scene
+) {
+    const auto evidence = FrescoScene::textEffectChainEvidence (&scene);
+    return static_cast<std::size_t> (std::count_if (
+        evidence.begin (), evidence.end (), [] (const auto& entry) {
+            return entry.mode == FrescoScene::TextEffectChainMode::composited;
+        }
+    ));
+}
+
 // Reports each rendered object's own and parent-resolved visibility, so a
 // missing subject can be attributed to its own property, an ancestor, or
 // neither. Off unless FRESCO_SCENE_VISIBILITY_TRACE is set.
@@ -575,6 +639,16 @@ void render (
 
     auto container = createContainer (projectRoot, assetRoot);
     const JSON projectJSON = JSON::parse (container->readString ("project.json"));
+
+    // Text objects hand their effect chains to the registry while the project
+    // parses, and `renderTextEffects` composites only for a scene the registry
+    // owns. Without a session here the parse discards every chain and the
+    // composited path is unreachable, which is how three defects lived in it
+    // untested. Constructed before the parse and bound after the scene exists,
+    // matching RendererSession.
+    FrescoScene::TextEffectRegistrySession textEffectRegistry;
+    textEffectRegistry.activate ();
+
     WallpaperEngine::Data::Model::ProjectUniquePtr project;
     try {
         project = ProjectParser::parse (
@@ -632,6 +706,8 @@ void render (
     } catch (const std::exception& error) {
         throw std::runtime_error ("scene construction failed: " + std::string (error.what ()));
     }
+    textEffectRegistry.bindScene (scene.get ());
+    TextEffectRendererLease textEffectRendererLease (scene.get ());
     const auto seededProperties = projectUserProperties (projectJSON);
     if (visibilityTraceEnabled ()) {
         std::cout << "seededUserProperties count=" << seededProperties.values.size ();
@@ -667,6 +743,7 @@ void render (
     }
 
     traceVisibility (*scene);
+    traceTextEffectChains (*scene);
 
     glBindFramebuffer (GL_FRAMEBUFFER, output.framebuffer);
     std::vector<uint8_t> pixels (static_cast<std::size_t> (width) * height * 4);
@@ -705,7 +782,8 @@ void render (
               << " scriptLayers=" << scriptEngine.layerCount ()
               << " scriptUpdates=" << scriptEngine.updateCount ()
               << " scriptTextChanges=" << scriptEngine.textChangeCount ()
-              << " scriptErrors=" << scriptEngine.errorCount () << '\n';
+              << " scriptErrors=" << scriptEngine.errorCount ()
+              << " textEffectChains=" << compositedTextEffectChains (*scene) << '\n';
 }
 
 }

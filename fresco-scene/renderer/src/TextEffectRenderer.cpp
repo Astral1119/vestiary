@@ -498,6 +498,24 @@ void TextEffectRenderer::renderEffects (
         -static_cast<float> (m_textureSize.y) * 0.5f,
         static_cast<float> (m_textureSize.y) * 0.5f
     );
+    // The composited geometry is otherwise unmeasurable from a capture: a quad
+    // that covers the whole screen and one that covers the glyphs both read as
+    // "the text is there". Reports the raster the FBO was sized from and the
+    // scene extent the quad reaches, which is what separates the two.
+    if (std::getenv ("FRESCO_SCENE_TEXT_EFFECT_TRACE") != nullptr) {
+        const glm::vec4 centre = m_screenMVP * glm::vec4 (0.0f, 0.0f, 0.0f, 1.0f);
+        sLog.out (
+            "textEffectQuad id=", m_text.id,
+            " ndc=", centre.x / centre.w, ',', centre.y / centre.w,
+            ',', centre.z / centre.w,
+            " raster=", textureSize.x, 'x', textureSize.y,
+            " padding=", padding,
+            " texture=", m_textureSize.x, 'x', m_textureSize.y,
+            " scene=", static_cast<int> (getScene ().getCamera ().getWidth ()),
+            'x', static_cast<int> (getScene ().getCamera ().getHeight ()),
+            " passes=", m_passes.size ()
+        );
+    }
     renderSource (m_sourceFBO, sourceMVP);
     for (auto* pass : m_passes) {
         pass->render ();
