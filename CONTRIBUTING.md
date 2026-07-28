@@ -157,13 +157,14 @@ livery/generate-themes
 git diff --exit-code -- livery/themes.json
 ```
 
-Adapter discovery, selection, conformance, CSS output, and the Visual Studio
-Code entry point have a focused check that does not compile the native
-surfaces:
+Adapter discovery, selection, conformance, CSS output, the Visual Studio Code
+entry point, and the cold launch sequence have focused checks that do not
+compile the native surfaces:
 
 ```sh
 livery/tests/adapters.sh
 livery/tests/desktop-sync.sh
+livery/tests/launch-sequence.sh
 python3 fresco/tests/workshop_test.py
 sh fresco-scene/tests/validate.sh
 setup/tests/install-state.sh

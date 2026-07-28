@@ -6,6 +6,10 @@ APP="${XDG_CACHE_HOME:-$HOME/.cache}/livery/Livery.app"
 BIN="$APP/Contents/MacOS/lvry"
 PROCESS_PATTERN="^(/private)?${BIN}$"
 READY="/tmp/livery-$(id -u).ready"
+BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$ROOT/Info.plist")
+# launchd names an app's service record after its bundle identifier with a
+# per-launch suffix, so the prefix is what identifies a retiring instance.
+SERVICE_PREFIX="application.$BUNDLE."
 
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
@@ -37,6 +41,11 @@ if [ "$needs_build" = 1 ]; then
   mv -f "$BIN.next" "$BIN"
 fi
 
+retiring() {
+  [ -n "$(pgrep -f "$PROCESS_PATTERN" 2>/dev/null || true)" ] && return 0
+  launchctl list 2>/dev/null | grep -Fq "$SERVICE_PREFIX"
+}
+
 # Deterministic launch: retire existing instances and stale readiness
 # before opening, so this always yields exactly one fresh instance.
 pids=$(pgrep -f "$PROCESS_PATTERN" 2>/dev/null || true)
@@ -44,7 +53,19 @@ if [ -n "$pids" ]; then
   printf '%s\n' "$pids" | while IFS= read -r pid; do
     kill -TERM "$pid" 2>/dev/null || true
   done
-  sleep 0.3
+  # Wait for the exit to finish rather than sleeping a constant. An `open`
+  # issued while launchd still holds the service record queues as launch-job
+  # demand and fires late, which is the shape of the duplicate launches in the
+  # July 19 logs. Measured on this machine: the process exits within 5 ms and
+  # the record is dropped 0.26 s after SIGTERM, so 0.3 s was a coin flip in
+  # both directions. Each iteration costs about 60 ms, most of it the /bin/sleep
+  # spawn, which puts the bound near 5 s; past it, open anyway, because a late
+  # instance beats none.
+  attempt=0
+  while [ "$attempt" -lt 80 ] && retiring; do
+    sleep 0.01
+    attempt=$((attempt + 1))
+  done
 fi
 rm -f "$READY"
 
