@@ -1625,6 +1625,17 @@ fresco_require_generated_patch(
     "failed bloom object guard"
 )
 string(REPLACE
+    "    // take into account any dependency first\n    for (const auto& dep : object.dependencies) {\n\t// self-dependency is possible\n\tif (dep == object.id) {\n\t    continue;\n\t}\n\n\t// add the dependency to the list if it's created\n\tauto depIt = std::ranges::find_if (this->getScene ().objects, [&dep] (const auto& o) { return o->id == dep; });\n\n\tif (depIt != this->getScene ().objects.end ()) {\n\t    this->addObjectToRenderOrder (**depIt);\n\t} else {\n\t    sLog.error (\"Cannot find dependency \", dep, \" for object \", object.id);\n\t}\n    }"
+    "    const bool hoistDependencies = !object.is<Image> ()\n\t|| std::ranges::any_of (object.as<Image> ()->effects, [] (const auto& effect) {\n\t       return effect != nullptr && effect->visible != nullptr\n\t\t   && effect->visible->value != nullptr\n\t\t   && effect->visible->value->getBool ();\n\t   });\n\n    // Only visible effect passes consume their declared layer dependencies.\n    if (hoistDependencies) {\n\tfor (const auto& dep : object.dependencies) {\n\t    // self-dependency is possible\n\t    if (dep == object.id) {\n\t\tcontinue;\n\t    }\n\n\t    // add the dependency to the list if it's created\n\t    auto depIt = std::ranges::find_if (this->getScene ().objects, [&dep] (const auto& o) { return o->id == dep; });\n\n\t    if (depIt != this->getScene ().objects.end ()) {\n\t\tthis->addObjectToRenderOrder (**depIt);\n\t    } else {\n\t\tsLog.error (\"Cannot find dependency \", dep, \" for object \", object.id);\n\t    }\n\t}\n    }"
+    scene_source
+    "${scene_source}"
+)
+fresco_require_generated_patch(
+    scene_source
+    "const bool hoistDependencies"
+    "visible effect dependency render ordering"
+)
+string(REPLACE
     "CScene::~CScene () {\n    // bloom object"
     "CScene::~CScene () {\n    this->m_scriptEngine->shutdown ();\n\n    // bloom object"
     scene_source
