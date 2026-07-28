@@ -138,9 +138,9 @@ for fixture in fixture_manifest["items"]:
     assert picker["note"].strip(), (fixture["id"], picker)
     picker_counts[picker["status"]] += 1
 assert picker_counts == {
-    "available": 4,
+    "available": 5,
     "reach": 4,
-    "not-yet-possible": 6,
+    "not-yet-possible": 5,
 }, picker_counts
 
 checked = 0

@@ -399,8 +399,8 @@
       "title": "Persona 3 Reload [4K + Day/Night cycle]",
       "role": "advanced-2d-script-media-stress",
       "picker": {
-        "status": "not-yet-possible",
-        "note": "not reproduced vs WE — character figures absent, date/time render as black boxes, day/night cycle wrong (too bright for night) and colors off"
+        "status": "available",
+        "note": "characters, composition and the date/time clusters read well vs WE after the text and composition fixes; music-note particles still diverge while audio plays, media text is unverified because it draws only while media plays, and the night brightness reported at the corpus review has not been re-checked"
       },
       "creatorSteamID": "76561198098298396",
       "workshopUpdatedAt": "2024-11-28T07:51:40Z",
