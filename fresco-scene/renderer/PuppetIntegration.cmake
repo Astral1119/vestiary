@@ -770,6 +770,39 @@ fresco_require_generated_patch(
     "Pass wiring is structural and decided once"
     "dynamic visibility final-pass wiring"
 )
+set(passthrough_size_before [=[glm::vec2 CImage::getSize () const {
+    if (this->m_texture == nullptr) {
+	return this->getImage ().size;
+    }
+
+    return { this->m_texture->getRealWidth (), this->m_texture->getRealHeight () };
+}]=])
+set(passthrough_size_after [=[glm::vec2 CImage::getSize () const {
+    const glm::vec2 authoredSize = this->getImage ().size;
+    if (
+	this->getImage ().model->passthrough
+	&& authoredSize.x != 0.0f
+	&& authoredSize.y != 0.0f
+    ) {
+	return authoredSize;
+    }
+    if (this->m_texture == nullptr) {
+	return authoredSize;
+    }
+
+    return { this->m_texture->getRealWidth (), this->m_texture->getRealHeight () };
+}]=])
+string(REPLACE
+    "${passthrough_size_before}"
+    "${passthrough_size_after}"
+    puppet_image_source
+    "${puppet_image_source}"
+)
+fresco_require_generated_patch(
+    puppet_image_source
+    "const glm::vec2 authoredSize = this->getImage ().size"
+    "passthrough composition authored size"
+)
 fresco_write_generated(
     "${CMAKE_CURRENT_BINARY_DIR}/generated/CImage.cpp"
     puppet_image_source
