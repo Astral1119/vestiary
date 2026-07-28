@@ -15,7 +15,7 @@ PuppetRuntimeMesh::PuppetRuntimeMesh (std::span<const std::byte> data)
     }
     m_indices.reserve (m_model.triangles ().size () * 3);
     for (const auto& triangle : m_model.triangles ()) {
-        for (const uint32_t index : triangle) {
+        for (const uint32_t index : { triangle[0], triangle[2], triangle[1] }) {
             if (index > std::numeric_limits<uint16_t>::max ()) {
                 throw PuppetParseError ("bounded puppet mesh requires 16-bit indices");
             }
