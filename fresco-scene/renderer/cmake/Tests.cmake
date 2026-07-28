@@ -302,6 +302,19 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        fresco-scene-renderer-text-alignment
+        tests/text_alignment_test.cpp
+        src/TextAlignment.cpp
+    )
+    target_include_directories(
+        fresco-scene-renderer-text-alignment PRIVATE include
+    )
+    add_test(
+        NAME fresco-scene-renderer-text-alignment
+        COMMAND fresco-scene-renderer-text-alignment
+    )
+
+    add_executable(
         fresco-scene-renderer-text-width-limit
         tests/text_width_limit_test.cpp
         src/TextWidthLimit.cpp

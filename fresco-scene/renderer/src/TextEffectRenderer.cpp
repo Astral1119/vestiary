@@ -1,6 +1,7 @@
 #include "FrescoScene/TextEffectRenderer.h"
 #include "FrescoScene/Camera2DControl.h"
 #include "FrescoScene/SceneObjectModelTransform.h"
+#include "FrescoScene/TextAlignment.h"
 #include "FrescoScene/TextEffectRegistry.h"
 
 #include "WallpaperEngine/Data/Assets/Texture.h"
@@ -512,16 +513,21 @@ void TextEffectRenderer::updateScreenMVP () {
     // half the texture put the right edge of the glyphs a padding short of the
     // authored origin — 10 capture pixels for Persona's 626, whose direct-path
     // extent ends at 1118 against the composited 1108.
-    float alignmentOffset = 0.0f;
-    if (m_text.alignment == "right") {
-        alignmentOffset = -static_cast<float> (m_rasterSize.x) * 0.5f;
-    } else if (m_text.alignment == "left") {
-        alignmentOffset = static_cast<float> (m_rasterSize.x) * 0.5f;
-    }
+    const glm::vec2 raster (m_rasterSize);
+    const float alignmentOffsetX
+        = computeTextHorizontalSpan (m_text.alignment, raster.x).centre ();
+    // Both offsets add in the same direction as the span, because glOrigin
+    // runs down the screen on both axes: x directly, y through the
+    // `sceneHeight * 0.5 - origin.y` inversion above. Measured by forcing
+    // `top` on Persona: object 626 moves 18 capture pixels down, half its
+    // 107-pixel raster at the 0.336 capture scale, and 887 on the direct path
+    // moves 6 down for the same reason.
+    const float alignmentOffsetY
+        = computeTextVerticalSpan (m_text.verticalalign, raster.y).centre ();
 
     const glm::vec3 glOrigin {
-        origin.x + alignmentOffset - sceneWidth * 0.5f,
-        sceneHeight * 0.5f - origin.y,
+        origin.x + alignmentOffsetX - sceneWidth * 0.5f,
+        sceneHeight * 0.5f - origin.y + alignmentOffsetY,
         getScene ().getCamera ().isOrthogonal () ? 0.0f : origin.z,
     };
     glm::mat4 model = glm::translate (glm::mat4 (1.0f), glOrigin);

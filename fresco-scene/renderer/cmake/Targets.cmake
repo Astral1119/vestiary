@@ -84,6 +84,7 @@ set(fresco_scene_puppet_system_sources
     src/PuppetLayerSemantics.cpp)
 set(fresco_scene_text_effect_system_sources
     src/MacSystemFontResolver.mm
+    src/TextAlignment.cpp
     src/TextEffectChainDecision.cpp
     src/TextEffectRenderer.cpp
     src/TextCodepoints.cpp
