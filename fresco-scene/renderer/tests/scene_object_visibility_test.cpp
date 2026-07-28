@@ -11,8 +11,12 @@ void testAuthoredTypePropagationPolicy () {
     const auto propagates = FrescoScene::sceneObjectTypePropagatesVisibility;
     assert (propagates (false, false, false)); // Image and generic group.
     assert (!propagates (true, false, false)); // Particle hierarchy.
-    assert (!propagates (false, true, false)); // Text hierarchy.
     assert (!propagates (false, false, true)); // Sound hierarchy.
+
+    // Text gates its children, against Wallpaper Engine. Persona 3151551777's
+    // middle date/time cluster hangs off text object 476, authored off under
+    // the default `datetime`, and the reference draws none of it.
+    assert (propagates (false, true, false));
 }
 
 bool visible (

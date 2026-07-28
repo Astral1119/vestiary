@@ -1513,6 +1513,19 @@ if(BUILD_TESTING
             PROPERTIES TIMEOUT 300
         )
         add_test(
+            NAME fresco-scene-renderer-persona-text-parent-visibility-render
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/persona_text_parent_visibility_render_test.py"
+                "$<TARGET_FILE:fresco-scene-render-smoke>"
+                "${FRESCO_SCENE_WORKSHOP_ROOT}"
+                "${FRESCO_SCENE_ASSETS}"
+        )
+        set_tests_properties(
+            fresco-scene-renderer-persona-text-parent-visibility-render
+            PROPERTIES TIMEOUT 300
+        )
+        add_test(
             NAME fresco-scene-renderer-persona-text-authored-z-render
             COMMAND
                 "${Python3_EXECUTABLE}"
