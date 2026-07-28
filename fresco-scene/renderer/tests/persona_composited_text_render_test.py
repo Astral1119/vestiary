@@ -20,13 +20,13 @@ clear-colour fix it was 920,573 pixels covering the entire frame at 30 frames,
 against 2,028 at one frame, because the leak only reached the following frame's
 clear. That frame-count dependence is why this renders more than one frame.
 
-What this does not assert is that compositing draws the glyphs, because it does
-not. Object 626 rendered alone composites to a uniform frame while the direct
-path draws 1,258 varying pixels, and skipping 626 from the full scene changes
-109 cluster pixels with compositing on against 417 with it off. That is an open
-defect, tracked separately; the difference measured inside the cluster here is
-the two paths disagreeing, not composited output. A fix that makes the glyphs
-appear moves that number up and leaves this test passing.
+It also asserts that each chain draws at all, rendered alone. Containment on its
+own does not: two paths disagree just as loudly when one of them contributes
+nothing, and that is what this file measured when it was written — every chain
+reported mode=composited and rasterised outside clip space, so object 626 alone
+composited to a uniform frame. `blur_precise_gaussian.vert` takes no MVP in its
+horizontal variant, so the copy-space quad the first pass was given never
+reached the viewport. The per-object assertion is what would have caught it.
 """
 
 import os
@@ -56,6 +56,12 @@ COMPOSITED = (392, 626, 646)
 # re-authored position is a real failure rather than a boundary graze.
 REGION = (880, 0, 1280, 220)
 
+# Pixels each chain draws when rendered alone, measured after the clip-space
+# fix. Compared against half these numbers, because the point is to separate
+# "draws" from "draws nothing" — the exact counts move whenever the raster or
+# the blur changes, and the horizontal clipping defect will move them again.
+DRAWN = {392: 281, 626: 1224, 646: 439}
+
 
 def render(directory, name, composited):
     output = pathlib.Path(directory) / name
@@ -75,6 +81,37 @@ def render(directory, name, composited):
         timeout=300,
     )
     return output, result.stdout
+
+
+def render_object(directory, identifier):
+    """Render one object alone. None means it drew nothing at all.
+
+    The smoke tool rejects a uniform frame itself, with an exit status, so a
+    chain that draws nothing never reaches the image comparison. Reporting that
+    as "drew nothing" rather than letting CalledProcessError out keeps the
+    failure legible — the unfixed build lands here for all three objects.
+    """
+    output = pathlib.Path(directory) / f"solo-{identifier}.png"
+    environment = os.environ.copy()
+    environment["FRESCO_SCENE_AUDIO_DISABLED"] = "1"
+    environment["FRESCO_SCENE_OBJECT_FILTER"] = str(identifier)
+    environment.pop("FRESCO_SCENE_TEXT_EFFECTS_DISABLED", None)
+    result = subprocess.run(
+        [RENDERER, PERSONA, ASSETS, output, "2"],
+        capture_output=True,
+        env=environment,
+        text=True,
+        timeout=300,
+    )
+    if result.returncode != 0:
+        reported = result.stdout + result.stderr
+        if "uniform frame" in reported:
+            return None
+        raise AssertionError(
+            f"rendering object {identifier} alone failed with "
+            f"{result.returncode}: {reported[-2000:]}"
+        )
+    return output
 
 
 def chains(stdout):
@@ -140,8 +177,28 @@ with tempfile.TemporaryDirectory(prefix="fresco-persona-composited-text-") as di
         f"which means it is degrading the rest of the scene"
     )
 
+    # Result: and each chain draws something. The containment assertions above
+    # measure the two paths disagreeing, which a chain that composites nothing
+    # also satisfies — that is exactly what the build before this one did, and
+    # the reason this file used to disclaim any assertion that the glyphs
+    # appear. Rendered alone, an empty chain leaves the frame one flat colour.
+    for identifier, expected in DRAWN.items():
+        solo = render_object(directory, identifier)
+        if solo is None:
+            drawn = 0
+        else:
+            colors = Image.open(solo).convert("RGB").getcolors(1 << 22)
+            background = max(colors)[1]
+            drawn = sum(count for count, color in colors if color != background)
+        assert drawn > expected // 2, (
+            f"object {identifier} composited alone drew {drawn} pixels against "
+            f"{expected} measured; a chain that rasterises outside clip space "
+            f"drops to 0 and leaves the frame uniform"
+        )
+
 print(
     f"composited text confined to the date/time cluster: {changed} pixels "
     f"differ inside {REGION} and none outside, over {FRAMES} frames, "
-    f"chains={sorted(COMPOSITED)}"
+    f"chains={sorted(COMPOSITED)}, each drawing {sorted(DRAWN.values())} pixels "
+    f"alone"
 )

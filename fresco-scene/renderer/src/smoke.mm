@@ -664,6 +664,9 @@ void render (
         filter != nullptr) {
         app.getContext ().settings.render.debug.objectFilter = std::atoi (filter);
     }
+    if (std::getenv ("FRESCO_SCENE_PASS_LOG") != nullptr) {
+        app.getContext ().settings.render.debug.passLog = true;
+    }
     if (const char* skipped = std::getenv ("FRESCO_SCENE_SKIP_OBJECTS");
         skipped != nullptr) {
         std::string list (skipped);

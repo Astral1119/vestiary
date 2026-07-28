@@ -79,15 +79,11 @@ private:
     glm::ivec2 m_textureSize = { 0, 0 };
 
     GLuint m_scenePosition = GL_NONE;
-    GLuint m_copyPosition = GL_NONE;
     GLuint m_passPosition = GL_NONE;
-    GLuint m_copyTexCoord = GL_NONE;
     GLuint m_passTexCoord = GL_NONE;
 
     glm::mat4 m_screenMVP = { 1.0f };
     glm::mat4 m_screenMVPInverse = { 1.0f };
-    glm::mat4 m_copyMVP = { 1.0f };
-    glm::mat4 m_copyMVPInverse = { 1.0f };
     glm::mat4 m_passMVP = { 1.0f };
     glm::mat4 m_passMVPInverse = { 1.0f };
     glm::mat4 m_modelMatrix = { 1.0f };

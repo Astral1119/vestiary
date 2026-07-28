@@ -21,6 +21,7 @@
 #include <optional>
 #include <set>
 #include <string_view>
+#include <vector>
 
 #include <glm/common.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -38,6 +39,59 @@ namespace {
 
 using RendererKey = std::pair<const CScene*, int>;
 std::map<RendererKey, std::unique_ptr<TextEffectRenderer>> renderers;
+
+// Reports how much of a stage's framebuffer is actually covered, and the extent
+// the covered pixels span. Geometry alone cannot distinguish a chain that draws
+// from one that does not — FRESCO_SCENE_TEXT_EFFECT_TRACE reported a correct
+// quad for a chain whose first pass rasterised nothing — and a scene capture
+// cannot say which stage lost the glyphs. Coverage per stage can: source empty
+// means renderSource failed, source full and a later stage empty names the pass
+// that dropped them, and a bounds box narrower than the source is the raster
+// clipping the glyphs rather than the quad misplacing them.
+void probeStage (int id, const char* label, const std::shared_ptr<const CFBO>& fbo) {
+    if (std::getenv ("FRESCO_SCENE_TEXT_EFFECT_PROBE") == nullptr) {
+        return;
+    }
+    if (fbo != nullptr) {
+        glBindFramebuffer (GL_FRAMEBUFFER, fbo->getFramebuffer ());
+        glViewport (0, 0, fbo->getRealWidth (), fbo->getRealHeight ());
+    }
+    GLint viewport[4] = { 0, 0, 0, 0 };
+    glGetIntegerv (GL_VIEWPORT, viewport);
+    const int width = viewport[2];
+    const int height = viewport[3];
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    std::vector<unsigned char> pixels (
+        static_cast<size_t> (width) * static_cast<size_t> (height) * 4
+    );
+    glPixelStorei (GL_PACK_ALIGNMENT, 1);
+    glReadPixels (0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data ());
+    size_t covered = 0;
+    int minX = width;
+    int minY = height;
+    int maxX = -1;
+    int maxY = -1;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const size_t offset = (static_cast<size_t> (y) * width + x) * 4;
+            if (pixels[offset + 3] == 0) {
+                continue;
+            }
+            ++covered;
+            minX = std::min (minX, x);
+            minY = std::min (minY, y);
+            maxX = std::max (maxX, x);
+            maxY = std::max (maxY, y);
+        }
+    }
+    sLog.out (
+        "textEffectProbe id=", id, " stage=", label,
+        " size=", width, 'x', height, " covered=", covered,
+        " bounds=", minX, ',', minY, ',', maxX, ',', maxY
+    );
+}
 
 const Material& textSourceMaterial () {
     static const Material material { .filename = "fresco/text-source", .passes = {} };
@@ -66,8 +120,7 @@ TextEffectRenderer::TextEffectRenderer (
 TextEffectRenderer::~TextEffectRenderer () {
     clearPasses ();
     const std::array buffers {
-        m_scenePosition, m_copyPosition, m_passPosition,
-        m_copyTexCoord, m_passTexCoord,
+        m_scenePosition, m_passPosition, m_passTexCoord,
     };
     for (const GLuint buffer : buffers) {
         if (buffer != GL_NONE) {
@@ -236,9 +289,7 @@ void TextEffectRenderer::clearPasses () {
 void TextEffectRenderer::createGeometry () {
     if (m_scenePosition == GL_NONE) {
         glGenBuffers (1, &m_scenePosition);
-        glGenBuffers (1, &m_copyPosition);
         glGenBuffers (1, &m_passPosition);
-        glGenBuffers (1, &m_copyTexCoord);
         glGenBuffers (1, &m_passTexCoord);
     }
 
@@ -265,10 +316,6 @@ void TextEffectRenderer::createGeometry () {
         quadRight, halfHeight, 0.0f, quadRight, halfHeight, 0.0f,
         quadLeft, -halfHeight, 0.0f, quadRight, -halfHeight, 0.0f,
     };
-    const GLfloat copy[] = {
-        0.0f, height, 0.0f, 0.0f, 0.0f, 0.0f, width, height, 0.0f,
-        width, height, 0.0f, 0.0f, 0.0f, 0.0f, width, 0.0f, 0.0f,
-    };
     const GLfloat pass[] = {
         -1.0f, 1.0f, 0.0f, -1.0f, -1.0f, 0.0f, 1.0f, 1.0f, 0.0f,
         1.0f, 1.0f, 0.0f, -1.0f, -1.0f, 0.0f, 1.0f, -1.0f, 0.0f,
@@ -283,14 +330,10 @@ void TextEffectRenderer::createGeometry () {
         glBufferData (GL_ARRAY_BUFFER, size, values, GL_DYNAMIC_DRAW);
     };
     upload (m_scenePosition, scene, sizeof (scene));
-    upload (m_copyPosition, copy, sizeof (copy));
     upload (m_passPosition, pass, sizeof (pass));
-    upload (m_copyTexCoord, texcoord, sizeof (texcoord));
     upload (m_passTexCoord, texcoord, sizeof (texcoord));
 
-    m_copyMVP = glm::ortho (0.0f, width, 0.0f, height);
-    m_copyMVPInverse = glm::inverse (m_copyMVP);
-    m_modelMatrix = m_copyMVP;
+    m_modelMatrix = glm::ortho (0.0f, width, 0.0f, height);
 }
 
 void TextEffectRenderer::rebuild (glm::ivec2 textureSize) {
@@ -363,7 +406,6 @@ void TextEffectRenderer::configurePasses () {
 
     for (auto it = m_passes.begin (); it != m_passes.end (); ++it) {
         CPass* pass = *it;
-        const bool first = it == m_passes.begin ();
         const bool last = std::next (it) == m_passes.end ();
         const auto previousDestination = destination;
         bool writesTarget = false;
@@ -405,16 +447,25 @@ void TextEffectRenderer::configurePasses () {
         pass->setDestination (destination);
         pass->setInput (input);
         pass->setPreviousInput (inTargetSequence ? effectInput : nullptr);
-        pass->setPosition (
-            rendersToScene ? m_scenePosition : (first ? m_copyPosition : m_passPosition)
-        );
-        pass->setTexCoord (first ? m_copyTexCoord : m_passTexCoord);
+        // Every pass here is an effect pass, so they all take the NDC quad and
+        // the identity MVP. CImage gives its first pass a copy-space quad in
+        // texture pixels because that pass is the image's own material, drawing
+        // the image into the FBO the effects then read; its effect passes are
+        // never first. Text has no such pass — renderSource fills the source FBO
+        // — so copying that special case put the effect chain's own first pass on
+        // geometry it cannot use. `blur_precise_gaussian.vert` is where it showed:
+        // the horizontal variant is `gl_Position = vec4(a_Position, 1.0)`, no MVP
+        // at all, so a quad spanning 0..265 in texture pixels landed entirely
+        // outside clip space and the pass rasterised nothing. Every composited
+        // chain on Persona is a blurprecise, which is why the whole path drew no
+        // pixels while still reporting mode=composited.
+        pass->setPosition (rendersToScene ? m_scenePosition : m_passPosition);
+        pass->setTexCoord (m_passTexCoord);
         pass->setModelViewProjectionMatrix (
-            rendersToScene ? &m_screenMVP : (first ? &m_copyMVP : &m_passMVP)
+            rendersToScene ? &m_screenMVP : &m_passMVP
         );
         pass->setModelViewProjectionMatrixInverse (
-            rendersToScene ? &m_screenMVPInverse
-                           : (first ? &m_copyMVPInverse : &m_passMVPInverse)
+            rendersToScene ? &m_screenMVPInverse : &m_passMVPInverse
         );
         pass->setModelMatrix (&m_modelMatrix);
         pass->setViewProjectionMatrix (&m_viewProjectionMatrix);
@@ -517,8 +568,14 @@ void TextEffectRenderer::renderEffects (
         );
     }
     renderSource (m_sourceFBO, sourceMVP);
-    for (auto* pass : m_passes) {
-        pass->render ();
+    probeStage (m_text.id, "source", m_sourceFBO);
+    for (auto it = m_passes.begin (); it != m_passes.end (); ++it) {
+        (*it)->render ();
+        // The probe reads whatever the pass left bound, so the last one reports
+        // the scene rather than an intermediate FBO.
+        probeStage (
+            m_text.id, std::next (it) == m_passes.end () ? "scene" : "pass", nullptr
+        );
     }
 }
 
