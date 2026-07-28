@@ -413,7 +413,7 @@ void TextEffectRenderer::updateScreenMVP () {
     const glm::vec3 glOrigin {
         origin.x - sceneWidth * 0.5f,
         origin.y - sceneHeight * 0.5f,
-        origin.z,
+        getScene ().getCamera ().isOrthogonal () ? 0.0f : origin.z,
     };
     glm::mat4 model = glm::translate (glm::mat4 (1.0f), glOrigin);
     model = glm::rotate (
