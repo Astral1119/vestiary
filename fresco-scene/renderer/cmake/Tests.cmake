@@ -1538,6 +1538,19 @@ if(BUILD_TESTING
             fresco-scene-renderer-persona-composition-layer-resolution-render
             PROPERTIES TIMEOUT 600
         )
+        add_test(
+            NAME fresco-scene-renderer-gbc-dynamic-alpha-render
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/gbc_dynamic_alpha_render_test.py"
+                "$<TARGET_FILE:fresco-scene-render-smoke>"
+                "${FRESCO_SCENE_WORKSHOP_ROOT}"
+                "${FRESCO_SCENE_ASSETS}"
+        )
+        set_tests_properties(
+            fresco-scene-renderer-gbc-dynamic-alpha-render
+            PROPERTIES TIMEOUT 900
+        )
     endif()
     add_test(
         NAME fresco-scene-renderer-gbc-cursor-transform-script
