@@ -1565,6 +1565,20 @@ if(BUILD_TESTING
             fresco-scene-renderer-gbc-dynamic-alpha-render
             PROPERTIES TIMEOUT 900
         )
+        add_test(
+            NAME fresco-scene-renderer-hyuga-puppet-winding-render
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/hyuga_puppet_winding_render_test.py"
+                "$<TARGET_FILE:fresco-scene-render-smoke>"
+                "${FRESCO_SCENE_WORKSHOP_ROOT}"
+                "${FRESCO_SCENE_ASSETS}"
+                "${CMAKE_CURRENT_BINARY_DIR}/evidence/puppet-winding"
+        )
+        set_tests_properties(
+            fresco-scene-renderer-hyuga-puppet-winding-render
+            PROPERTIES TIMEOUT 300
+        )
     endif()
     add_test(
         NAME fresco-scene-renderer-gbc-cursor-transform-script
