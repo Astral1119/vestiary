@@ -114,12 +114,40 @@ private:
     uint32_t m_frame = 1;
 };
 
+// Media-driven layers stay inert unless something fires metadata and album-art
+// listeners, so scenes with a media widget rendered clean here while breaking on
+// a live desktop. Setting FRESCO_SCENE_SMOKE_MEDIA publishes one synthetic
+// now-playing track on the first update, which is what those layers wait for.
 class EmptyMediaSource final : public MediaSource {
 public:
-    EmptyMediaSource () : MediaSource (std::chrono::hours (24)) { }
+    EmptyMediaSource () : MediaSource (std::chrono::hours (24)) {
+        const char* title = std::getenv ("FRESCO_SCENE_SMOKE_MEDIA");
+        if (title == nullptr) {
+            return;
+        }
+        m_publish = true;
+        m_mediaInfo.playbackState = PlaybackState::Playing;
+        m_mediaInfo.title = *title != '\0' ? title : "Smoke Track";
+        m_mediaInfo.artist = "Smoke Artist";
+        m_mediaInfo.album = "Smoke Album";
+        m_mediaInfo.duration = 240.0;
+        m_mediaInfo.position = 30.0;
+        m_mediaInfo.available = true;
+    }
 
 protected:
-    void performUpdate () override { }
+    void performUpdate () override {
+        if (!m_publish || m_published) {
+            return;
+        }
+        m_published = true;
+        this->fireMetadataListeners ();
+        this->fireAlbumArtListeners ();
+    }
+
+private:
+    bool m_publish = false;
+    bool m_published = false;
 };
 
 class RenderResourceContextLease final {
@@ -150,6 +178,20 @@ private:
     const void* m_context;
     FrescoScene::RenderResourceGeneration m_generation;
 };
+
+int environmentDimension (const char* name, int fallback) {
+    const char* raw = std::getenv (name);
+    if (raw == nullptr) {
+        return fallback;
+    }
+    const int parsed = std::atoi (raw);
+    if (parsed < 1 || parsed > 16384) {
+        throw std::runtime_error (
+            std::string (name) + " must be between 1 and 16384"
+        );
+    }
+    return parsed;
+}
 
 struct Framebuffer {
     GLuint framebuffer = 0;
@@ -521,8 +563,10 @@ void render (
     }
     [glContext makeCurrentContext];
 
-    constexpr int width = 1280;
-    constexpr int height = 720;
+    // Defaults match the scene's own 16:9. Override to reproduce defects that
+    // only appear at a display aspect the scene has to be fitted into.
+    const int width = environmentDimension ("FRESCO_SCENE_SMOKE_WIDTH", 1280);
+    const int height = environmentDimension ("FRESCO_SCENE_SMOKE_HEIGHT", 720);
     Framebuffer output (width, height);
     glBindFramebuffer (GL_FRAMEBUFFER, output.framebuffer);
     glViewport (0, 0, width, height);
@@ -608,6 +652,7 @@ void render (
     for (int frame = 0; frame < frameCount; ++frame) {
         g_TimeLast = g_Time;
         g_Time += 1.0f / 60.0f;
+        media.update ();
         driver.dispatchEventQueue ();
         g_traceFrame = frame;
         traceVisibilityFlips (*scene, frame, "pre", visibilityHistory);
