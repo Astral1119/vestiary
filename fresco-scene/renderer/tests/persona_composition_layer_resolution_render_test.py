@@ -53,20 +53,20 @@ def horizontal_gradient(image, bounds):
     return sum(ImageStat.Stat(ImageChops.difference(left, right)).mean) / 3.0
 
 
-def changed_pixel_counts(difference):
+def changed_pixel_counts(difference, bounds=PERSONA_PATCH_BOUNDS):
     changed = [pixel != (0, 0, 0) for pixel in difference.get_flattened_data()]
     width, _ = difference.size
     inside = []
-    for left, top, right, bottom in PERSONA_PATCH_BOUNDS:
-        inside.append(
-            sum(
-                changed[y * width + x]
-                for y in range(top, bottom)
-                for x in range(left, right)
-            )
-        )
-    allowed = sum(inside)
-    return sum(changed), allowed, inside
+    counted = set()
+    for left, top, right, bottom in bounds:
+        region = 0
+        for y in range(top, bottom):
+            for x in range(left, right):
+                if changed[y * width + x] and (x, y) not in counted:
+                    counted.add((x, y))
+                    region += 1
+        inside.append(region)
+    return sum(changed), len(counted), inside
 
 
 with tempfile.TemporaryDirectory(
@@ -78,6 +78,14 @@ with tempfile.TemporaryDirectory(
     )
     persona_skipped = render(
         PERSONA, root / "persona-skipped.png", skipped=PERSONA_LAYERS
+    )
+    # Persona's clock renders live seconds, so independent renders differ
+    # wherever those digits fall, and the digits sit outside both authored
+    # patches. Repeat the intact render to locate that region. It runs last so
+    # it spans more elapsed time than the intact/skipped pair it guards, and
+    # therefore cannot understate the drift.
+    persona_control = render(
+        PERSONA, root / "persona-control.png", skipped=None
     )
     hyuga_intact = render(HYUGA, root / "hyuga-intact.png", skipped=None)
     hyuga_skipped = render(
@@ -92,15 +100,27 @@ with tempfile.TemporaryDirectory(
         == (1280, 720)
     )
 
+    # The nondeterministic region is stable even though the pixel count in it
+    # is not: more wall time elapses before the third render than the second,
+    # so more digits differ. Take the region, not the count.
+    control_difference = ImageChops.difference(persona_intact, persona_control)
+    live_text_bounds = control_difference.getbbox()
+
     persona_difference = ImageChops.difference(
         persona_intact, persona_skipped
     )
-    changed, allowed, inside = changed_pixel_counts(persona_difference)
+    exempt = PERSONA_PATCH_BOUNDS + (
+        (live_text_bounds,) if live_text_bounds else ()
+    )
+    changed, allowed, inside = changed_pixel_counts(
+        persona_difference, bounds=exempt
+    )
     outside = changed - allowed
     assert outside == 0 and changed > 100, (
         persona_difference.getbbox(),
         changed,
         outside,
+        live_text_bounds,
         inside,
         PERSONA_PATCH_BOUNDS,
     )
