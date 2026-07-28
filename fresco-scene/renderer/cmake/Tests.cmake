@@ -1526,6 +1526,20 @@ if(BUILD_TESTING
             PROPERTIES TIMEOUT 300
         )
         add_test(
+            NAME fresco-scene-renderer-persona-unlimited-text-alignment-render
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/persona_unlimited_text_alignment_render_test.py"
+                "$<TARGET_FILE:fresco-scene-render-smoke>"
+                "${FRESCO_SCENE_WORKSHOP_ROOT}"
+                "${FRESCO_SCENE_ASSETS}"
+                "${CMAKE_CURRENT_BINARY_DIR}/evidence/persona-unlimited-text-alignment"
+        )
+        set_tests_properties(
+            fresco-scene-renderer-persona-unlimited-text-alignment-render
+            PROPERTIES TIMEOUT 300
+        )
+        add_test(
             NAME fresco-scene-renderer-persona-dependency-render-order
             COMMAND
                 "${Python3_EXECUTABLE}"
