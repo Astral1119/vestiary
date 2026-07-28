@@ -62,7 +62,9 @@ toggle_single_instance() {
       primary=$ready_pid
     fi
   fi
+  confirmed=1
   if [ -z "$primary" ]; then
+    confirmed=0
     primary=$(printf '%s\n' "$pids" | sort -n | head -n 1)
   fi
   printf '%s\n' "$pids" | while IFS= read -r pid; do
@@ -71,19 +73,13 @@ toggle_single_instance() {
     fi
   done
 
-  attempt=0
-  while [ "$attempt" -lt 80 ]; do
-    if [ -f "$READY" ] && [ "$(cat "$READY")" = "$primary" ]; then
-      open "$APP"
-      return 0
-    fi
-    sleep 0.05
-    attempt=$((attempt + 1))
-  done
-
-  # Readiness never confirmed (stale file, slow instance). A reopen event
-  # is harmless either way — fall back to it rather than failing the keybind.
-  echo "Livery readiness unconfirmed; sending reopen anyway" >>/tmp/lvry.log 2>&1 || true
+  if [ "$confirmed" -eq 0 ]; then
+    # An instance is resident but unconfirmed. The readiness file is written
+    # once at launch and does not survive /tmp reaping, so nothing will write
+    # it for an instance already running and polling for it only burns the
+    # timeout before reopening anyway. A reopen event is harmless either way.
+    echo "Livery readiness unconfirmed; sending reopen" >>/tmp/lvry.log 2>&1 || true
+  fi
   open "$APP"
   return 0
 }
