@@ -1525,6 +1525,19 @@ if(BUILD_TESTING
             fresco-scene-renderer-persona-text-authored-z-render
             PROPERTIES TIMEOUT 300
         )
+        add_test(
+            NAME fresco-scene-renderer-persona-composition-layer-resolution-render
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/persona_composition_layer_resolution_render_test.py"
+                "$<TARGET_FILE:fresco-scene-render-smoke>"
+                "${FRESCO_SCENE_WORKSHOP_ROOT}"
+                "${FRESCO_SCENE_ASSETS}"
+        )
+        set_tests_properties(
+            fresco-scene-renderer-persona-composition-layer-resolution-render
+            PROPERTIES TIMEOUT 600
+        )
     endif()
     add_test(
         NAME fresco-scene-renderer-gbc-cursor-transform-script
