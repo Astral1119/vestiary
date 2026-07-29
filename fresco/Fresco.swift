@@ -2690,6 +2690,60 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Collect each live scene helper's metrics and write them where the CLI can
+    /// read them. Diagnostics only, and the only way to see what a running
+    /// renderer thinks it is doing: the supervisor owns the helper's pipe, so
+    /// nothing outside this process can ask. Triggered by SIGINFO.
+    func dumpSceneMetrics() {
+        let sceneAssignments = desktopAssignments.values.compactMap {
+            $0 as? any SceneRuntimeDisplayAssignment
+        }
+        let requestedAt = ISO8601DateFormatter().string(from: Date())
+        var collected: [String: Any] = [:]
+        var outstanding = sceneAssignments.count
+        let finish = { [weak self] in
+            guard let self else { return }
+            self.writeSceneMetrics([
+                "schemaVersion": 1,
+                "requestedAt": requestedAt,
+                "generation": self.runtimeGeneration,
+                "displays": collected,
+            ])
+        }
+        guard outstanding > 0 else {
+            finish()
+            return
+        }
+        for assignment in sceneAssignments {
+            let displayID = assignment.displayID
+            guard let supervisor = assignment.sceneSupervisor else {
+                collected[displayID] = ["error": "scene helper unavailable"]
+                outstanding -= 1
+                if outstanding == 0 { finish() }
+                continue
+            }
+            supervisor.requestMetrics { event in
+                collected[displayID] = event
+                    ?? ["error": "helper did not answer within the timeout"]
+                outstanding -= 1
+                if outstanding == 0 { finish() }
+            }
+        }
+    }
+
+    private func writeSceneMetrics(_ payload: [String: Any]) {
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]
+        ) else { return }
+        let file = runtimeDirectory.appendingPathComponent("scene-metrics.json")
+        let temporary = file.appendingPathExtension("writing")
+        // Written through a temporary so a reader polling for a newer mtime
+        // never sees a half-written document.
+        try? data.write(to: temporary, options: .atomic)
+        try? FileManager.default.removeItem(at: file)
+        try? FileManager.default.moveItem(at: temporary, to: file)
+    }
+
     func reloadUserProperties() {
         let sceneAssignments = desktopAssignments.values.compactMap {
             $0 as? any SceneRuntimeDisplayAssignment

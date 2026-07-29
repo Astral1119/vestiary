@@ -1037,6 +1037,7 @@ enum FrescoMain {
               --daemon:    read \(runtimeDirectory.appendingPathComponent("state.json").path),
                            reconcile on SIGUSR1,
                            live property refresh on SIGHUP, repose cover on SIGUSR2,
+                           scene metrics dump on SIGINFO,
                            write a pidfile
                            (managed by fresco)
             """ + "\n", stderr)
@@ -1074,6 +1075,11 @@ enum FrescoMain {
     let sigusr2Source = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
     sigusr2Source.setEventHandler { controller.handleReposeCommand() }
     sigusr2Source.resume()
+
+    signal(SIGINFO, SIG_IGN)
+    let siginfoSource = DispatchSource.makeSignalSource(signal: SIGINFO, queue: .main)
+    siginfoSource.setEventHandler { controller.dumpSceneMetrics() }
+    siginfoSource.resume()
 
     application.run()
     }

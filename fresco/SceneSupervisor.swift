@@ -69,6 +69,12 @@ final class SceneHelperSupervisor {
     private var lastAudioSendAt = Date.distantPast
     private let audioInterval: TimeInterval
 
+    // Diagnostics only. The helper answers `metrics` with everything the
+    // renderer knows about itself, and nothing outside this process could ask
+    // for it, because the supervisor owns the pipe. Requests are answered in
+    // arrival order; the helper emits one `metrics` event per request.
+    private var pendingMetrics: [([String: Any]?) -> Void] = []
+
     private(set) var launchCount = 0
     var onEvent: (([String: Any]) -> Void)?
     var onUnavailable: (() -> Void)?
@@ -305,6 +311,9 @@ final class SceneHelperSupervisor {
     private func resetLaunchState() {
         let hadAudioSupport = supportsAudioSpectrum
         suspendAudioTimer()
+        let abandoned = pendingMetrics
+        pendingMetrics.removeAll()
+        abandoned.forEach { $0(nil) }
         outputBuffer.removeAll(keepingCapacity: true)
         helloReceived = false
         rendererAvailable = false
@@ -410,6 +419,34 @@ final class SceneHelperSupervisor {
         }
     }
 
+    /// Ask the running helper for its metrics. Answers nil if the helper is not
+    /// up, if the write fails, or if it does not reply within the timeout —
+    /// a diagnostic must not hang the daemon's main queue waiting on a wedged
+    /// renderer, which is one of the states worth diagnosing.
+    func requestMetrics(
+        timeout: TimeInterval = 2.0, completion: @escaping ([String: Any]?) -> Void
+    ) {
+        guard ready else {
+            completion(nil)
+            return
+        }
+        pendingMetrics.append(completion)
+        let generation = launchGeneration
+        send(type: "metrics") { [weak self] delivered in
+            guard let self else { return }
+            if !delivered { self.resolveMetrics(nil, generation: generation) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
+            self?.resolveMetrics(nil, generation: generation)
+        }
+    }
+
+    private func resolveMetrics(_ event: [String: Any]?, generation: Int? = nil) {
+        if let generation, generation != launchGeneration { return }
+        guard !pendingMetrics.isEmpty else { return }
+        pendingMetrics.removeFirst()(event)
+    }
+
     private func consume(_ data: Data) {
         outputBuffer.append(data)
         while let newline = outputBuffer.firstIndex(of: 0x0a) {
@@ -471,6 +508,8 @@ final class SceneHelperSupervisor {
                 let completion = pendingMuteCompletions.remove(at: index).2
                 completion()
             }
+        case "metrics":
+            resolveMetrics(event)
         case "media-session-applied":
             if event["kind"] as? String == "thumbnail",
                !pendingThumbnailPayloads.isEmpty {

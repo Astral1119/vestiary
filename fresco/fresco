@@ -30,6 +30,7 @@ applied live to an open cover.
   fresco status
   fresco build                       # (re)compile the daemon binary
   fresco scene-build                 # (re)compile the GPL scene helper
+  fresco scene-metrics               # dump the live scene helper's metrics (JSON)
   fresco scene-samples               # seed the measured scene corpus into Livery
   fresco scene-assets [status]
   fresco scene-assets set <path>     # persist a validated owned assets root
@@ -1338,6 +1339,27 @@ def status():
     print(f"log: {LOG}")
 
 
+def scene_metrics():
+    """Ask the running daemon for each scene helper's metrics.
+
+    The supervisor owns the helper's pipe, so this is the only way to see what a
+    live renderer thinks it is doing. SIGINFO makes the daemon collect and write
+    the record; we wait for the file to be newer than the signal."""
+    pid = runtime_pid()
+    if not pid:
+        sys.exit("runtime is not running")
+    path = os.path.join(STATE_DIR, "scene-metrics.json")
+    before = os.path.getmtime(path) if os.path.exists(path) else 0
+    os.kill(pid, signal.SIGINFO)
+    import time
+    for _ in range(60):
+        time.sleep(0.1)
+        if os.path.exists(path) and os.path.getmtime(path) > before:
+            sys.stdout.write(open(path).read())
+            return
+    sys.exit(f"daemon did not write {path} within 6s")
+
+
 def install_agent():
     build()
     build_host()
@@ -1447,6 +1469,8 @@ def main():
     elif command == "scene-build":
         build_scene_helper(force=True)
         print(SCENE_BIN)
+    elif command == "scene-metrics" and len(args) == 1:
+        scene_metrics()
     elif command == "scene-samples" and len(args) == 1:
         scene_samples()
     elif command == "scene-assets":
