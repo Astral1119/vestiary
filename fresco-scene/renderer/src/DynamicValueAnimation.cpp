@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <stdexcept>
 #include <unordered_set>
@@ -208,6 +210,14 @@ void DynamicValueAnimation::parse(const JSON &animation) {
     m_channels.clear();
     m_state = State::Unsupported;
     m_diagnostic = std::move(reason);
+    // A rejected curve never registers as automatic, so it simply never plays
+    // and reports nothing. Hyuga's opening animation is four coordinated
+    // curves and a silent rejection of any one of them leaves that layer
+    // frozen at its authored static value.
+    if (std::getenv("FRESCO_SCENE_ANIMATION_TRACE") != nullptr) {
+      std::fprintf(stderr, "dynamicAnimation rejected: %s\n",
+                   m_diagnostic.c_str());
+    }
   };
 
   if (!animation.is_object()) {

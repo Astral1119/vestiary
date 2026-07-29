@@ -1071,10 +1071,21 @@ string(REPLACE
     pass_header
     "${pass_header}"
 )
+string(REPLACE
+    "    GLuint m_programID;\n    std::shared_ptr<const GLuint> m_sharedProgram;"
+    "    GLuint m_programID;\n    std::shared_ptr<const GLuint> m_sharedProgram;\n    // g_Color4 is the combined carrier for object color, brightness and alpha.\n    // genericimage2.frag declares it in the #else branch opposite\n    // g_Brightness/g_UserAlpha, and multiplies the sample by it whole, so a\n    // shader that takes g_Color4 takes no separate alpha uniform at all.\n    // Composed per frame in setupRenderUniforms; uniforms bind by pointer, so\n    // this needs a stable per-pass address rather than a temporary.\n    glm::vec4 m_color4Composed = glm::vec4 (1.0f);"
+    pass_header
+    "${pass_header}"
+)
 fresco_require_generated_patch(
     pass_header
     "std::shared_ptr<const GLuint> m_sharedProgram;"
     "shared render-pass program lifetime"
+)
+fresco_require_generated_patch(
+    pass_header
+    "glm::vec4 m_color4Composed = glm::vec4 (1.0f);"
+    "composed g_Color4 storage"
 )
 foreach(pass_ownership_marker IN ITEMS
     "TrackedRenderUniquePtr<AttribEntry>"
@@ -1115,6 +1126,33 @@ fresco_require_generated_patch(
     pass_source
     "this->addUniform (\"g_Brightness\", &renderable.getBrightness ());\n    this->addUniform (\"g_UserAlpha\", &renderable.getUserAlpha ());\n    this->addUniform (\"g_Alpha\", &renderable.getAlpha ());\n    this->addUniform (\"g_Color\", &renderable.getColor ());\n    this->addUniform (\"g_Color4\", &renderable.getColor4 ());"
     "live object brightness, alpha, and color uniforms"
+)
+# Object alpha and brightness cannot reach a genericimage4 pass otherwise: that
+# shader declares g_Color4 and neither alpha uniform, and CImage reads alpha and
+# color off different DynamicValues without ever composing them. Wallpaper
+# Engine fades Hyuga 187 -- a genericimage4 layer whose only fade is its object
+# alpha curve -- so g_Color4.a does carry object alpha there.
+string(REPLACE
+    "this->addUniform (\"g_Color4\", &renderable.getColor4 ());"
+    "this->addUniform (\"g_Color4\", &this->m_color4Composed);"
+    pass_source
+    "${pass_source}"
+)
+fresco_require_generated_patch(
+    pass_source
+    "this->addUniform (\"g_Color4\", &this->m_color4Composed);"
+    "composed g_Color4 binding"
+)
+string(REPLACE
+    "void CPass::setupRenderUniforms () {\n    // add uniforms"
+    "void CPass::setupRenderUniforms () {\n    // Compose g_Color4 before upload. This mirrors the g_Brightness/g_UserAlpha\n    // branch of genericimage2.frag exactly: rgb takes brightness, a takes\n    // object alpha. Shaders that declare a separate alpha uniform do not also\n    // declare g_Color4, so nothing applies alpha twice.\n    {\n\tconst auto& color4 = this->m_renderable.getColor4 ();\n\tthis->m_color4Composed = glm::vec4 (\n\t    glm::vec3 (color4) * this->m_renderable.getBrightness (),\n\t    color4.a * this->m_renderable.getAlpha ()\n\t);\n\tif (std::getenv (\"FRESCO_SCENE_CONSTANT_TRACE\") != nullptr) {\n\t    for (const auto& [constantName, constantValue] : this->m_pass.constants) {\n\t\tstd::fprintf (\n\t\t    stderr, \"constantTrace id=%d shader=%s pass %s=%.4f\\n\",\n\t\t    this->m_renderable.getId (), this->m_pass.shader.c_str (),\n\t\t    constantName.c_str (), constantValue->value->getFloat ()\n\t\t);\n\t    }\n\t    for (const auto& [constantName, constantValue] : this->m_override.constants) {\n\t\tstd::fprintf (\n\t\t    stderr, \"constantTrace id=%d shader=%s override %s=%.4f\\n\",\n\t\t    this->m_renderable.getId (), this->m_pass.shader.c_str (),\n\t\t    constantName.c_str (), constantValue->value->getFloat ()\n\t\t);\n\t    }\n\t}\n\tif (std::getenv (\"FRESCO_SCENE_COLOR4_TRACE\") != nullptr) {\n\t    std::fprintf (\n\t\tstderr,\n\t\t\"color4Trace id=%d bound=%d shader=%s authored=%.4f alpha=%.4f brightness=%.4f composed=%.4f\\n\",\n\t\tthis->m_renderable.getId (),\n\t\tthis->m_uniforms.contains (\"g_Color4\") ? 1 : 0,\n\t\tthis->m_pass.shader.c_str (), color4.a,\n\t\tthis->m_renderable.getAlpha (), this->m_renderable.getBrightness (),\n\t\tthis->m_color4Composed.a\n\t    );\n\t}\n    }\n\n    // add uniforms"
+    pass_source
+    "${pass_source}"
+)
+fresco_require_generated_patch(
+    pass_source
+    "this->m_color4Composed = glm::vec4 ("
+    "per-frame g_Color4 composition"
 )
 string(REPLACE
     "#include \"CPass.h\""
