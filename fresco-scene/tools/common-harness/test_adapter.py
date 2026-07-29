@@ -303,6 +303,7 @@ terminal_deadline_released = False
 inactive_metric_calls = 0
 activations = 0
 eos_metric_calls = 0
+resumed = 0
 
 def emit(kind, assignment, **values):
     print(json.dumps({
@@ -319,7 +320,10 @@ def scheduler(phase):
         2: (2, 2, 3, 0, 4),
         3: (5, 5, 6, 0, 8),
         4: (6, 6, 6, 1, 10),
-        5: (6, 6, 6, 1, 11),
+        # Phase 5 is the wrap: position folded back to the start and the player
+        # resumed, so evaluation and presentation carry on climbing rather than
+        # holding at the phase-4 totals.
+        5: (6 + resumed, 6 + resumed, 6 + resumed, 1, 10 + resumed),
     }
     invalidations, evaluations, presentations, suppressions, decisions = values[phase]
     if phase == 2:
@@ -327,9 +331,6 @@ def scheduler(phase):
         evaluations += activations
         presentations += activations
         decisions += activations
-    if MODE == "render-stalled-media" and phase >= 4:
-        presentations += 1
-        suppressions = 0
     return {
         "invalidations": invalidations,
         "decisions": decisions,
@@ -354,13 +355,13 @@ def scheduler(phase):
         "mediaFrameReadyInvalidations": (
             (
                 2 + activations if phase == 2
-                else ({3: 5, 4: 6, 5: 6}.get(phase, 0))
+                else ({3: 5, 4: 6, 5: 6 + resumed}.get(phase, 0))
             )
             + (1 if MODE == "queued-ready-media" and phase >= 2 else 0)
         ),
         "mediaFrameReadyPresentations": (
             2 + activations if phase == 2
-            else ({3: 5, 4: 6, 5: 6}.get(phase, 0))
+            else ({3: 5, 4: 6, 5: 6 + resumed}.get(phase, 0))
         ),
         "lastMediaFrameReadyRevision": (
             8 if MODE == "queued-ready-media" and phase >= 2
@@ -378,8 +379,10 @@ def scheduler(phase):
     }
 
 def media(phase):
-    frames_by_phase = {0: 1, 1: 1, 2: 3 + activations, 3: 8, 4: 8, 5: 8}
-    uploads_by_phase = {0: 1, 1: 1, 2: 3 + activations, 3: 6, 4: 6, 5: 6}
+    frames_by_phase = {0: 1, 1: 1, 2: 3 + activations, 3: 8, 4: 8, 5: 8 + resumed}
+    uploads_by_phase = {
+        0: 1, 1: 1, 2: 3 + activations, 3: 6, 4: 6, 5: 6 + resumed,
+    }
     ready_by_phase = dict(uploads_by_phase)
     if MODE == "queued-ready-media":
         for queued_phase in range(2, 6):
@@ -399,6 +402,8 @@ def media(phase):
         "decodeAttempts": decoded + (1 if phase >= 4 else 0),
         "decodedFrames": decoded,
         "frameReadyEvents": ready,
+        # The stall the end of the asset recorded is durable; the end-of-stream
+        # state it set is not, because the wrap clears it.
         "stalledFrames": 1 if phase >= 4 else 0,
         "frameUploads": uploads,
         "pendingFrames": 1 if phase == 1 else 0,
@@ -409,11 +414,15 @@ def media(phase):
         "globalPlayerDestructions": loads - 1,
         "lastDecodedFrameHash": 222 if phase >= 3 else 111,
         "decodedFrameSequenceHash": 333 + phase,
-        "endOfStreamPlayers": 1 if phase >= 4 else 0,
+        "endOfStreamPlayers": (
+            1 if phase == 4 or (phase >= 4 and MODE == "latched-media") else 0
+        ),
         "decodeMilliseconds": 1.0,
         "uploadSubmissionMilliseconds": 0.5,
         "lastDecodedPresentationSeconds": (
-            1.0 if phase >= 3 else (0.25 + 0.25 * activations)
+            # Phase 5 has folded back to the start of the asset.
+            0.25 if phase == 5 and MODE != "latched-media"
+            else 1.0 if phase >= 3 else (0.25 + 0.25 * activations)
         ),
         "decodes": uploads,
     }
@@ -508,6 +517,11 @@ for line in sys.stdin:
             inactive_metric_calls += 1
         if seeks >= 2:
             eos_metric_calls += 1
+        # Metrics observations taken after the wrap sample. A latched player
+        # never resumes, so it stays frozen at its phase-4 totals.
+        resumed = (
+            0 if MODE == "latched-media" else max(0, eos_metric_calls - 1)
+        )
         if loads > 1 and seeks >= 1:
             phase = 3
         elif loads > 1:
@@ -525,8 +539,6 @@ for line in sys.stdin:
             deadline_active = False
             terminal_deadline_released = True
         frames, media_values = media(phase)
-        if MODE == "render-stalled-media" and phase >= 4:
-            frames += 1
         emit(
             "metrics", assignment, **candidate,
             schedulingMechanism="change-index-v1",
@@ -1582,7 +1594,7 @@ class AdapterTest(unittest.TestCase):
         for mode, message in (
             ("superficial-media", "gated by real frame uploads"),
             ("no-ready-media", "uploads exceed frame-ready events"),
-            ("render-stalled-media", "not suppressed exactly once"),
+            ("latched-media", "did not resume decoding after the playback clock"),
             ("reload-leak-media", "counters leaked across reload"),
             ("teardown-leak-media", "remained live after stop"),
             ("conflated-media", "metric is missing: decodeMilliseconds"),
@@ -1625,9 +1637,11 @@ class AdapterTest(unittest.TestCase):
                 media_fixture_generator=self.fixture_generator(),
             ),
         )
+        # One suppressed present for the frame that reached the end of the asset,
+        # and the wrap phase keeps invalidating and submitting after it.
         self.assertEqual(record["execution"]["suppressedPresents"]["value"], 1)
-        self.assertEqual(record["execution"]["invalidations"]["value"], 11)
-        self.assertEqual(record["execution"]["submissions"]["value"], 16)
+        self.assertEqual(record["execution"]["invalidations"]["value"], 13)
+        self.assertEqual(record["execution"]["submissions"]["value"], 18)
         self.assertEqual(record["shaders"]["compilations"]["value"], 2)
         self.assertEqual(record["shaders"]["pipelineCreations"]["value"], 2)
         semantic_artifact = next(
@@ -1644,7 +1658,7 @@ class AdapterTest(unittest.TestCase):
             [1, 1],
         )
         self.assertEqual(
-            semantic["recordDerivations"]["invalidations"]["value"], 11
+            semantic["recordDerivations"]["invalidations"]["value"], 13
         )
         self.assertEqual(
             components[0]["schedulingEvidence"]["presentationSuppressions"],

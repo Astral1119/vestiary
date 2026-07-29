@@ -65,6 +65,7 @@ MediaPlaybackSample MediaPlaybackClock::sample (double monotonicSeconds) {
         return { .positionSeconds = m_positionSeconds, .shouldDecode = false };
     }
 
+    bool folded = false;
     if (m_lastMonotonicSeconds.has_value ()) {
         const double elapsed = std::max (
             0.0, monotonicSeconds - *m_lastMonotonicSeconds
@@ -73,20 +74,28 @@ MediaPlaybackSample MediaPlaybackClock::sample (double monotonicSeconds) {
         if (elapsed <= suspensionThresholdSeconds) {
             m_positionSeconds += elapsed;
         }
-        if (m_durationSeconds > 0.0) {
+        if (m_durationSeconds > 0.0 && m_positionSeconds >= m_durationSeconds) {
             m_positionSeconds = std::fmod (m_positionSeconds, m_durationSeconds);
+            folded = true;
         }
     }
     m_lastMonotonicSeconds = monotonicSeconds;
 
-    const bool wrapped = m_lastDecodedPosition.has_value ()
-        && m_positionSeconds < *m_lastDecodedPosition;
+    // The fold is reported on its own rather than inferred from the last decode,
+    // because a player can arrive here having never decoded successfully — seek
+    // into the gap past the final frame reaches end-of-stream immediately and
+    // clears the last decoded position, and inferring the wrap from it would
+    // leave such a player unable to ever report one.
+    const bool wrapped = folded
+        || (m_lastDecodedPosition.has_value ()
+            && m_positionSeconds < *m_lastDecodedPosition);
     const bool intervalElapsed = !m_lastDecodedPosition.has_value ()
         || std::abs (m_positionSeconds - *m_lastDecodedPosition)
             >= m_frameIntervalSeconds;
     return {
         .positionSeconds = m_positionSeconds,
         .shouldDecode = wrapped || intervalElapsed,
+        .wrapped = wrapped,
     };
 }
 

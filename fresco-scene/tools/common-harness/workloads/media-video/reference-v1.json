@@ -5,7 +5,7 @@
     "decoded-frame-readiness",
     "presentation-time-scheduling",
     "seek-semantic-content",
-    "terminal-stall-quiescence",
+    "end-of-stream-loop-resumption",
     "reload-isolation",
     "exact-player-teardown",
     "derived-container-provenance"

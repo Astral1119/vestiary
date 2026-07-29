@@ -8,6 +8,10 @@ namespace FrescoScene {
 struct MediaPlaybackSample {
     double positionSeconds = 0.0;
     bool shouldDecode = false;
+    // The position ran past the asset duration and folded back to the start.
+    // Video textures loop, so a player that reached end-of-stream on the
+    // previous pass has to start decoding again from here.
+    bool wrapped = false;
 };
 
 class MediaPlaybackClock {

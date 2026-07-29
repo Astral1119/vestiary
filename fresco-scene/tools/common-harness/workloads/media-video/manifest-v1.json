@@ -47,8 +47,8 @@
   ],
   "reference": {
     "identity": "semantic-reference-v1",
-    "sha256": "4edec4fa2a81991bf6d7136130e10e10e7a681d062fe1ee53085e76210f57fdf",
-    "bytes": 565
+    "sha256": "2770cf25babddaa392509b2842a389de2097ac6cf19394bfbaee367f3e2618cf",
+    "bytes": 569
   },
   "derivedArtifacts": [
     {
@@ -76,7 +76,7 @@
       "atNanoseconds": 2000000000,
       "invariants": [
         "seek-semantic-content",
-        "terminal-stall-quiescence"
+        "end-of-stream-loop-resumption"
       ]
     },
     {
@@ -103,8 +103,8 @@
       "description": "A real seek decodes and presents the requested position with a different deterministic semantic frame hash."
     },
     {
-      "identity": "terminal-stall-quiescence",
-      "description": "End of stream causes one suppressed evaluation and then no decoder, evaluation, submission, presentation, or suppression retry spin."
+      "identity": "end-of-stream-loop-resumption",
+      "description": "Reaching the end of the asset clears on the playback clock's fold back to the start: the player resumes decoding and presenting from the beginning rather than holding its final frame."
     },
     {
       "identity": "reload-isolation",

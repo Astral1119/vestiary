@@ -1645,57 +1645,60 @@ def _run_media_video(helper, configuration, trace, project, comparison_project):
         "media-video", "media-video-applied", action="seek",
         positionSeconds=trace["endOfStreamSeekSeconds"],
     )
-    eos_deadline = time.monotonic() + trace["seekTimeoutMilliseconds"] / 1000.0
-    eos = None
-    last_eos_candidate = None
-    while time.monotonic() < eos_deadline:
+    # The seek lands in the gap between the final frame's presentation time and
+    # the asset duration, so the next decode runs the reader to completion and
+    # the player reaches end of stream. Video textures loop: the playback clock
+    # folds position back to the start at the duration and the player resumes
+    # decoding from there, so end of stream lasts a frame rather than the life of
+    # the scene. Holding it was what froze Elaina's picture tens of seconds after
+    # load while the frame loop carried on drawing the same final frame.
+    #
+    # The end-of-stream state itself is not polled for, because the fold clears
+    # it well inside one poll interval. The stall it records is durable, so that
+    # is the evidence the terminal path was reached at all.
+    loop_deadline = time.monotonic() + trace["seekTimeoutMilliseconds"] / 1000.0
+    looped = None
+    last_loop_candidate = None
+    media_before_eos = _media_metrics(before_eos)
+    while time.monotonic() < loop_deadline:
         candidate = _metric_event(helper.exchange("metrics"), configuration)
-        last_eos_candidate = candidate
+        last_loop_candidate = candidate
         media = _media_metrics(candidate)
-        if (media["endOfStreamPlayers"] == 1
-                and _scheduler(candidate)["presentationSuppressions"]
-                    == _scheduler(before_eos)["presentationSuppressions"] + 1):
-            eos = candidate
+        if (media["stalledFrames"] > media_before_eos["stalledFrames"]
+                and media["endOfStreamPlayers"] == 0
+                and media["decodeAttempts"] > media_before_eos["decodeAttempts"]
+                and media["lastDecodedPresentationSeconds"]
+                    < trace["endOfStreamSeekSeconds"]):
+            looped = candidate
             break
         time.sleep(trace["pollMilliseconds"] / 1000.0)
     _require(
-        eos is not None,
-        "terminal media stall was not suppressed exactly once; before="
-        + str(_scheduler(before_eos)["presentationSuppressions"])
-        + ", last=" + str(
-            None if last_eos_candidate is None
-            else _scheduler(last_eos_candidate)["presentationSuppressions"]
+        looped is not None,
+        "video texture did not resume decoding after the playback clock wrapped;"
+        " last=" + str(
+            None if last_loop_candidate is None
+            else _media_metrics(last_loop_candidate)
         ),
     )
-    _require(eos["frames"] == before_eos["frames"],
-             "terminal media stall produced a superficial frame")
-    _require(_scheduler(eos)["evaluations"]
-             == _scheduler(before_eos)["evaluations"] + 1,
-             "terminal media stall did not evaluate exactly once")
-    _require(_scheduler(eos)["presentations"]
-             == _scheduler(before_eos)["presentations"],
-             "terminal media stall reached presentation")
-    _require(
-        _scheduler(eos).get("mediaFrameDeadlineActive") is False
-        and _scheduler(eos).get("mediaFrameDeadlineSchedules", 0)
-            == _scheduler(eos).get("mediaFrameDeadlineReleases", 0),
-        "terminal EOS left a live or unbalanced media deadline",
-    )
+    _require(_media_metrics(looped)["seekRequests"] == 2,
+             "wrapped playback recorded an unexpected seek count")
 
     time.sleep(trace["quiescenceMilliseconds"] / 1000.0)
-    quiescent = _metric_event(helper.exchange("metrics"), configuration)
-    for field in ("frames",):
-        _require(quiescent[field] == eos[field],
-                 "terminal media renderer retried after EOS")
-    for field in ("evaluations", "presentations", "presentationSuppressions"):
-        _require(_scheduler(quiescent)[field] == _scheduler(eos)[field],
-                 f"terminal media scheduler changed {field} after EOS")
-    _require(_scheduler(quiescent)["decisions"]
-             == _scheduler(eos)["decisions"] + 1,
-             "EOS quiescence exceeded the metrics observation decision")
-    _require(_media_metrics(quiescent)["decodeAttempts"]
-             == _media_metrics(eos)["decodeAttempts"],
-             "decoder retried after terminal EOS")
+    running = _metric_event(helper.exchange("metrics"), configuration)
+    media_running = _media_metrics(running)
+    _require(media_running["endOfStreamPlayers"] == 0,
+             "video texture latched end of stream after the wrap")
+    _require(media_running["decodeAttempts"]
+             > _media_metrics(looped)["decodeAttempts"],
+             "decoder stopped attempting after the wrap")
+    _require(media_running["frameUploads"]
+             > _media_metrics(looped)["frameUploads"],
+             "wrapped playback uploaded no further frames")
+    _require(running["frames"] > looped["frames"],
+             "wrapped media renderer stopped producing frames")
+    for field in ("evaluations", "presentations"):
+        _require(_scheduler(running)[field] > _scheduler(looped)[field],
+                 f"wrapped media scheduler stopped advancing {field}")
 
     reload_ready = load_fixture(comparison_project)
     reloaded = _metric_event(helper.exchange("metrics"), configuration)
@@ -1748,13 +1751,13 @@ def _run_media_video(helper, configuration, trace, project, comparison_project):
         "prePTSQuiescent": pre_pts_quiescent,
         "advanced": advanced,
         "sought": sought,
-        "endOfStream": eos,
-        "afterEndOfStreamQuiescence": quiescent,
+        "endOfStreamWrap": looped,
+        "afterEndOfStreamWrap": running,
         "reloadReady": reload_ready,
         "reloaded": reloaded,
         "comparisonSought": comparison_sought,
         "inactiveLifecycle": inactive_observations,
-        "sessionExecutionComponents": [quiescent, comparison_sought],
+        "sessionExecutionComponents": [running, comparison_sought],
         "decodedSemanticHash": first_frame_hash,
         "limitations": [
             "generated container bytes are derived run artifacts, not stable inputs",

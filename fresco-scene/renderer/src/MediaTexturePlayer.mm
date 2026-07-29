@@ -87,13 +87,22 @@ public:
     }
 
     FrescoScene::MediaPlayerFramePreparationEvidence prepareFrame (
-        double positionSeconds
+        double positionSeconds, bool wrapped = false
     ) {
         if (decoder == nullptr) {
             return {};
         }
         if (endOfStream) {
-            return { .terminal = true };
+            // The latch keeps a finished stream from re-decoding every frame,
+            // but the playback clock folds position back to the start at the
+            // asset duration and the decoder restarts its reader for any
+            // position behind the last one it served. Holding the latch across
+            // that wrap froze the texture on its final frame for the rest of
+            // the scene's life while the frame loop carried on drawing it.
+            if (!wrapped) {
+                return { .terminal = true };
+            }
+            endOfStream = false;
         }
         if (pendingFrame.has_value ()) {
             if (pendingFrameReady) {
@@ -327,7 +336,9 @@ FrescoScene::MediaPlayerFramePreparationEvidence GLPlayer::prepareFrame () {
     if (!m_implementation->clock.active ()) {
         return {};
     }
-    return m_implementation->prepareFrame (sample.positionSeconds);
+    return m_implementation->prepareFrame (
+        sample.positionSeconds, sample.wrapped
+    );
 }
 
 bool GLPlayer::hasPendingFrame () const {

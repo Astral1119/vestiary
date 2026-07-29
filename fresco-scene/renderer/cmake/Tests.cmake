@@ -1252,6 +1252,18 @@ if(BUILD_TESTING
         fresco-scene-renderer-elaina-video-temporal PROPERTIES TIMEOUT 120
     )
     add_test(
+        NAME fresco-scene-renderer-elaina-video-loop
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/elaina_video_loop_test.py"
+            "$<TARGET_FILE:fresco-scene>"
+            "${FRESCO_SCENE_WORKSHOP_ROOT}"
+            "${FRESCO_SCENE_ASSETS}"
+    )
+    set_tests_properties(
+        fresco-scene-renderer-elaina-video-loop PROPERTIES TIMEOUT 120
+    )
+    add_test(
         NAME fresco-scene-renderer-elaina-text-width-runtime
         COMMAND
             "${Python3_EXECUTABLE}"

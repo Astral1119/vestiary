@@ -63,6 +63,22 @@ int main () {
     require (!clock.active ());
     require (clock.usageCount () == 0);
 
+    // Position folding back to the start has to be reported, not just applied:
+    // a player that reached end-of-stream on the previous pass only knows to
+    // start decoding again because the clock says it wrapped.
+    MediaPlaybackClock wrapClock (2.0, 10.0);
+    wrapClock.incrementUsage ();
+    sample = wrapClock.sample (100.0);
+    require (!sample.wrapped);
+    wrapClock.didDecode (1.9);
+    sample = wrapClock.sample (101.9);
+    require (sample.positionSeconds < 1.9);
+    require (sample.wrapped);
+    require (sample.shouldDecode);
+    wrapClock.didDecode (sample.positionSeconds);
+    sample = wrapClock.sample (102.0);
+    require (!sample.wrapped);
+
     MediaPlaybackClock seekClock (2.0, 10.0);
     seekClock.incrementUsage ();
     seekClock.seek (1.25);
