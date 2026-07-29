@@ -123,7 +123,83 @@ grep -Fxq "foreground = $authored_foreground" "$TEST_ROOT/terminal-authored/live
   "$TEST_ROOT/manifest.json" "$TEST_ROOT/terminal-authored" >/dev/null
 grep -Fxq "set -g @livery_muted \"$authored_muted\"" "$TEST_ROOT/terminal-authored/livery.conf"
 
-for adapter in borders css ghostty nvim sketchybar tmux; do
+# Background opacity resolves specific-then-general. The terminal's own key
+# outranks the Look's general one, because the terminal's value is chosen for
+# legibility rather than for looks and the solved palette depends on it.
+mkdir -p "$TEST_ROOT/opacity"
+jq '.terminal.minimumContrast = 3
+  | .effects.backgroundOpacity = 0.31
+  | .effects.ghosttyBackgroundOpacity = 0.62' \
+  "$TEST_ROOT/manifest.json" > "$TEST_ROOT/manifest-opacity.json"
+"$REPO_ROOT/adapters/ghostty" render \
+  "$TEST_ROOT/manifest-opacity.json" "$TEST_ROOT/opacity" >/dev/null
+grep -Fxq 'background-opacity = 0.62' "$TEST_ROOT/opacity/livery.conf"
+"$REPO_ROOT/adapters/yabai" render \
+  "$TEST_ROOT/manifest-opacity.json" "$TEST_ROOT/opacity" >/dev/null
+grep -Fxq 'yabai -m config normal_window_opacity 0.31' "$TEST_ROOT/opacity/yabai.sh"
+
+# Without the terminal-specific key both surfaces take the general one.
+jq '.terminal.minimumContrast = 3
+  | del(.effects.ghosttyBackgroundOpacity)
+  | .effects.backgroundOpacity = 0.44' \
+  "$TEST_ROOT/manifest.json" > "$TEST_ROOT/manifest-opacity-general.json"
+"$REPO_ROOT/adapters/ghostty" render \
+  "$TEST_ROOT/manifest-opacity-general.json" "$TEST_ROOT/opacity" >/dev/null
+grep -Fxq 'background-opacity = 0.44' "$TEST_ROOT/opacity/livery.conf"
+
+# A targets override outranks both.
+jq '.targets.ghostty.backgroundOpacity = 0.77
+  | .targets.yabai.normalWindowOpacity = 0.88' \
+  "$TEST_ROOT/manifest-opacity.json" > "$TEST_ROOT/manifest-opacity-target.json"
+"$REPO_ROOT/adapters/ghostty" render \
+  "$TEST_ROOT/manifest-opacity-target.json" "$TEST_ROOT/opacity" >/dev/null
+grep -Fxq 'background-opacity = 0.77' "$TEST_ROOT/opacity/livery.conf"
+"$REPO_ROOT/adapters/yabai" render \
+  "$TEST_ROOT/manifest-opacity-target.json" "$TEST_ROOT/opacity" >/dev/null
+grep -Fxq 'yabai -m config normal_window_opacity 0.88' "$TEST_ROOT/opacity/yabai.sh"
+
+# Terminals composite their own background, so yabai must leave them opaque —
+# two layers of opacity multiply and the legibility solve models exactly one.
+grep -Fq 'app="^(Ghostty|Alacritty|kitty|WezTerm)$" opacity=1.0' \
+  "$TEST_ROOT/opacity/yabai.sh"
+
+# The contrast opt-out covers opacity too: a theme that asks for no terminal
+# policy gets neither directive, and the operator config keeps both.
+jq '.terminal.minimumContrast = 1' \
+  "$TEST_ROOT/manifest-opacity.json" > "$TEST_ROOT/manifest-opacity-optout.json"
+"$REPO_ROOT/adapters/ghostty" render \
+  "$TEST_ROOT/manifest-opacity-optout.json" "$TEST_ROOT/opacity" >/dev/null
+if grep -qE 'background-opacity|minimum-contrast' "$TEST_ROOT/opacity/livery.conf"; then
+  echo "ghostty emitted terminal policy under the minimumContrast opt-out" >&2
+  exit 1
+fi
+
+# A manifest with no opacity at all leaves every window alone.
+jq '.terminal.minimumContrast = 3
+  | del(.effects.backgroundOpacity, .effects.ghosttyBackgroundOpacity)
+  | del(.targets.ghostty, .targets.yabai)' \
+  "$TEST_ROOT/manifest.json" > "$TEST_ROOT/manifest-no-opacity.json"
+"$REPO_ROOT/adapters/yabai" render \
+  "$TEST_ROOT/manifest-no-opacity.json" "$TEST_ROOT/opacity" >/dev/null
+grep -Fxq 'yabai -m config normal_window_opacity 1.00' "$TEST_ROOT/opacity/yabai.sh"
+"$REPO_ROOT/adapters/ghostty" render \
+  "$TEST_ROOT/manifest-no-opacity.json" "$TEST_ROOT/opacity" >/dev/null
+if grep -q 'background-opacity' "$TEST_ROOT/opacity/livery.conf"; then
+  echo "ghostty emitted an opacity the manifest does not carry" >&2
+  exit 1
+fi
+
+# An out-of-range opacity is a broken manifest rather than a taste call.
+jq '.effects.backgroundOpacity = 1.5' \
+  "$TEST_ROOT/manifest.json" > "$TEST_ROOT/manifest-opacity-bad.json"
+"$REPO_ROOT/adapters/yabai" render \
+  "$TEST_ROOT/manifest-opacity-bad.json" "$TEST_ROOT/opacity" >/dev/null
+if "$REPO_ROOT/adapters/yabai" validate "$TEST_ROOT/opacity" >/dev/null 2>&1; then
+  echo "yabai validated an out-of-range window opacity" >&2
+  exit 1
+fi
+
+for adapter in borders css ghostty nvim sketchybar tmux yabai; do
   "$ROOT/liveryctl" adapter-check "$adapter" >/dev/null
 done
 

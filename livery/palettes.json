@@ -38,6 +38,7 @@
           "terminalBackground": "#18120d",
           "terminalForeground": "#ede0d7",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#4b3522",
@@ -84,6 +85,7 @@
           "terminalBackground": "#1b1107",
           "terminalForeground": "#f4dfcc",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#4b3522",
@@ -130,6 +132,7 @@
           "terminalBackground": "#151311",
           "terminalForeground": "#e8e1dd",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#4b3522",
@@ -186,6 +189,7 @@
           "terminalBackground": "#1e0f0e",
           "terminalForeground": "#fadcd8",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#0f1817",
@@ -232,6 +236,7 @@
           "terminalBackground": "#1e100e",
           "terminalForeground": "#f9dcd9",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#0f1817",
@@ -278,6 +283,7 @@
           "terminalBackground": "#161312",
           "terminalForeground": "#e9e1df",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#0f1817",
@@ -334,6 +340,7 @@
           "terminalBackground": "#12140b",
           "terminalForeground": "#e3e3d4",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#0b0e07",
@@ -380,6 +387,7 @@
           "terminalBackground": "#121508",
           "terminalForeground": "#e3e4cf",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#0b0e07",
@@ -426,6 +434,7 @@
           "terminalBackground": "#131311",
           "terminalForeground": "#e5e2de",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#0b0e07",
@@ -482,6 +491,7 @@
           "terminalBackground": "#151315",
           "terminalForeground": "#e7e1e4",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#060709",
@@ -528,6 +538,7 @@
           "terminalBackground": "#18111a",
           "terminalForeground": "#ecdeec",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#060709",
@@ -574,6 +585,7 @@
           "terminalBackground": "#141314",
           "terminalForeground": "#e7e1e3",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#060709",
@@ -630,6 +642,7 @@
           "terminalBackground": "#121314",
           "terminalForeground": "#e3e2e2",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#05527a",
@@ -676,6 +689,7 @@
           "terminalBackground": "#091519",
           "terminalForeground": "#d8e5ea",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#05527a",
@@ -722,6 +736,7 @@
           "terminalBackground": "#121314",
           "terminalForeground": "#e3e2e2",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#05527a",
@@ -778,6 +793,7 @@
           "terminalBackground": "#11131a",
           "terminalForeground": "#e1e2eb",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#0e0e0e",
@@ -824,6 +840,7 @@
           "terminalBackground": "#0f131c",
           "terminalForeground": "#dfe2ef",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#0e0e0e",
@@ -870,6 +887,7 @@
           "terminalBackground": "#131315",
           "terminalForeground": "#e4e2e3",
           "minimumContrast": 3,
+          "backgroundOpacity": 1.0,
           "ghosttyBackgroundOpacity": 0.5,
           "terminal": [
             "#0e0e0e",

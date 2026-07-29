@@ -16,6 +16,7 @@
       ],
       "theme": {
         "effects": {
+          "backgroundOpacity": 1.0,
           "barBackgroundAlpha": 144,
           "borderInactiveAlpha": 136,
           "chipAlpha": 77,
@@ -160,6 +161,7 @@
       ],
       "theme": {
         "effects": {
+          "backgroundOpacity": 0.42,
           "barBackgroundAlpha": 108,
           "borderInactiveAlpha": 102,
           "chipAlpha": 66,
@@ -276,6 +278,7 @@
       ],
       "theme": {
         "effects": {
+          "backgroundOpacity": 0.46,
           "barBackgroundAlpha": 116,
           "borderInactiveAlpha": 108,
           "chipAlpha": 72,
@@ -392,6 +395,7 @@
       ],
       "theme": {
         "effects": {
+          "backgroundOpacity": 0.56,
           "barBackgroundAlpha": 132,
           "borderInactiveAlpha": 116,
           "chipAlpha": 72,
@@ -508,6 +512,7 @@
       ],
       "theme": {
         "effects": {
+          "backgroundOpacity": 0.53,
           "barBackgroundAlpha": 126,
           "borderInactiveAlpha": 112,
           "chipAlpha": 74,
@@ -624,6 +629,7 @@
       ],
       "theme": {
         "effects": {
+          "backgroundOpacity": 0.48,
           "barBackgroundAlpha": 118,
           "borderInactiveAlpha": 108,
           "chipAlpha": 76,
@@ -740,10 +746,11 @@
       ],
       "theme": {
         "effects": {
+          "backgroundOpacity": 0.6,
           "barBackgroundAlpha": 140,
           "borderInactiveAlpha": 122,
           "chipAlpha": 68,
-          "ghosttyBackgroundOpacity": 0.60,
+          "ghosttyBackgroundOpacity": 0.6,
           "ghosttyBlur": 10,
           "hairline": "#f1f2f2",
           "popupBackgroundAlpha": 136,
@@ -856,6 +863,7 @@
       ],
       "theme": {
         "effects": {
+          "backgroundOpacity": 0.72,
           "barBackgroundAlpha": 164,
           "borderInactiveAlpha": 138,
           "chipAlpha": 80,
@@ -972,6 +980,7 @@
       ],
       "theme": {
         "effects": {
+          "backgroundOpacity": 0.88,
           "barBackgroundAlpha": 184,
           "borderInactiveAlpha": 148,
           "chipAlpha": 86,

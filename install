@@ -474,6 +474,12 @@ wire_loader() {
       # shellcheck disable=SC2016
       append_line "$USER_CONFIG_ROOT/yabai/yabairc" \
         'source "$HOME/.config/livery/current/borders/borders.args"' borders ;;
+    yabai)
+      # Sourced after the yabairc config block, so the Look owns window opacity
+      # and any inline values become the pre-Livery fallback.
+      # shellcheck disable=SC2016
+      append_line "$USER_CONFIG_ROOT/yabai/yabairc" \
+        'source "$HOME/.config/livery/current/yabai/yabai.sh"' yabai ;;
     sketchybar)
       shim="$USER_CONFIG_ROOT/sketchybar/colors.lua"
       managed_tmp=$(mktemp "${TMPDIR:-/tmp}/vestiary-loader.XXXXXX")

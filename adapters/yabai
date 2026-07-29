@@ -1,0 +1,113 @@
+#!/bin/sh
+# vestiary adapter: yabai
+# Contract: ../contract/SPEC.md §3 — render <manifest> <outdir> |
+# validate <outdir> | reload <profiledir> | loader-check.
+# Exit codes: 0 success · 1 operation failed · 2 usage/unknown verb.
+# Consumes: effects.backgroundOpacity, targets.yabai.* (override // fallback
+# idiom).
+# Emits: <outdir>/yabai.sh — sh-sourceable `yabai -m config` lines plus one
+# rule, sourced by yabairc and re-executed to reload.
+set -eu
+
+FRAGMENT_NAME="yabai.sh"
+YABAIRC="${LIVERY_YABAIRC:-$HOME/.config/yabai/yabairc}"
+LOADER_LINE='.config/livery/current/yabai/yabai.sh'
+# Applications that composite their own translucent background. yabai opacity
+# multiplies with whatever the application already does, so a terminal left in
+# the general rule would sit at the product of the two and read far darker than
+# the Look authored — and it would invalidate the terminal legibility solve,
+# which models exactly one composite over the wallpaper.
+SELF_COMPOSITING_RULE='label=livery-self-compositing app="^(Ghostty|Alacritty|kitty|WezTerm)$" opacity=1.0'
+
+render() {
+  manifest=$1
+  outdir=$2
+  [ -r "$manifest" ] || { echo "render: manifest unreadable: $manifest" >&2; exit 1; }
+  mkdir -p "$outdir"
+
+  normal=$(jq -r '.targets.yabai.normalWindowOpacity
+    // .effects.backgroundOpacity
+    // 1' "$manifest")
+  active=$(jq -r '.targets.yabai.activeWindowOpacity // 1.0' "$manifest")
+  duration=$(jq -r '.targets.yabai.opacityDuration // 0.0' "$manifest")
+
+  {
+    printf 'yabai -m config window_opacity on\n'
+    printf 'yabai -m config window_opacity_duration %.2f\n' "$duration"
+    printf 'yabai -m config active_window_opacity %.2f\n' "$active"
+    printf 'yabai -m config normal_window_opacity %.2f\n' "$normal"
+    # Re-adding a label replaces the rule rather than stacking another, so
+    # re-sourcing this fragment is idempotent.
+    printf 'yabai -m rule --add %s\n' "$SELF_COMPOSITING_RULE"
+  } > "$outdir/$FRAGMENT_NAME"
+  echo "rendered yabai fragment: $outdir/$FRAGMENT_NAME"
+}
+
+validate() {
+  outdir=$1
+  fragment="$outdir/$FRAGMENT_NAME"
+  [ -r "$fragment" ] || { echo "validate: fragment missing: $fragment" >&2; exit 1; }
+  if ! grep -Eq '^yabai -m config window_opacity on$' "$fragment" \
+    || ! grep -Eq '^yabai -m config active_window_opacity [0-9]+\.[0-9]{2}$' "$fragment" \
+    || ! grep -Eq '^yabai -m config normal_window_opacity [0-9]+\.[0-9]{2}$' "$fragment" \
+    || ! grep -Fq 'label=livery-self-compositing' "$fragment"
+  then
+    echo "validate: invalid yabai fragment" >&2
+    exit 1
+  fi
+  # An opacity outside (0, 1] is not a taste call, it is a broken manifest:
+  # yabai clamps silently and the window manager stops matching the solve.
+  for value in $(awk '/_window_opacity /{print $NF}' "$fragment"); do
+    case $value in
+      0.00|1.00) [ "$value" = "1.00" ] || {
+        echo "validate: window opacity of 0 hides every window" >&2; exit 1; } ;;
+    esac
+    awk -v v="$value" 'BEGIN{ exit !(v > 0 && v <= 1) }' || {
+      echo "validate: window opacity out of range: $value" >&2
+      exit 1
+    }
+  done
+  echo "yabai fragment validates"
+}
+
+reload() {
+  profiledir=$1
+  if ! command -v yabai >/dev/null 2>&1; then
+    echo "yabai not installed — nothing to reload"
+    exit 0
+  fi
+  if ! yabai -m query --displays >/dev/null 2>&1; then
+    echo "yabai not running — nothing to reload"
+    exit 0
+  fi
+  sh "$profiledir/yabai/$FRAGMENT_NAME"
+  # A rule binds when yabai sees the window created, so windows that already
+  # exist keep whatever opacity they came up with until the rule is applied.
+  yabai -m rule --apply >/dev/null 2>&1 || true
+  echo "yabai reloaded"
+}
+
+loader_check() {
+  if ! command -v yabai >/dev/null 2>&1; then
+    echo "loader n/a: yabai not installed"
+    exit 0
+  fi
+  if [ -r "$YABAIRC" ] && grep -Fq "$LOADER_LINE" "$YABAIRC"; then
+    echo "loader installed: $YABAIRC"
+    exit 0
+  fi
+  echo "loader missing: source $LOADER_LINE from $YABAIRC"
+  exit 1
+}
+
+case "${1:-}" in
+  render)       [ $# -eq 3 ] || { echo "usage: yabai render <manifest> <outdir>" >&2; exit 2; }
+                render "$2" "$3" ;;
+  validate)     [ $# -eq 2 ] || { echo "usage: yabai validate <outdir>" >&2; exit 2; }
+                validate "$2" ;;
+  reload)       [ $# -eq 2 ] || { echo "usage: yabai reload <profiledir>" >&2; exit 2; }
+                reload "$2" ;;
+  loader-check) loader_check ;;
+  *)            echo "unknown verb: ${1:-<none>} (render|validate|reload|loader-check)" >&2
+                exit 2 ;;
+esac

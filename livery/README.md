@@ -307,6 +307,20 @@ contrast floor. It runs the same solver the render pipeline runs, so it shows
 what the adapter will emit; UI surface/text roles no longer stand in for
 terminal roles.
 
+The Ghostty adapter emits `background-opacity` rather than assuming it. The
+solve above is only correct while the configured opacity and the value it
+solved against agree, and before this they agreed by convention alone. A
+`minimumContrast` of 1 is the opt-out and suppresses both directives, which is
+why the captured baseline still renders byte-identically.
+
+`effects.backgroundOpacity` is the general form of that lever: the Look's
+background translucency, theme-authorable, read by every surface that
+composites over the wallpaper. The curated themes author it from 0.42 to 0.88;
+generated Looks leave it opaque. The yabai adapter consumes it as
+`normal_window_opacity`, keeps focused windows opaque, and pins self-compositing
+terminals to 1.0 — two layers of opacity multiply, and the terminal solve models
+exactly one composite over the wallpaper.
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the semantic/UI, signal, Base16,
 ANSI, presentation, and effects boundaries.
 

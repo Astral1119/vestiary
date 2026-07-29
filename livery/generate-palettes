@@ -81,6 +81,7 @@ jq -c '.[]' "$SOURCES" | while IFS= read -r source; do
         terminalBackground: .colors.background.default.color,
         terminalForeground: .colors.on_surface.default.color,
         minimumContrast: 3,
+        backgroundOpacity: 1.0,
         ghosttyBackgroundOpacity: 0.5,
         terminal: [
           .base16.base00.default.color,

@@ -585,6 +585,7 @@ generate_import_palette() (
       terminalBackground: .colors.background.default.color,
       terminalForeground: .colors.on_surface.default.color,
       minimumContrast: 3,
+      backgroundOpacity: 1.0,
       ghosttyBackgroundOpacity: 0.5,
       terminal: [
         .base16.base00.default.color,
@@ -1091,7 +1092,15 @@ resolve_legibility() (
       background: .terminal.background,
       foreground: .terminal.foreground,
       ansi: .terminal.ansi,
-      backdropOpacity: (.effects.ghosttyBackgroundOpacity // 1),
+      # The terminal-specific translucency rather than the general one: this
+      # solve models the cell background composited over the wallpaper, so it
+      # must read exactly what the Ghostty adapter emits. Same chain as that
+      # adapter — a targets override, then the terminal-specific effect, then
+      # the general one.
+      backdropOpacity: (.targets.ghostty.backgroundOpacity
+        // .effects.ghosttyBackgroundOpacity
+        // .effects.backgroundOpacity
+        // 1),
       minimumContrast: (.terminal.minimumContrast // 3),
       # tmux draws its status line with `bg=default`, so these roles sit on the
       # same composited backdrop as the terminal cells rather than on a surface

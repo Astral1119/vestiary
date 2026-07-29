@@ -93,6 +93,7 @@ jq -e '
       .terminalBackground == .background
         and .terminalForeground == .text
         and .minimumContrast == 3
+        and .backgroundOpacity == 1.0
         and .ghosttyBackgroundOpacity == 0.5
     ))
 ' "$ROOT/palettes.json" >/dev/null
@@ -106,6 +107,15 @@ jq -e '
       | all(.schemaVersion == 2 and .kind == "semantic-theme"))
     and (.themes[] | select(.id == "violet-hour")
       | .theme.effects.ghosttyBackgroundOpacity == 0.42)
+    # Every theme authors the general key. The named presets carry their own
+    # translucency; the default inherits the baseline, which is opaque because
+    # the captured yabai configuration sets no global window opacity.
+    and ([.themes[].theme.effects]
+      | all(.backgroundOpacity > 0 and .backgroundOpacity <= 1))
+    and (.themes[] | select(.id == "default")
+      | .theme.effects.backgroundOpacity == 1.0)
+    and (.themes[] | select(.id == "violet-hour")
+      | .theme.effects.backgroundOpacity == 0.42)
     and (.themes[] | select(.id == "porcelain-day")
       | .theme.variant == "light")
 ' "$ROOT/themes.json" >/dev/null
@@ -248,8 +258,13 @@ jq -e --slurpfile baseline "$ROOT/profiles/default.json" '
     and .provenance.reproducibility == "replayable"
     and .presentation.barLegibility.textContrastP10 >= 4.5
     and (.presentation.barLegibility.roles | length) == 12
+    # The solve models the terminal backdrop, so it tracks the terminal-specific
+    # opacity rather than the general one.
     and .presentation.terminalLegibility.backdropOpacity
       == .effects.ghosttyBackgroundOpacity
+    and (.effects.backgroundOpacity | type) == "number"
+    and .effects.backgroundOpacity > 0
+    and .effects.backgroundOpacity <= 1
     and (.presentation.terminalLegibility.ansi | length) == 16
     and .presentation.terminalLegibility.foregroundContrastP10 >= 4.5
     and .presentation.terminalLegibility.paletteContrastP10 >= 3

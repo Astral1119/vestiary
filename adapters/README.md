@@ -84,6 +84,49 @@ time rather than reading from the theme: `barLegibility` for the bar strip and
 theme-authored manifests, so an adapter that consumes them must fall back to the
 authored domain rather than fail.
 
+## Background opacity
+
+`effects.backgroundOpacity` is the Look's general background translucency,
+theme-authorable and in the range (0, 1]. Every surface that composites over
+the wallpaper reads it through the standard idiom:
+
+```sh
+jq -r '.targets.<adapter>.backgroundOpacity // .effects.backgroundOpacity // 1'
+```
+
+The terminal is the exception, and it is deliberate. Its opacity is chosen for
+legibility rather than for looks — the palette in
+`presentation.terminalLegibility` is solved against the cell background
+composited over the wallpaper at exactly that value — so
+`effects.ghosttyBackgroundOpacity` sits between the targets override and the
+general key and wins for the terminal alone.
+
+Opacity multiplies wherever two layers both apply it. An application that
+composites its own translucent background must therefore be left opaque by the
+window manager, or the result is the product of the two and the legibility solve
+no longer describes the screen. The yabai adapter carries that exclusion as a
+rule; extend its application list rather than adding a second one.
+
+## yabai window opacity
+
+The `yabai` adapter emits `~/.config/livery/current/yabai/yabai.sh`, an
+sh-sourceable fragment of `yabai -m config` lines and one rule. A yabairc
+sources it:
+
+```sh
+source "$HOME/.config/livery/current/yabai/yabai.sh"
+```
+
+Unfocused windows take `effects.backgroundOpacity`; focused windows stay opaque
+unless `targets.yabai.activeWindowOpacity` says otherwise.
+`targets.yabai.normalWindowOpacity` overrides the general key per Look, and
+`targets.yabai.opacityDuration` sets the fade.
+
+Rules bind when yabai sees a window created, so an application restarted after
+the fragment was sourced can come up without its opacity while
+`yabai -m rule --list` still looks correct. `reload` runs `yabai -m rule --apply`
+for that reason, and it is idempotent.
+
 ## Generic CSS artifact
 
 The `css` adapter exports public semantic roles as custom properties. The

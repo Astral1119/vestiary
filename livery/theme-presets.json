@@ -4,7 +4,12 @@
     "label": "Current",
     "style": "captured glass",
     "summary": "The current Catppuccin-adjacent local state.",
-    "tags": ["captured", "blue", "lavender", "glass"],
+    "tags": [
+      "captured",
+      "blue",
+      "lavender",
+      "glass"
+    ],
     "overrides": {}
   },
   {
@@ -12,7 +17,12 @@
     "label": "Violet Hour",
     "style": "muted anime glass",
     "summary": "Low-saturation aubergine, periwinkle, and smoky rose.",
-    "tags": ["anime", "purple", "muted", "glass"],
+    "tags": [
+      "anime",
+      "purple",
+      "muted",
+      "glass"
+    ],
     "overrides": {
       "ui": {
         "background": "#17131f",
@@ -42,16 +52,33 @@
         "selectionForeground": "#eee8f5",
         "minimumContrast": 3,
         "ansi": [
-          "#272130", "#bd7187", "#86a487", "#baa06d",
-          "#829bb8", "#a98fc2", "#80a8aa", "#c7bfce",
-          "#675f72", "#d18499", "#99b49a", "#ccb27e",
-          "#96aec8", "#bca2d2", "#93babc", "#e1d9e8"
+          "#272130",
+          "#bd7187",
+          "#86a487",
+          "#baa06d",
+          "#829bb8",
+          "#a98fc2",
+          "#80a8aa",
+          "#c7bfce",
+          "#675f72",
+          "#d18499",
+          "#99b49a",
+          "#ccb27e",
+          "#96aec8",
+          "#bca2d2",
+          "#93babc",
+          "#e1d9e8"
         ]
       },
       "presentation": {
-        "visualizerGradient": ["#8da6b8", "#a99ac8", "#c09aaa"]
+        "visualizerGradient": [
+          "#8da6b8",
+          "#a99ac8",
+          "#c09aaa"
+        ]
       },
       "effects": {
+        "backgroundOpacity": 0.42,
         "ghosttyBackgroundOpacity": 0.42,
         "ghosttyBlur": 16,
         "barBackgroundAlpha": 108,
@@ -70,7 +97,12 @@
     "label": "Sakura Static",
     "style": "anime nocturne",
     "summary": "Ink navy with dusty sakura, lilac, and screen-blue light.",
-    "tags": ["anime", "pink", "navy", "soft"],
+    "tags": [
+      "anime",
+      "pink",
+      "navy",
+      "soft"
+    ],
     "overrides": {
       "ui": {
         "background": "#111522",
@@ -100,16 +132,33 @@
         "selectionForeground": "#f3edf6",
         "minimumContrast": 3,
         "ansi": [
-          "#202637", "#d77991", "#83ae96", "#c7a96e",
-          "#7c9fc5", "#a99bcf", "#79aeb8", "#c8c4d1",
-          "#60697f", "#eb8ca2", "#96c0a7", "#d9bc81",
-          "#90b2d7", "#bcaee0", "#8cc1cb", "#e4dfe9"
+          "#202637",
+          "#d77991",
+          "#83ae96",
+          "#c7a96e",
+          "#7c9fc5",
+          "#a99bcf",
+          "#79aeb8",
+          "#c8c4d1",
+          "#60697f",
+          "#eb8ca2",
+          "#96c0a7",
+          "#d9bc81",
+          "#90b2d7",
+          "#bcaee0",
+          "#8cc1cb",
+          "#e4dfe9"
         ]
       },
       "presentation": {
-        "visualizerGradient": ["#82a9c8", "#a9a2d2", "#d6a0b6"]
+        "visualizerGradient": [
+          "#82a9c8",
+          "#a9a2d2",
+          "#d6a0b6"
+        ]
       },
       "effects": {
+        "backgroundOpacity": 0.46,
         "ghosttyBackgroundOpacity": 0.46,
         "ghosttyBlur": 14,
         "barBackgroundAlpha": 116,
@@ -128,7 +177,12 @@
     "label": "Moss Ledger",
     "style": "organic editorial",
     "summary": "Charcoal, moss, lichen, and old-paper warmth.",
-    "tags": ["green", "earth", "muted", "editorial"],
+    "tags": [
+      "green",
+      "earth",
+      "muted",
+      "editorial"
+    ],
     "overrides": {
       "ui": {
         "background": "#151913",
@@ -158,16 +212,33 @@
         "selectionForeground": "#eef0e5",
         "minimumContrast": 3,
         "ansi": [
-          "#252b22", "#b86f68", "#829f6d", "#b69a62",
-          "#718e98", "#9a8198", "#6f9b8a", "#c3c8b9",
-          "#626b5c", "#ca8279", "#95b17f", "#c8ad75",
-          "#84a1aa", "#ad94aa", "#82ae9d", "#dde1d2"
+          "#252b22",
+          "#b86f68",
+          "#829f6d",
+          "#b69a62",
+          "#718e98",
+          "#9a8198",
+          "#6f9b8a",
+          "#c3c8b9",
+          "#626b5c",
+          "#ca8279",
+          "#95b17f",
+          "#c8ad75",
+          "#84a1aa",
+          "#ad94aa",
+          "#82ae9d",
+          "#dde1d2"
         ]
       },
       "presentation": {
-        "visualizerGradient": ["#739c8b", "#9cab78", "#b2a078"]
+        "visualizerGradient": [
+          "#739c8b",
+          "#9cab78",
+          "#b2a078"
+        ]
       },
       "effects": {
+        "backgroundOpacity": 0.56,
         "ghosttyBackgroundOpacity": 0.56,
         "ghosttyBlur": 11,
         "barBackgroundAlpha": 132,
@@ -186,7 +257,12 @@
     "label": "Ember Archive",
     "style": "warm archival",
     "summary": "Umber glass, faded brick, amber, and oxidized teal.",
-    "tags": ["warm", "amber", "rust", "vintage"],
+    "tags": [
+      "warm",
+      "amber",
+      "rust",
+      "vintage"
+    ],
     "overrides": {
       "ui": {
         "background": "#1b1412",
@@ -216,16 +292,33 @@
         "selectionForeground": "#f6e9df",
         "minimumContrast": 3,
         "ansi": [
-          "#2d211d", "#c4675d", "#83986c", "#c29050",
-          "#748f9a", "#a87783", "#66958e", "#d1c0b5",
-          "#745e54", "#d9796e", "#96aa7f", "#d4a763",
-          "#879faa", "#bb8995", "#79a8a1", "#ecddd2"
+          "#2d211d",
+          "#c4675d",
+          "#83986c",
+          "#c29050",
+          "#748f9a",
+          "#a87783",
+          "#66958e",
+          "#d1c0b5",
+          "#745e54",
+          "#d9796e",
+          "#96aa7f",
+          "#d4a763",
+          "#879faa",
+          "#bb8995",
+          "#79a8a1",
+          "#ecddd2"
         ]
       },
       "presentation": {
-        "visualizerGradient": ["#6f9b95", "#d39a69", "#be7f70"]
+        "visualizerGradient": [
+          "#6f9b95",
+          "#d39a69",
+          "#be7f70"
+        ]
       },
       "effects": {
+        "backgroundOpacity": 0.53,
         "ghosttyBackgroundOpacity": 0.53,
         "ghosttyBlur": 12,
         "barBackgroundAlpha": 126,
@@ -244,7 +337,12 @@
     "label": "Polar Signal",
     "style": "cold technical",
     "summary": "Deep marine surfaces with ice, cyan, and ultraviolet signal.",
-    "tags": ["cyan", "blue", "technical", "cold"],
+    "tags": [
+      "cyan",
+      "blue",
+      "technical",
+      "cold"
+    ],
     "overrides": {
       "ui": {
         "background": "#09151c",
@@ -274,16 +372,33 @@
         "selectionForeground": "#eaf5f7",
         "minimumContrast": 3,
         "ansi": [
-          "#142630", "#d76c7a", "#67ad90", "#c3a553",
-          "#6295c7", "#987fc2", "#55b6c4", "#bfd1d6",
-          "#516d78", "#eb8090", "#7bc1a4", "#d5b866",
-          "#76a9d9", "#ac93d4", "#69cad8", "#dcebef"
+          "#142630",
+          "#d76c7a",
+          "#67ad90",
+          "#c3a553",
+          "#6295c7",
+          "#987fc2",
+          "#55b6c4",
+          "#bfd1d6",
+          "#516d78",
+          "#eb8090",
+          "#7bc1a4",
+          "#d5b866",
+          "#76a9d9",
+          "#ac93d4",
+          "#69cad8",
+          "#dcebef"
         ]
       },
       "presentation": {
-        "visualizerGradient": ["#65c4d6", "#7d9ed0", "#9c8ec9"]
+        "visualizerGradient": [
+          "#65c4d6",
+          "#7d9ed0",
+          "#9c8ec9"
+        ]
       },
       "effects": {
+        "backgroundOpacity": 0.48,
         "ghosttyBackgroundOpacity": 0.48,
         "ghosttyBlur": 13,
         "barBackgroundAlpha": 118,
@@ -302,7 +417,12 @@
     "label": "Graphite Mono",
     "style": "near-monochrome",
     "summary": "Carbon, silver, and one restrained steel-blue accent.",
-    "tags": ["monochrome", "minimal", "graphite", "quiet"],
+    "tags": [
+      "monochrome",
+      "minimal",
+      "graphite",
+      "quiet"
+    ],
     "overrides": {
       "ui": {
         "background": "#121314",
@@ -332,17 +452,34 @@
         "selectionForeground": "#f1f2f2",
         "minimumContrast": 3,
         "ansi": [
-          "#222528", "#a9757c", "#829985", "#a49170",
-          "#839aa7", "#969099", "#789491", "#c0c3c4",
-          "#5e6469", "#bc878e", "#94ab97", "#b6a483",
-          "#96adb9", "#a9a2ac", "#8ba7a4", "#daddde"
+          "#222528",
+          "#a9757c",
+          "#829985",
+          "#a49170",
+          "#839aa7",
+          "#969099",
+          "#789491",
+          "#c0c3c4",
+          "#5e6469",
+          "#bc878e",
+          "#94ab97",
+          "#b6a483",
+          "#96adb9",
+          "#a9a2ac",
+          "#8ba7a4",
+          "#daddde"
         ]
       },
       "presentation": {
-        "visualizerGradient": ["#879e9b", "#9aaeba", "#aaa7ad"]
+        "visualizerGradient": [
+          "#879e9b",
+          "#9aaeba",
+          "#aaa7ad"
+        ]
       },
       "effects": {
-        "ghosttyBackgroundOpacity": 0.60,
+        "backgroundOpacity": 0.6,
+        "ghosttyBackgroundOpacity": 0.6,
         "ghosttyBlur": 10,
         "barBackgroundAlpha": 140,
         "popupBackgroundAlpha": 136,
@@ -360,7 +497,12 @@
     "label": "Acid Relay",
     "style": "high-contrast signal",
     "summary": "Blackened green, phosphor lime, and safety amber.",
-    "tags": ["high-contrast", "green", "industrial", "bright"],
+    "tags": [
+      "high-contrast",
+      "green",
+      "industrial",
+      "bright"
+    ],
     "overrides": {
       "ui": {
         "background": "#090d09",
@@ -390,16 +532,33 @@
         "selectionForeground": "#f1f9ec",
         "minimumContrast": 4.5,
         "ansi": [
-          "#152015", "#df6262", "#7fc643", "#d0aa3e",
-          "#559da8", "#a27bc2", "#4eab91", "#c8d4c2",
-          "#52634e", "#f27676", "#92da56", "#e2bd51",
-          "#69b1bc", "#b68fd4", "#62bea5", "#e4efde"
+          "#152015",
+          "#df6262",
+          "#7fc643",
+          "#d0aa3e",
+          "#559da8",
+          "#a27bc2",
+          "#4eab91",
+          "#c8d4c2",
+          "#52634e",
+          "#f27676",
+          "#92da56",
+          "#e2bd51",
+          "#69b1bc",
+          "#b68fd4",
+          "#62bea5",
+          "#e4efde"
         ]
       },
       "presentation": {
-        "visualizerGradient": ["#62b69c", "#a8d65f", "#d2b85d"]
+        "visualizerGradient": [
+          "#62b69c",
+          "#a8d65f",
+          "#d2b85d"
+        ]
       },
       "effects": {
+        "backgroundOpacity": 0.72,
         "ghosttyBackgroundOpacity": 0.72,
         "ghosttyBlur": 7,
         "barBackgroundAlpha": 164,
@@ -418,7 +577,12 @@
     "label": "Porcelain Day",
     "style": "warm light",
     "summary": "Warm porcelain, graphite ink, faded blue, and clay.",
-    "tags": ["light", "warm", "paper", "editorial"],
+    "tags": [
+      "light",
+      "warm",
+      "paper",
+      "editorial"
+    ],
     "overrides": {
       "variant": "light",
       "ui": {
@@ -449,16 +613,33 @@
         "selectionForeground": "#24282b",
         "minimumContrast": 4.5,
         "ansi": [
-          "#3b3f42", "#945457", "#5d785f", "#8d713c",
-          "#597589", "#806884", "#5d7d79", "#d6d0c7",
-          "#74777a", "#a96769", "#708b72", "#a0844f",
-          "#6c889b", "#937b97", "#708f8b", "#f3eee6"
+          "#3b3f42",
+          "#945457",
+          "#5d785f",
+          "#8d713c",
+          "#597589",
+          "#806884",
+          "#5d7d79",
+          "#d6d0c7",
+          "#74777a",
+          "#a96769",
+          "#708b72",
+          "#a0844f",
+          "#6c889b",
+          "#937b97",
+          "#708f8b",
+          "#f3eee6"
         ]
       },
       "presentation": {
-        "visualizerGradient": ["#65786b", "#526f82", "#8c665f"]
+        "visualizerGradient": [
+          "#65786b",
+          "#526f82",
+          "#8c665f"
+        ]
       },
       "effects": {
+        "backgroundOpacity": 0.88,
         "ghosttyBackgroundOpacity": 0.88,
         "ghosttyBlur": 8,
         "barBackgroundAlpha": 184,

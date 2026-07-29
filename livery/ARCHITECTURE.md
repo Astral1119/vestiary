@@ -81,6 +81,20 @@ excluded from the semantic theme digest: they are not part of theme identity,
 and a theme-authority Look gets a fresh one while its `terminal` domain is
 preserved verbatim.
 - `effects`: opacity and blur policy, stored independently from RGB values.
+  `backgroundOpacity` is the Look's general background translucency, in
+  (0, 1], and every surface that composites over the wallpaper reads it through
+  `.targets.<adapter>.backgroundOpacity // .effects.backgroundOpacity // 1`.
+  The terminal is the exception and it is deliberate: legibility rather than
+  taste chooses its value, because the solved palette above depends on it, so
+  `ghosttyBackgroundOpacity` sits between the targets override and the general
+  key and wins for the terminal alone. Generated Looks author the general key
+  opaque; the curated themes author their own, from 0.42 to 0.88.
+
+  Opacity multiplies wherever two layers apply it, so an application that
+  composites its own translucent background must be left opaque by the window
+  manager. The yabai adapter carries that exclusion as a rule; without it a
+  terminal would sit at the product of the two and the legibility solve would
+  no longer describe the screen.
 - `targets`: optional per-application overrides. The captured `default` uses
   these where the existing configuration is intentionally irregular.
 - `outputs`: resolved semantic-theme identity and either a content-addressed

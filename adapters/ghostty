@@ -39,9 +39,24 @@ render() {
     printf 'cursor-text = %s\n' "$(cv '.terminal.cursorText | uw | ltrimstr("#")' "$manifest")"
     printf 'selection-background = %s\n' "$(cv '.terminal.selectionBackground | uw | ltrimstr("#")' "$manifest")"
     printf 'selection-foreground = %s\n' "$(cv '.terminal.selectionForeground | uw | ltrimstr("#")' "$manifest")"
+    # A floor of 1 is Ghostty's native setting and reads as a total opt-out:
+    # the theme asks for no terminal policy, so Livery emits neither the
+    # contrast floor nor the opacity and the operator's own config owns both.
     minimum_contrast=$(jq -r '.terminal.minimumContrast' "$manifest")
     if [ "$minimum_contrast" != "1" ]; then
       printf 'minimum-contrast = %s\n' "$minimum_contrast"
+      # Emitted rather than assumed. The palette above is solved against the
+      # cell background composited over the wallpaper at this opacity, so a
+      # config that disagreed would silently invalidate the solve. The
+      # terminal-specific effect outranks the general key, which is what the
+      # window manager reads.
+      background_opacity=$(jq -r '.targets.ghostty.backgroundOpacity
+        // .effects.ghosttyBackgroundOpacity
+        // .effects.backgroundOpacity
+        // empty' "$manifest")
+      if [ -n "$background_opacity" ]; then
+        printf 'background-opacity = %s\n' "$background_opacity"
+      fi
     fi
     # fonts domain (contract §2.4): absent means emit nothing — ghostty
     # keeps its own default. Size is targets-only, never shared vocabulary.

@@ -51,7 +51,10 @@
     ]
   },
   "presentation": {
-    "visualizerGradient": ["#87d6bc", "#a8cbe2"],
+    "visualizerGradient": [
+      "#87d6bc",
+      "#a8cbe2"
+    ],
     "barLegibility": {
       "strategy": "open",
       "polarity": "light",
@@ -80,6 +83,7 @@
     }
   },
   "effects": {
+    "backgroundOpacity": 1.0,
     "ghosttyBackgroundOpacity": 0.5,
     "ghosttyBlur": 10,
     "barBackgroundAlpha": 144,
