@@ -18,6 +18,11 @@ constexpr const char* image =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY"
     "42YAAAAASUVORK5CYII=";
 
+// One pixel wide, two tall: opaque red on top, opaque blue underneath.
+constexpr const char* orientedImage =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAACCAYAAACZgbYnAAAAEUlEQVR4nGP4z8AARAz/"
+    "/wMAEfgD/XUCLkgAAAAASUVORK5CYII=";
+
 }
 
 int main () {
@@ -31,6 +36,21 @@ int main () {
     require (decoded->width == 1 && decoded->height == 1);
     require (decoded->rgba.size () == 4);
     require (error.code == MediaArtworkErrorCode::none);
+
+    // Row 0 of the buffer is the top of the image. Every other texture source
+    // in this renderer uploads that way — WE .tex assets and the video decoder
+    // both hand glTexImage2D a top-down buffer — so artwork must match, or it
+    // reaches the scene vertically flipped.
+    auto oriented = decodeMediaArtwork (
+        std::string ("data:image/png;base64,") + orientedImage, error
+    );
+    require (oriented != nullptr);
+    require (oriented->width == 1 && oriented->height == 2);
+    require (oriented->rgba.size () == 8);
+    require (oriented->rgba[0] == 255 && oriented->rgba[1] == 0
+        && oriented->rgba[2] == 0);
+    require (oriented->rgba[4] == 0 && oriented->rgba[5] == 0
+        && oriented->rgba[6] == 255);
 
     MediaArtworkState state;
     require (state.apply (first) == MediaArtworkUpdate::updated);

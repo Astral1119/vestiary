@@ -130,8 +130,11 @@ std::shared_ptr<const MediaArtworkImage> FrescoScene::decodeMediaArtwork (
         );
         return nullptr;
     }
-    CGContextTranslateCTM (context, 0.0, static_cast<CGFloat> (height));
-    CGContextScaleCTM (context, 1.0, -1.0);
+    // No CTM flip. A bitmap context stores its first row as the top scanline,
+    // so drawing straight in gives a top-down buffer — which is what every
+    // other texture source here produces, and what `glTexImage2D` is handed
+    // unmodified. Flipping to the bottom-up GL convention put the artwork on
+    // screen upside-down while text beside it stayed upright.
     CGContextDrawImage (
         context, CGRectMake (0.0, 0.0, width, height), image
     );
