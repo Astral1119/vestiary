@@ -52,6 +52,10 @@ RENDER_SIZE = (1280, 720)
 # right edge sits within a pixel or two of the direct one. Three leaves room for
 # that without admitting the padding-wide error, which is ten.
 EDGE_TOLERANCE = 3
+# Glyph bearing puts the ink a pixel or two off the raster's exact centre. An
+# alignment offset wrongly applied to centred text moves it half a raster --
+# 51 pixels for 646 -- so this separates the two without pinning font metrics.
+CENTRE_TOLERANCE = 4
 
 
 def package_scene():
@@ -187,15 +191,41 @@ with tempfile.TemporaryDirectory(prefix="fresco-persona-composited-align-") as d
         f"padding={padding}, capture={output}"
     )
 
-    # Control: centred text starts exactly at the padding, which it did before
-    # the fix too. Centring the raster must not move it.
+    # Control: centring the raster must not move centred text, and must not
+    # clip it. This asserts the ink sits inside the padded raster and stays
+    # centred within it -- NOT that it begins on the very first raster column.
+    # That stricter form was an accident of 646's glyph bearing: its raster is
+    # 102 wide and its ink spans columns 1..98, so column 0 is empty and the
+    # equality failed while the placement was correct. Composited 646 centres
+    # at x=1145.5 against the direct path's 1145.0.
     _, centred_reported = render(directory, CENTRED)
     centred_quad = fields(centred_reported, "textEffectQuad", CENTRED)[-1]
     centred_probe = source_probe(centred_reported, CENTRED)
-    centred_left = int(centred_probe["bounds"].split(",")[0])
-    assert centred_left == int(centred_quad["padding"]), (
-        f"centred object {CENTRED} drew its glyphs from x={centred_left} rather "
-        f"than its padding {centred_quad['padding']}: {centred_probe}"
+    centred_padding = int(centred_quad["padding"])
+    centred_raster = int(centred_quad["raster"].split("x")[0])
+    centred_left, _, centred_right, _ = (
+        int(value) for value in centred_probe["bounds"].split(",")
+    )
+
+    # The unfixed build clipped against the source FBO edge and reported left=0.
+    assert centred_left >= centred_padding, (
+        f"centred object {CENTRED} drew its glyphs from x={centred_left}, "
+        f"outside its padding {centred_padding}, so the raster is clipped "
+        f"against the source FBO edge: {centred_probe}"
+    )
+    assert centred_right <= centred_padding + centred_raster - 1, (
+        f"centred object {CENTRED} drew its glyphs out to x={centred_right}, "
+        f"past the {centred_raster}-wide raster at padding {centred_padding}: "
+        f"{centred_probe}"
+    )
+
+    # And it is still centred: an alignment offset applied to centred text
+    # would push the ink half a raster off, which dwarfs any bearing.
+    ink_centre = (centred_left + centred_right) / 2.0
+    raster_centre = centred_padding + centred_raster / 2.0
+    assert abs(ink_centre - raster_centre) <= CENTRE_TOLERANCE, (
+        f"centred object {CENTRED} put its ink centre at {ink_centre:.1f} "
+        f"against a raster centre of {raster_centre:.1f}: {centred_probe}"
     )
 
 print(
