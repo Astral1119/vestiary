@@ -248,6 +248,16 @@ jq -e --slurpfile baseline "$ROOT/profiles/default.json" '
     and .provenance.reproducibility == "replayable"
     and .presentation.barLegibility.textContrastP10 >= 4.5
     and (.presentation.barLegibility.roles | length) == 12
+    and .presentation.terminalLegibility.backdropOpacity
+      == .effects.ghosttyBackgroundOpacity
+    and (.presentation.terminalLegibility.ansi | length) == 16
+    and .presentation.terminalLegibility.foregroundContrastP10 >= 4.5
+    and .presentation.terminalLegibility.paletteContrastP10 >= 3
+    and .presentation.terminalLegibility.ansi[0] == .terminal.ansi[0]
+    # The solve moves lightness, not hue. Contrast depends only on luminance,
+    # so any hue shift is a defect in the mapping rather than a cost of the
+    # floor; mixing toward the foreground used to spend ~30% of the chroma.
+    and .presentation.terminalLegibility.maximumHueDriftDegrees < 10
     and (.terminal.base16 | length == 16)
     and (.terminal.ansi | length == 16)
     and .terminal.minimumContrast == 3
@@ -286,6 +296,16 @@ jq -e --slurpfile baseline "$ROOT/profiles/default.json" '
     and .provenance.reproducibility == "reproducible"
     and .evidence.wallpaper.semanticRecoloring == false
     and .presentation.barLegibility.textContrastP10 >= 4.5
+    # The terminal solve is wallpaper-derived, so a theme-authority Look still
+    # gets one even though `terminal` itself is preserved verbatim above. It is
+    # excluded from the semantic theme digest that liveryctl validate checked.
+    #
+    # The baseline keeps Ghostty native minimumContrast of 1, which is the
+    # total opt-out: measured, never adjusted.
+    and .terminal.minimumContrast == 1
+    and .presentation.terminalLegibility.adjustedCount == 0
+    and .presentation.terminalLegibility.ansi == .terminal.ansi
+    and .presentation.terminalLegibility.foreground == .terminal.foreground
 ' "$theme_candidate" >/dev/null
 
 theme_artifact=$(jq -r '.outputs.wallpaper.artifact' "$theme_candidate")

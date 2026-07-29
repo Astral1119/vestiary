@@ -53,13 +53,33 @@ no wallpaper/coherence fields; those belong to the Look contract.
   one.
 - `terminal.ansi`: terminal slots 0–15 after applying the Base16 terminal
   mapping. Base16 order is not ANSI order.
-- `terminal.minimumContrast`: a renderer-level safety floor. Generated Looks
-  use Ghostty's native 3:1 foreground/background check; the captured default
-  keeps the native 1:1 behavior.
+- `terminal.minimumContrast`: the contrast floor the terminal solve targets,
+  and the floor Ghostty is told to enforce. Generated Looks use 3:1; the
+  captured default keeps Ghostty's native 1:1, which the solve reads as a total
+  opt-out and leaves the palette untouched.
 - `presentation`: decorative ramps such as the strings visualizer gradient.
 - `presentation.barLegibility`: a display-crop-aware treatment for the open
   SketchyBar rail. It records foreground polarity, adjusted bar-only semantic
   colors, optional scrim, and measured lower-decile contrast.
+- `presentation.terminalLegibility`: the same treatment for a translucent
+  terminal. The color behind a glyph is the cell background composited over the
+  wallpaper at `effects.ghosttyBackgroundOpacity`, which is neither the authored
+  background nor the wallpaper. Ghostty's own `minimum-contrast` cannot reach
+  it — the compositor performs the blend, so the wallpaper pixel behind the
+  window is not readable from inside the process — and Livery holds both halves.
+  It records the solved foreground, ANSI slots 1–15, the tmux-facing roles, and
+  measured lower-decile contrast. Slot 0 is base00 and doubles as a fill, so it
+  is never walked. A terminal window can sit anywhere, so the solve samples the
+  whole visible crop rather than a strip. It moves lightness in OKLCh and holds
+  hue, keeping whatever chroma the gamut allows at the new lightness, because
+  contrast depends only on luminance and a mix toward the foreground spends
+  chroma for nothing. Lightness separation is what the floor costs, and it is
+  recovered by widening `effects.ghosttyBackgroundOpacity`, not by the mapping.
+
+Both legibility blocks are solved against the wallpaper at render time and are
+excluded from the semantic theme digest: they are not part of theme identity,
+and a theme-authority Look gets a fresh one while its `terminal` domain is
+preserved verbatim.
 - `effects`: opacity and blur policy, stored independently from RGB values.
 - `targets`: optional per-application overrides. The captured `default` uses
   these where the existing configuration is intentionally irregular.
@@ -208,7 +228,13 @@ reconciled; deleted Space records may remain in history for recovery.
 ## First adapters
 
 - Ghostty receives semantic terminal background/foreground/cursor/selection
-  values plus an ANSI palette derived from Base16.
+  values plus an ANSI palette derived from Base16. Foreground and palette come
+  from `presentation.terminalLegibility` where it exists, so they are the colors
+  solved against the composited backdrop rather than against the opaque cell.
+  The background itself is a fill and stays as authored.
+- tmux runs its status line with `bg=default`, which puts its foregrounds on
+  that same composited backdrop rather than on a surface of its own, so it
+  consumes the solved roles too. An explicit `targets.tmux` override still wins.
 - SketchyBar receives UI roles for glass surfaces and accents, locked signal
   roles for state, the existing alpha policy, and bar-only colors adjusted
   against the wallpaper crop. Popup roles remain tied to their own dark glass

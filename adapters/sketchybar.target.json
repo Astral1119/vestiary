@@ -3,7 +3,7 @@
   "id": "sketchybar",
   "displayName": "SketchyBar",
   "kind": "adapter",
-  "consumes": ["ui", "signals", "effects", "fonts"],
+  "consumes": ["ui", "signals", "effects", "presentation", "fonts"],
   "detect": {
     "command": "sketchybar"
   }

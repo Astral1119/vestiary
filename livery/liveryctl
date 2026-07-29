@@ -208,7 +208,8 @@ adapter_metadata() {
       and (.kind == "adapter")
       and ((.consumes // []) | type == "array"
         and all(. == "ui" or . == "terminal" or . == "signals"
-          or . == "effects" or . == "variant" or . == "fonts"))
+          or . == "effects" or . == "variant" or . == "fonts"
+          or . == "presentation"))
       and ((.detect // {}) | type == "object")
   ' "$metadata_path" >/dev/null || {
     echo "invalid adapter metadata: $metadata_path" >&2
@@ -411,7 +412,9 @@ semantic_theme_json() {
     ui,
     signals,
     terminal,
-    presentation: (.presentation | del(.barLegibility)),
+    # barLegibility and terminalLegibility are solved against the wallpaper at
+    # render time, so they are not part of theme identity.
+    presentation: (.presentation | del(.barLegibility, .terminalLegibility)),
     effects,
     locks,
     targets
@@ -1056,7 +1059,7 @@ ensure_legibility_helper() {
   fi
 }
 
-resolve_bar_legibility() (
+resolve_legibility() (
   manifest=$1
   wallpaper=$2
   ensure_legibility_helper
@@ -1083,6 +1086,29 @@ resolve_bar_legibility() (
       lavender: (.targets.sketchybar.colors.lavender // .ui.secondary),
       teal: (.targets.sketchybar.colors.teal // .ui.tertiary),
       peach: (.targets.sketchybar.colors.peach // .signals.attention)
+    },
+    terminal: {
+      background: .terminal.background,
+      foreground: .terminal.foreground,
+      ansi: .terminal.ansi,
+      backdropOpacity: (.effects.ghosttyBackgroundOpacity // 1),
+      minimumContrast: (.terminal.minimumContrast // 3),
+      # tmux draws its status line with `bg=default`, so these roles sit on the
+      # same composited backdrop as the terminal cells rather than on a surface
+      # of their own. They are solved with the palette, not with the bar.
+      roles: {
+        text: (.targets.tmux.fg // .ui.text),
+        textMuted: (.targets.tmux.muted // .ui.textMuted),
+        accent: (.targets.tmux.accent // .ui.primary),
+        secondary: (.targets.tmux.secondary // .ui.secondary),
+        outline: (.targets.tmux.outline // .ui.outline),
+        outlineVariant: (.targets.tmux.outlineVariant // .ui.outlineVariant // .ui.outline),
+        error: .signals.error,
+        success: .signals.success,
+        warning: .signals.warning,
+        info: .signals.info,
+        attention: .signals.attention
+      }
     }
   }' "$manifest" > "$palette"
 
@@ -1099,7 +1125,8 @@ resolve_bar_legibility() (
 
   "$LEGIBILITY_BIN" "$wallpaper" "$palette" "$displays" > "$result"
   jq --slurpfile legibility "$result" \
-    '.presentation.barLegibility = $legibility[0]' \
+    '.presentation.barLegibility = $legibility[0].barLegibility
+      | .presentation.terminalLegibility = $legibility[0].terminalLegibility' \
     "$manifest" > "$merged"
   mv -f "$merged" "$manifest"
   rm -f "$palette" "$displays" "$result"
@@ -1331,9 +1358,9 @@ write_wallpaper_authoritative_look() {
         }
       | del(.source)
     ' "$theme" > "$manifest"
-  resolve_bar_legibility "$manifest" "$output_dir/wallpaper/$artifact_name"
+  resolve_legibility "$manifest" "$output_dir/wallpaper/$artifact_name"
   merged=$(mktemp "${TMPDIR:-/tmp}/livery-evidence.XXXXXX")
-  jq '.evidence.barLegibility = .presentation.barLegibility' "$manifest" > "$merged"
+  jq '.evidence.barLegibility = .presentation.barLegibility | .evidence.terminalLegibility = .presentation.terminalLegibility' "$manifest" > "$merged"
   mv -f "$merged" "$manifest"
   finalize_manifest "$manifest" "$profile" "$(jq -nc \
     --arg fixture "$fixture" --arg scheme "$candidate" \
@@ -1726,9 +1753,9 @@ write_theme_authoritative_look() {
         }
       | del(.source)
     ' "$theme" > "$manifest"
-  resolve_bar_legibility "$manifest" "$output_dir/wallpaper/$artifact_name"
+  resolve_legibility "$manifest" "$output_dir/wallpaper/$artifact_name"
   merged=$(mktemp "${TMPDIR:-/tmp}/livery-evidence.XXXXXX")
-  jq '.evidence.barLegibility = .presentation.barLegibility' "$manifest" > "$merged"
+  jq '.evidence.barLegibility = .presentation.barLegibility | .evidence.terminalLegibility = .presentation.terminalLegibility' "$manifest" > "$merged"
   mv -f "$merged" "$manifest"
   finalize_manifest "$manifest" "$profile" "$(jq -nc \
     --arg ref "$theme_ref" --arg fixture "$target_fixture" --arg recipe "$recipe" \

@@ -276,12 +276,36 @@ Generated Looks set Ghostty's native `minimum-contrast` floor to `3`. Ghostty
 checks foreground text against its cell background at render time without
 modifying background colors, including colors selected by terminal
 applications. The project baseline retains Ghostty's native `1` setting.
+
+That check is not enough on a translucent terminal, and it cannot be made
+enough. At `background-opacity = 0.5` the color behind a glyph is the cell
+background composited over the wallpaper, and Ghostty compares against the
+opaque cell background instead — every slot passes a check that does not
+describe the screen. Nor could Ghostty do better: the compositor performs the
+blend, so the wallpaper pixel behind the window is not readable from inside the
+process. Livery holds the wallpaper and the opacity together, so it solves the
+palette against the real backdrop at render time and writes the result to
+`presentation.terminalLegibility`; the Ghostty and tmux adapters prefer it over
+the authored colors. `minimumContrast = 1` is the opt-out, and the baseline
+takes it.
+
+The solve moves lightness in OKLCh and holds hue, because contrast depends only
+on luminance. On a Persona 3 Look it reproduces the authored chroma/hue plane
+exactly — mean pairwise separation 0.0422 either way — and retains mean chroma
+0.1106 against 0.1123 authored, with maximum hue drift 6.41°.
+
+Lightness separation is the cost, and it is set by arithmetic rather than by the
+mapping. That palette spans 0.361 of OKLab lightness and a 50%-opacity backdrop
+leaves a band of 0.223 between the floor and white, so the slots compress. The
+band widens with `ghosttyBackgroundOpacity`: at 0.7 the same solve leaves six of
+the first seven slots byte-identical to the authored palette.
+
 Livery's terminal specimen is an illustrative Lua syntax map rendered through
 the actual terminal contract: semantic terminal background/foreground, the
 resolved ANSI slots, `ghosttyBackgroundOpacity`, and the configured minimum
-contrast floor. Its representative cell background composites the terminal
-background over sampled wallpaper color before simulating Ghostty's fallback;
-UI surface/text roles no longer stand in for terminal roles.
+contrast floor. It runs the same solver the render pipeline runs, so it shows
+what the adapter will emit; UI surface/text roles no longer stand in for
+terminal roles.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the semantic/UI, signal, Base16,
 ANSI, presentation, and effects boundaries.

@@ -3,7 +3,7 @@
   "id": "ghostty",
   "displayName": "Ghostty",
   "kind": "adapter",
-  "consumes": ["terminal", "fonts"],
+  "consumes": ["terminal", "presentation", "fonts"],
   "detect": {
     "application": "Ghostty.app"
   }

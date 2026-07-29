@@ -48,16 +48,31 @@ private enum LiveryLegibilityAnalyzer {
                 [DisplayRecord].self,
                 from: Data(contentsOf: URL(fileURLWithPath: arguments[3]))
             )
-            let result = analyzeBarLegibility(
-                image: image,
-                displaySizes: displays.map {
-                    CGSize(width: $0.frame.w, height: $0.frame.h)
-                },
-                palette: BarLegibilityPalette(
-                    text: palette.text,
-                    textMuted: palette.textMuted,
-                    background: palette.background,
-                    roles: palette.roles
+            let displaySizes = displays.map {
+                CGSize(width: $0.frame.w, height: $0.frame.h)
+            }
+            let result = LegibilityOutput(
+                barLegibility: analyzeBarLegibility(
+                    image: image,
+                    displaySizes: displaySizes,
+                    palette: BarLegibilityPalette(
+                        text: palette.text,
+                        textMuted: palette.textMuted,
+                        background: palette.background,
+                        roles: palette.roles
+                    )
+                ),
+                terminalLegibility: analyzeTerminalLegibility(
+                    image: image,
+                    displaySizes: displaySizes,
+                    palette: TerminalLegibilityPalette(
+                        background: palette.terminal.background,
+                        foreground: palette.terminal.foreground,
+                        ansi: palette.terminal.ansi,
+                        roles: palette.terminal.roles
+                    ),
+                    backdropOpacity: palette.terminal.backdropOpacity,
+                    paletteMinimumContrast: palette.terminal.minimumContrast
                 )
             )
             try write(result)
@@ -80,4 +95,19 @@ private struct BarLegibilityPaletteInput: Decodable {
     let textMuted: String
     let background: String
     let roles: [String: String]
+    let terminal: TerminalPaletteInput
+}
+
+private struct TerminalPaletteInput: Decodable {
+    let background: String
+    let foreground: String
+    let ansi: [String]
+    let roles: [String: String]
+    let backdropOpacity: Double
+    let minimumContrast: Double
+}
+
+private struct LegibilityOutput: Encodable {
+    let barLegibility: BarLegibilityResult
+    let terminalLegibility: TerminalLegibilityResult
 }

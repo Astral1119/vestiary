@@ -78,6 +78,51 @@ if [ -e "$TEST_ROOT/unsupported-render/vestiary.css" ]; then
   exit 1
 fi
 
+# The terminal palette solved against the composited backdrop outranks the
+# authored one, and a manifest without the solve keeps rendering the authored
+# colors rather than failing.
+mkdir -p "$TEST_ROOT/terminal-solved" "$TEST_ROOT/terminal-authored"
+jq '
+  .presentation.terminalLegibility = {
+    backdropOpacity: 0.5,
+    polarity: "light",
+    foreground: {hex: "#abcdef", rgb: [171, 205, 239]},
+    ansi: [range(16) | {hex: "#0a0b0c", rgb: [10, 11, 12]}],
+    roles: {text: {hex: "#fedcba", rgb: [254, 220, 186]}},
+    foregroundContrastP10: 5,
+    foregroundContrastMedian: 8,
+    paletteContrastP10: 3,
+    adjustedCount: 15,
+    sampleCount: 3072
+  }
+' "$TEST_ROOT/manifest.json" > "$TEST_ROOT/manifest-solved.json"
+
+"$REPO_ROOT/adapters/ghostty" render \
+  "$TEST_ROOT/manifest-solved.json" "$TEST_ROOT/terminal-solved" >/dev/null
+grep -Fxq 'foreground = abcdef' "$TEST_ROOT/terminal-solved/livery.conf"
+grep -Fxq 'palette = 0=#0a0b0c' "$TEST_ROOT/terminal-solved/livery.conf"
+# The cell background is a fill, not a foreground, and is never solved.
+authored_background=$(jq -r '.terminal.background | if type == "object" then .hex else . end | ltrimstr("#")' \
+  "$TEST_ROOT/manifest.json")
+grep -Fxq "background = $authored_background" "$TEST_ROOT/terminal-solved/livery.conf"
+
+"$REPO_ROOT/adapters/tmux" render \
+  "$TEST_ROOT/manifest-solved.json" "$TEST_ROOT/terminal-solved" >/dev/null
+grep -Fxq 'set -g @livery_fg "#fedcba"' "$TEST_ROOT/terminal-solved/livery.conf"
+# A role the solve did not carry falls through to the authored value.
+authored_muted=$(jq -r '.ui.textMuted | if type == "object" then .hex else . end' \
+  "$TEST_ROOT/manifest.json")
+grep -Fxq "set -g @livery_muted \"$authored_muted\"" "$TEST_ROOT/terminal-solved/livery.conf"
+
+authored_foreground=$(jq -r '.terminal.foreground | if type == "object" then .hex else . end | ltrimstr("#")' \
+  "$TEST_ROOT/manifest.json")
+"$REPO_ROOT/adapters/ghostty" render \
+  "$TEST_ROOT/manifest.json" "$TEST_ROOT/terminal-authored" >/dev/null
+grep -Fxq "foreground = $authored_foreground" "$TEST_ROOT/terminal-authored/livery.conf"
+"$REPO_ROOT/adapters/tmux" render \
+  "$TEST_ROOT/manifest.json" "$TEST_ROOT/terminal-authored" >/dev/null
+grep -Fxq "set -g @livery_muted \"$authored_muted\"" "$TEST_ROOT/terminal-authored/livery.conf"
+
 for adapter in borders css ghostty nvim sketchybar tmux; do
   "$ROOT/liveryctl" adapter-check "$adapter" >/dev/null
 done

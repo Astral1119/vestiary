@@ -3,7 +3,8 @@
 # Contract: ../contract/SPEC.md §3 — verbs: render <manifest> <outdir> |
 # validate <outdir> | reload <profiledir> | loader-check.
 # Exit codes: 0 success · 1 operation failed · 2 usage/unknown verb.
-# Consumes: ui.*, signals.*, targets.tmux.* (override // fallback idiom).
+# Consumes: ui.*, signals.*, presentation.terminalLegibility.roles,
+# targets.tmux.* (override // fallback idiom).
 # Emits: <outdir>/livery.conf — @livery_* user options (palette for format
 # strings) plus directly-set style options. Colors resolve wrapped {hex,rgb}
 # v3 values or legacy bare hex.
@@ -25,20 +26,26 @@ render() {
   [ -r "$manifest" ] || { echo "render: manifest unreadable: $manifest" >&2; exit 1; }
   mkdir -p "$outdir"
 
+  # The status line runs `bg=default`, so every foreground below is drawn on
+  # the terminal's own composited backdrop rather than on a surface of its own.
+  # presentation.terminalLegibility.roles holds those roles solved against it;
+  # an explicit targets.tmux override still outranks the solve. Backgrounds
+  # (bg, selection, surface) are fills and take no part in it.
+  L='.presentation.terminalLegibility.roles'
   bg=$(cv '.targets.tmux.bg // .ui.background' "$manifest")
-  fg=$(cv '.targets.tmux.fg // .ui.text' "$manifest")
-  muted=$(cv '.targets.tmux.muted // .ui.textMuted' "$manifest")
-  accent=$(cv '.targets.tmux.accent // .ui.primary' "$manifest")
-  secondary=$(cv '.targets.tmux.secondary // .ui.secondary' "$manifest")
-  outline=$(cv '.targets.tmux.outline // .ui.outline' "$manifest")
-  outline_variant=$(cv '.targets.tmux.outlineVariant // .ui.outlineVariant // .ui.outline' "$manifest")
+  fg=$(cv ".targets.tmux.fg // $L.text // .ui.text" "$manifest")
+  muted=$(cv ".targets.tmux.muted // $L.textMuted // .ui.textMuted" "$manifest")
+  accent=$(cv ".targets.tmux.accent // $L.accent // .ui.primary" "$manifest")
+  secondary=$(cv ".targets.tmux.secondary // $L.secondary // .ui.secondary" "$manifest")
+  outline=$(cv ".targets.tmux.outline // $L.outline // .ui.outline" "$manifest")
+  outline_variant=$(cv ".targets.tmux.outlineVariant // $L.outlineVariant // .ui.outlineVariant // .ui.outline" "$manifest")
   selection=$(cv '.targets.tmux.selection // .ui.selection' "$manifest")
   surface=$(cv '.targets.tmux.surface // .ui.surface' "$manifest")
-  attention=$(cv '.targets.tmux.attention // .signals.attention' "$manifest")
-  success=$(cv '.targets.tmux.success // .signals.success' "$manifest")
-  warning=$(cv '.targets.tmux.warning // .signals.warning' "$manifest")
-  error=$(cv '.targets.tmux.error // .signals.error' "$manifest")
-  info=$(cv '.targets.tmux.info // .signals.info' "$manifest")
+  attention=$(cv ".targets.tmux.attention // $L.attention // .signals.attention" "$manifest")
+  success=$(cv ".targets.tmux.success // $L.success // .signals.success" "$manifest")
+  warning=$(cv ".targets.tmux.warning // $L.warning // .signals.warning" "$manifest")
+  error=$(cv ".targets.tmux.error // $L.error // .signals.error" "$manifest")
+  info=$(cv ".targets.tmux.info // $L.info // .signals.info" "$manifest")
 
   for value in "$bg" "$fg" "$muted" "$accent" "$secondary" "$outline" \
     "$outline_variant" "$selection" "$surface" "$attention" "$success" \

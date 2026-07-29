@@ -24,13 +24,17 @@ render() {
   [ -r "$manifest" ] || { echo "render: manifest unreadable: $manifest" >&2; exit 1; }
   mkdir -p "$outdir"
   {
+    # presentation.terminalLegibility holds the same palette solved against the
+    # cell background composited over the wallpaper at the configured opacity.
+    # Ghostty's own minimum-contrast cannot see that backdrop — the compositor
+    # performs the blend — so the solved colors win where they exist.
     index=0
-    cv '.terminal.ansi[]' "$manifest" | while IFS= read -r color; do
+    cv '(.presentation.terminalLegibility.ansi // .terminal.ansi)[]' "$manifest" | while IFS= read -r color; do
       printf 'palette = %s=%s\n' "$index" "$color"
       index=$((index + 1))
     done
     printf 'background = %s\n' "$(cv '.terminal.background | uw | ltrimstr("#")' "$manifest")"
-    printf 'foreground = %s\n' "$(cv '.terminal.foreground | uw | ltrimstr("#")' "$manifest")"
+    printf 'foreground = %s\n' "$(cv '(.presentation.terminalLegibility.foreground // .terminal.foreground) | uw | ltrimstr("#")' "$manifest")"
     printf 'cursor-color = %s\n' "$(cv '.terminal.cursor | uw | ltrimstr("#")' "$manifest")"
     printf 'cursor-text = %s\n' "$(cv '.terminal.cursorText | uw | ltrimstr("#")' "$manifest")"
     printf 'selection-background = %s\n' "$(cv '.terminal.selectionBackground | uw | ltrimstr("#")' "$manifest")"

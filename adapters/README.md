@@ -74,8 +74,15 @@ An adjacent `<id>.target.json` file supplies descriptive metadata:
 ```
 
 Metadata is optional for discovery. `consumes` may name `ui`, `signals`,
-`terminal`, `effects`, `variant`, or `fonts`. The `detect` object is descriptive
-in this version; the adapter remains responsible for `loader-check`.
+`terminal`, `effects`, `variant`, `presentation`, or `fonts`. The `detect`
+object is descriptive in this version; the adapter remains responsible for
+`loader-check`.
+
+`presentation` names the domains Livery solves against the wallpaper at render
+time rather than reading from the theme: `barLegibility` for the bar strip and
+`terminalLegibility` for the composited terminal backdrop. Both are absent from
+theme-authored manifests, so an adapter that consumes them must fall back to the
+authored domain rather than fail.
 
 ## Generic CSS artifact
 

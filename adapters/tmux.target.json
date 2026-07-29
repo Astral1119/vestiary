@@ -3,7 +3,7 @@
   "id": "tmux",
   "displayName": "tmux",
   "kind": "adapter",
-  "consumes": ["ui", "signals"],
+  "consumes": ["ui", "signals", "presentation"],
   "detect": {
     "command": "tmux"
   }

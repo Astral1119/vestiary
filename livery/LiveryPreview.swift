@@ -758,87 +758,47 @@ private enum FinishMode: String, CaseIterable, Identifiable {
 
 private let terminalMinimumContrast = 3.0
 
-private func contrastRatio(_ foreground: RGBColor, _ background: RGBColor) -> Double {
-    let light = max(foreground.luminance, background.luminance)
-    let dark = min(foreground.luminance, background.luminance)
-    return (light + 0.05) / (dark + 0.05)
-}
-
-private func ghosttyTextColor(
-    _ foreground: String,
-    over background: RGBColor,
-    minimumContrast: Double = terminalMinimumContrast
-) -> String {
-    let foregroundColor = RGBColor(hex: foreground)
-    if contrastRatio(foregroundColor, background) >= minimumContrast {
-        return foreground
-    }
-
-    let black = RGBColor(hex: "#000000")
-    let white = RGBColor(hex: "#ffffff")
-    return contrastRatio(white, background) >= contrastRatio(black, background)
-        ? white.hex
-        : black.hex
-}
-
-private func representativeColor(in image: NSImage, fallback: String) -> RGBColor {
-    guard
-        let bitmap = NSBitmapImageRep(data: image.tiffRepresentation ?? Data()),
-        bitmap.pixelsWide > 0,
-        bitmap.pixelsHigh > 0
-    else { return RGBColor(hex: fallback) }
-
-    var red = 0.0
-    var green = 0.0
-    var blue = 0.0
-    var count = 0.0
-    for row in 0..<5 {
-        for column in 0..<7 {
-            let x = min((2 * column + 1) * bitmap.pixelsWide / 14, bitmap.pixelsWide - 1)
-            let y = min((2 * row + 1) * bitmap.pixelsHigh / 10, bitmap.pixelsHigh - 1)
-            guard let color = bitmap.colorAt(x: x, y: y) else { continue }
-            let sample = RGBColor(nsColor: color)
-            red += sample.red
-            green += sample.green
-            blue += sample.blue
-            count += 1
-        }
-    }
-    guard count > 0 else { return RGBColor(hex: fallback) }
-    let average = NSColor(
-        srgbRed: red / count,
-        green: green / count,
-        blue: blue / count,
-        alpha: 1
-    )
-    return RGBColor(nsColor: average)
-}
-
-private struct TerminalCellBackgroundCacheKey: Hashable {
+private struct TerminalSolveCacheKey: Hashable {
     let imageIdentity: String
     let terminalBackground: String
+    let terminalForeground: String
+    let ansi: [String]
     let terminalOpacity: Double
+    let minimumContrast: Double
 }
 
-private final class TerminalCellBackgroundCache {
-    static let shared = TerminalCellBackgroundCache()
+// The specimen runs the same solver the render pipeline runs, so what it shows
+// is what `adapters/ghostty` will emit. It previously simulated a Ghostty
+// `minimum-contrast` fallback against the composited backdrop — which reads
+// legibly, but Ghostty checks against the opaque cell background and would
+// never make that substitution.
+private final class TerminalSolveCache {
+    static let shared = TerminalSolveCache()
 
-    private var values: [TerminalCellBackgroundCacheKey: RGBColor] = [:]
+    private var values: [TerminalSolveCacheKey: TerminalLegibilityResult] = [:]
     private let lock = NSLock()
 
     func value(
-        for key: TerminalCellBackgroundCacheKey,
+        for key: TerminalSolveCacheKey,
         image: NSImage
-    ) -> RGBColor {
+    ) -> TerminalLegibilityResult {
         lock.lock()
         defer { lock.unlock() }
 
         if let value = values[key] {
             return value
         }
-        let value = RGBColor(hex: key.terminalBackground).composited(
-            over: representativeColor(in: image, fallback: key.terminalBackground),
-            alpha: key.terminalOpacity
+        let value = analyzeTerminalLegibility(
+            image: image,
+            displaySizes: [],
+            palette: TerminalLegibilityPalette(
+                background: key.terminalBackground,
+                foreground: key.terminalForeground,
+                ansi: key.ansi,
+                roles: [:]
+            ),
+            backdropOpacity: key.terminalOpacity,
+            paletteMinimumContrast: key.minimumContrast
         )
         values[key] = value
         return value
@@ -2350,18 +2310,21 @@ private struct TerminalSpecimen: View {
     private var terminalBackground: String { palette.resolvedTerminalBackground }
     private var terminalForeground: String { palette.resolvedTerminalForeground }
     private var terminalOpacity: Double { palette.resolvedGhosttyBackgroundOpacity }
-    private var cellBackground: RGBColor {
-        TerminalCellBackgroundCache.shared.value(
-            for: TerminalCellBackgroundCacheKey(
+    private var minimumContrast: Double {
+        palette.minimumContrast ?? terminalMinimumContrast
+    }
+    private var solve: TerminalLegibilityResult {
+        TerminalSolveCache.shared.value(
+            for: TerminalSolveCacheKey(
                 imageIdentity: wallpaperIdentity,
                 terminalBackground: terminalBackground,
-                terminalOpacity: terminalOpacity
+                terminalForeground: terminalForeground,
+                ansi: ansi,
+                terminalOpacity: terminalOpacity,
+                minimumContrast: minimumContrast
             ),
             image: wallpaperImage
         )
-    }
-    private var minimumContrast: Double {
-        palette.minimumContrast ?? terminalMinimumContrast
     }
     private var minimumContrastLabel: String {
         minimumContrast.rounded() == minimumContrast
@@ -2369,14 +2332,20 @@ private struct TerminalSpecimen: View {
             : String(format: "%.1f", minimumContrast)
     }
 
-    private func terminalColor(_ hex: String) -> Color {
-        Color(
-            hex: ghosttyTextColor(
-                hex,
-                over: cellBackground,
-                minimumContrast: minimumContrast
-            )
-        )
+    // Indexed rather than keyed by authored hex: the foreground is solved
+    // against a stricter floor than the palette, so a theme whose foreground
+    // equals one of its slots would otherwise render that slot with the
+    // foreground result.
+    private func ansiColor(_ index: Int) -> Color {
+        let solvedANSI = solve.ansi
+        guard solvedANSI.indices.contains(index) else {
+            return Color(hex: ansi.indices.contains(index) ? ansi[index] : terminalForeground)
+        }
+        return Color(hex: solvedANSI[index])
+    }
+
+    private var foregroundColor: Color {
+        Color(hex: solve.foreground)
     }
 
     var body: some View {
@@ -2385,7 +2354,7 @@ private struct TerminalSpecimen: View {
                 Text("CODE / LUA")
                     .foregroundStyle(palette.panelText(0.46))
                 Spacer()
-                Text("GHOSTTY SIM / \(Int((terminalOpacity * 100).rounded()))% / MIN \(minimumContrastLabel):1")
+                Text("GHOSTTY SIM / \(Int((terminalOpacity * 100).rounded()))% / SOLVED \(minimumContrastLabel):1 / P10 \(String(format: "%.1f", solve.paletteContrastP10)):1")
                     .foregroundStyle(palette.panelAccent(0.62))
             }
             .font(.lab(8, weight: .semibold))
@@ -2396,36 +2365,36 @@ private struct TerminalSpecimen: View {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 0) {
-                        Text("local ").foregroundStyle(terminalColor(ansi[5]))
-                        Text("theme ").foregroundStyle(terminalColor(terminalForeground))
-                        Text("= ").foregroundStyle(terminalColor(ansi[8]))
-                        Text("{").foregroundStyle(terminalColor(ansi[6]))
+                        Text("local ").foregroundStyle(ansiColor(5))
+                        Text("theme ").foregroundStyle(foregroundColor)
+                        Text("= ").foregroundStyle(ansiColor(8))
+                        Text("{").foregroundStyle(ansiColor(6))
                     }
                     HStack(spacing: 0) {
-                        Text("  bg      ").foregroundStyle(terminalColor(ansi[8]))
-                        Text("= ").foregroundStyle(terminalColor(ansi[8]))
-                        Text(bgLiteral).foregroundStyle(terminalColor(ansi[4]))
-                        Text(",").foregroundStyle(terminalColor(ansi[8]))
+                        Text("  bg      ").foregroundStyle(ansiColor(8))
+                        Text("= ").foregroundStyle(ansiColor(8))
+                        Text(bgLiteral).foregroundStyle(ansiColor(4))
+                        Text(",").foregroundStyle(ansiColor(8))
                     }
                     HStack(spacing: 0) {
-                        Text("  surface ").foregroundStyle(terminalColor(ansi[8]))
-                        Text("= ").foregroundStyle(terminalColor(ansi[8]))
-                        Text(surfaceLiteral).foregroundStyle(terminalColor(ansi[4]))
-                        Text(",").foregroundStyle(terminalColor(ansi[8]))
+                        Text("  surface ").foregroundStyle(ansiColor(8))
+                        Text("= ").foregroundStyle(ansiColor(8))
+                        Text(surfaceLiteral).foregroundStyle(ansiColor(4))
+                        Text(",").foregroundStyle(ansiColor(8))
                     }
                     HStack(spacing: 0) {
-                        Text("  accent  ").foregroundStyle(terminalColor(ansi[8]))
-                        Text("= ").foregroundStyle(terminalColor(ansi[8]))
-                        Text(accentLiteral).foregroundStyle(terminalColor(ansi[6]))
-                        Text(",").foregroundStyle(terminalColor(ansi[8]))
+                        Text("  accent  ").foregroundStyle(ansiColor(8))
+                        Text("= ").foregroundStyle(ansiColor(8))
+                        Text(accentLiteral).foregroundStyle(ansiColor(6))
+                        Text(",").foregroundStyle(ansiColor(8))
                     }
                     HStack(spacing: 0) {
-                        Text("}").foregroundStyle(terminalColor(ansi[6]))
-                        Text("  -- \(palette.name)").foregroundStyle(terminalColor(ansi[8]))
+                        Text("}").foregroundStyle(ansiColor(6))
+                        Text("  -- \(palette.name)").foregroundStyle(ansiColor(8))
                     }
                     HStack(spacing: 0) {
-                        Text("return ").foregroundStyle(terminalColor(ansi[5]))
-                        Text("theme").foregroundStyle(terminalColor(terminalForeground))
+                        Text("return ").foregroundStyle(ansiColor(5))
+                        Text("theme").foregroundStyle(foregroundColor)
                     }
                 }
                 .font(.lab(9))
