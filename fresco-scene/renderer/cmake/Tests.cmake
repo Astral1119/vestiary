@@ -15,6 +15,21 @@ if(BUILD_TESTING)
         COMMAND fresco-scene-renderer-scene-object-visibility
     )
     add_executable(
+        fresco-scene-renderer-scene-object-opacity
+        tests/scene_object_opacity_test.cpp
+    )
+    target_include_directories(
+        fresco-scene-renderer-scene-object-opacity PRIVATE include
+    )
+    target_compile_options(
+        fresco-scene-renderer-scene-object-opacity PRIVATE
+        -Wall -Wextra -Werror -Wpedantic -UNDEBUG
+    )
+    add_test(
+        NAME fresco-scene-renderer-scene-object-opacity
+        COMMAND fresco-scene-renderer-scene-object-opacity
+    )
+    add_executable(
         fresco-scene-renderer-scene-object-transform
         tests/scene_object_transform_test.cpp
     )
@@ -1657,6 +1672,20 @@ if(BUILD_TESTING
         set_tests_properties(
             fresco-scene-renderer-hyuga-puppet-winding-render
             PROPERTIES TIMEOUT 300
+        )
+        add_test(
+            NAME fresco-scene-renderer-hyuga-composition-layer-opacity-render
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/hyuga_composition_layer_opacity_render_test.py"
+                "$<TARGET_FILE:fresco-scene-render-smoke>"
+                "${FRESCO_SCENE_WORKSHOP_ROOT}"
+                "${FRESCO_SCENE_ASSETS}"
+                "${CMAKE_CURRENT_BINARY_DIR}/evidence/composition-layer-opacity"
+        )
+        set_tests_properties(
+            fresco-scene-renderer-hyuga-composition-layer-opacity-render
+            PROPERTIES TIMEOUT 900
         )
     endif()
     add_test(

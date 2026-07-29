@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FrescoScene/SceneObjectOpacity.h"
 #include "FrescoScene/SceneObjectTransform.h"
 #include "FrescoScene/SceneObjectVisibility.h"
 
@@ -96,6 +97,71 @@ inline bool sceneObjectVisibleWithParents (
                 .propagatesVisibility = sceneObjectTypePropagatesVisibility (
                     model.is<Particle> (), model.is<Text> (), model.is<Sound> ()
                 ),
+            };
+        }
+    );
+}
+
+// The `alpha` material constant is the opacity control: `shaders/effects/
+// opacity.frag` declares `uniform float g_UserAlpha; // {"material":"alpha"}`
+// and multiplies the sample's alpha by it. Hyuga animates that constant on
+// object 367's second opacity effect to fade the opening overlay.
+inline float sceneObjectChainOpacity (
+    const WallpaperEngine::Data::Model::Object& object
+) {
+    using namespace WallpaperEngine::Data::Model;
+
+    if (!object.is<Image> ()) {
+        return 1.0f;
+    }
+    float opacity = 1.0f;
+    for (const auto& effect : object.as<Image> ()->effects) {
+        if (!effect->visible->value->getBool ()) {
+            continue;
+        }
+        for (const auto& passOverride : effect->passOverrides) {
+            const auto alpha = passOverride->constants.find ("alpha");
+            if (alpha != passOverride->constants.end ()) {
+                opacity *= alpha->second->value->getFloat ();
+            }
+        }
+    }
+    return opacity;
+}
+
+// Only a passthrough composition layer propagates. It exists to group, so its
+// chain opacity is the group's; an ordinary image's effect alpha describes that
+// image's own rendering. SceneObjectOpacity.h carries the corpus survey behind
+// that restriction.
+inline bool sceneObjectPropagatesOpacity (
+    const WallpaperEngine::Data::Model::Object& object
+) {
+    using namespace WallpaperEngine::Data::Model;
+
+    if (!object.is<Image> ()) {
+        return false;
+    }
+    const auto* image = object.as<Image> ();
+    return image->model != nullptr && image->model->passthrough;
+}
+
+inline float sceneObjectOpacityFromParents (
+    const WallpaperEngine::Render::Wallpapers::CScene& scene,
+    const WallpaperEngine::Data::Model::Object& object
+) {
+    return sceneObjectInheritedOpacity (
+        object.parent,
+        [&scene] (int id) -> std::optional<SceneObjectOpacityNode> {
+            const auto* parent = scene.getObject (id);
+            if (parent == nullptr) {
+                return std::nullopt;
+            }
+            const auto& model = parent->getObject ();
+            const bool propagates = sceneObjectPropagatesOpacity (model);
+            return SceneObjectOpacityNode {
+                .parent = model.parent,
+                .propagatesOpacity = propagates,
+                .opacity = propagates ? sceneObjectChainOpacity (model) : 1.0f,
             };
         }
     );

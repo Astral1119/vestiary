@@ -1822,11 +1822,23 @@ string(REPLACE
     particle_header
     "${particle_header}"
 )
+# A passthrough composition layer's chain opacity reaches its children, and the
+# particle shaders carry no alpha uniform — genericparticle declares only the
+# a_Color vertex attribute — so the inherited value multiplies into the vertex
+# alpha at buffer-fill time. Refreshed once per frame in
+# updateParticleRenderVars rather than per particle.
+string(REPLACE
+    "    std::mt19937 m_rng;"
+    "    std::mt19937 m_rng;\n    float m_inheritedOpacity { 1.0f };"
+    particle_header
+    "${particle_header}"
+)
 foreach(particle_header_marker IN ITEMS
     "#include \"WallpaperEngine/Render/Objects/CRenderable.h\""
     "uint64_t serial { 0 };"
     "bool hasLiveParticles () const;"
     "runtimeEvidence () const;"
+    "float m_inheritedOpacity { 1.0f };"
     "uint64_t m_nextParticleSerial { 1 };")
     fresco_require_generated_patch(
         particle_header
@@ -1843,7 +1855,49 @@ fresco_write_generated(
 )
 string(REPLACE
     "#include \"CParticle.h\""
-    "#include \"WallpaperEngine/Render/Objects/CParticle.h\"\n#include \"FrescoScene/Camera2DControl.h\"\n#include \"FrescoScene/ParticleChildRuntime.h\"\n#include \"FrescoScene/ParticleCompatibility.h\"\n#include \"FrescoScene/SceneObjectModelTransform.h\""
+    "#include \"WallpaperEngine/Render/Objects/CParticle.h\"\n#include \"FrescoScene/Camera2DControl.h\"\n#include \"FrescoScene/ParticleChildRuntime.h\"\n#include \"FrescoScene/ParticleCompatibility.h\"\n#include \"FrescoScene/SceneObjectModelTransform.h\"\n#include \"FrescoScene/SceneObjectOpacity.h\""
+    particle_source
+    "${particle_source}"
+)
+# Hyuga 3479521040 fades its opening overlay by animating the `alpha` constant
+# on composition layer 367, and the reference fades that layer's particle child
+# 261 with it. 261 draws after 367 in authored order, so it was never in the
+# layer's framebuffer copy and nothing scaled it. The constant is animated, so
+# this is refreshed every frame rather than resolved once at setup.
+string(REPLACE
+    "void CParticle::updateParticleRenderVars () {\n    m_renderVar0"
+    "void CParticle::updateParticleRenderVars () {\n    m_inheritedOpacity = FrescoScene::sceneObjectOpacityFromParents (\n\tthis->getScene (), m_particle\n    );\n    m_renderVar0"
+    particle_source
+    "${particle_source}"
+)
+# The particle shaders carry no alpha uniform — genericparticle declares only
+# the a_Color vertex attribute — so the inherited opacity multiplies into the
+# vertex alpha rather than into p.alpha, which the operators own.
+string(REPLACE
+    "\t    m_vertices[base + 10] = p.alpha;"
+    "\t    m_vertices[base + 10] = p.alpha * m_inheritedOpacity;"
+    particle_source
+    "${particle_source}"
+)
+string(REPLACE
+    "\tconst glm::vec4& colorStart = splineColors[s];\n\tconst glm::vec4& colorEnd = splineColors[s + 1];"
+    "\tconst glm::vec4 colorStart\n\t    = splineColors[s] * glm::vec4 (1.0f, 1.0f, 1.0f, m_inheritedOpacity);\n\tconst glm::vec4 colorEnd\n\t    = splineColors[s + 1] * glm::vec4 (1.0f, 1.0f, 1.0f, m_inheritedOpacity);"
+    particle_source
+    "${particle_source}"
+)
+foreach(particle_opacity_marker IN ITEMS
+    "m_inheritedOpacity = FrescoScene::sceneObjectOpacityFromParents ("
+    "m_vertices[base + 10] = p.alpha * m_inheritedOpacity;"
+    "splineColors[s] * glm::vec4 (1.0f, 1.0f, 1.0f, m_inheritedOpacity)")
+    fresco_require_generated_patch(
+        particle_source
+        "${particle_opacity_marker}"
+        "inherited composition-layer opacity ${particle_opacity_marker}"
+    )
+endforeach()
+string(REPLACE
+    "__fresco_particle_opacity_patches_done__"
+    ""
     particle_source
     "${particle_source}"
 )
@@ -1895,7 +1949,7 @@ endforeach()
 # produced, before any question of where it was drawn.
 string(REPLACE
     "    // Render particles\n    if (m_particleCount > 0 && m_particle.material) {"
-    "    if (std::getenv (\"FRESCO_SCENE_PARTICLE_TRACE\") != nullptr) {\n\tfloat zMin = 0.0f, zMax = 0.0f, sizeMin = 0.0f, sizeMax = 0.0f, alphaMax = 0.0f;\n\tunsigned int inSlab = 0;\n\tfor (uint32_t i = 0; i < m_particleCount; i++) {\n\t    const auto& p = m_particles[i];\n\t    if (i == 0) {\n\t\tzMin = zMax = p.position.z;\n\t\tsizeMin = sizeMax = p.size;\n\t    }\n\t    zMin = std::min (zMin, p.position.z);\n\t    zMax = std::max (zMax, p.position.z);\n\t    sizeMin = std::min (sizeMin, p.size);\n\t    sizeMax = std::max (sizeMax, p.size);\n\t    alphaMax = std::max (alphaMax, p.alpha);\n\t    if (p.position.z <= 0.0f && p.position.z >= -1000.0f) {\n\t\tinSlab++;\n\t    }\n\t}\n\tstd::fprintf (\n\t    stderr,\n\t    \"particleTrace id=%d live=%u inSlab=%u z=[%.1f,%.1f] size=[%.1f,%.1f] alphaMax=%.3f\\n\",\n\t    this->getId (), m_particleCount, inSlab, zMin, zMax, sizeMin, sizeMax, alphaMax\n\t);\n    }\n\n    // Render particles\n    if (m_particleCount > 0 && m_particle.material) {"
+    "    if (std::getenv (\"FRESCO_SCENE_PARTICLE_TRACE\") != nullptr) {\n\tfloat zMin = 0.0f, zMax = 0.0f, sizeMin = 0.0f, sizeMax = 0.0f, alphaMax = 0.0f;\n\tunsigned int inSlab = 0;\n\tfor (uint32_t i = 0; i < m_particleCount; i++) {\n\t    const auto& p = m_particles[i];\n\t    if (i == 0) {\n\t\tzMin = zMax = p.position.z;\n\t\tsizeMin = sizeMax = p.size;\n\t    }\n\t    zMin = std::min (zMin, p.position.z);\n\t    zMax = std::max (zMax, p.position.z);\n\t    sizeMin = std::min (sizeMin, p.size);\n\t    sizeMax = std::max (sizeMax, p.size);\n\t    alphaMax = std::max (alphaMax, p.alpha);\n\t    if (p.position.z <= 0.0f && p.position.z >= -1000.0f) {\n\t\tinSlab++;\n\t    }\n\t}\n\tstd::fprintf (\n\t    stderr,\n\t    \"particleTrace id=%d live=%u inSlab=%u z=[%.1f,%.1f] size=[%.1f,%.1f] alphaMax=%.3f inheritedOpacity=%.4f\\n\",\n\t    this->getId (), m_particleCount, inSlab, zMin, zMax, sizeMin, sizeMax, alphaMax,\n\t    m_inheritedOpacity\n\t);\n    }\n\n    // Render particles\n    if (m_particleCount > 0 && m_particle.material) {"
     particle_source
     "${particle_source}"
 )
