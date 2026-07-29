@@ -8,10 +8,15 @@ namespace FrescoScene {
 struct MediaPlaybackSample {
     double positionSeconds = 0.0;
     bool shouldDecode = false;
-    // The position ran past the asset duration and folded back to the start.
-    // Video textures loop, so a player that reached end-of-stream on the
-    // previous pass has to start decoding again from here.
+    // Position is behind the last frame decoded, which happens both when it
+    // folds back to the start and, routinely, when a frame has been decoded
+    // ahead of where the clock is. Enough to know a player that reached
+    // end-of-stream should start decoding again.
     bool wrapped = false;
+    // Position ran past the asset duration and folded back on this sample.
+    // Strictly the loop point, so it is the signal to discard state belonging
+    // to the previous pass; `wrapped` is true too often for that.
+    bool folded = false;
 };
 
 class MediaPlaybackClock {

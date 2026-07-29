@@ -96,6 +96,7 @@ MediaPlaybackSample MediaPlaybackClock::sample (double monotonicSeconds) {
         .positionSeconds = m_positionSeconds,
         .shouldDecode = wrapped || intervalElapsed,
         .wrapped = wrapped,
+        .folded = folded,
     };
 }
 

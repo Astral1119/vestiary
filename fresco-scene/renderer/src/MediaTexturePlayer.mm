@@ -87,7 +87,7 @@ public:
     }
 
     FrescoScene::MediaPlayerFramePreparationEvidence prepareFrame (
-        double positionSeconds, bool wrapped = false
+        double positionSeconds, bool wrapped = false, bool folded = false
     ) {
         if (decoder == nullptr) {
             return {};
@@ -103,6 +103,21 @@ public:
                 return { .terminal = true };
             }
             endOfStream = false;
+        }
+        // A frame decoded before the wrap and not yet due presents a whole loop
+        // from where the clock now is. Waiting for it holds the texture on the
+        // frame already uploaded and asks for no decode until position comes
+        // back around, so the picture freezes for a full pass at a time. Drop it
+        // and decode from where the clock actually is.
+        // `folded` rather than `wrapped`: a pending frame ahead of the position
+        // is the ordinary decoded-ahead state, and `wrapped` reports that too.
+        const bool pendingPrecedesWrap = pendingFrame.has_value ()
+            && !pendingFrameReady && folded
+            && pendingFrame->presentationSeconds > positionSeconds;
+        if (pendingPrecedesWrap) {
+            pendingFrame.reset ();
+            lastPreparedPresentationSeconds.reset ();
+            ++wrapDiscardedFrames;
         }
         if (pendingFrame.has_value ()) {
             if (pendingFrameReady) {
@@ -233,6 +248,7 @@ public:
     std::size_t decodedFrames = 0;
     std::size_t frameReadyEvents = 0;
     std::size_t stalledFrames = 0;
+    std::size_t wrapDiscardedFrames = 0;
     std::size_t frameUploads = 0;
     std::size_t seekRequests = 0;
     std::uint64_t uploadedBytes = 0;
@@ -337,7 +353,7 @@ FrescoScene::MediaPlayerFramePreparationEvidence GLPlayer::prepareFrame () {
         return {};
     }
     return m_implementation->prepareFrame (
-        sample.positionSeconds, sample.wrapped
+        sample.positionSeconds, sample.wrapped, sample.folded
     );
 }
 
@@ -417,6 +433,7 @@ MediaTextureMetrics MediaTextureHost::metrics () const {
         result.decodedFrames += implementation.decodedFrames;
         result.frameReadyEvents += implementation.frameReadyEvents;
         result.stalledFrames += implementation.stalledFrames;
+        result.wrapDiscardedFrames += implementation.wrapDiscardedFrames;
         result.frameUploads += implementation.frameUploads;
         result.pendingFrames += implementation.pendingFrame.has_value () ? 1U : 0U;
         result.seekRequests += implementation.seekRequests;

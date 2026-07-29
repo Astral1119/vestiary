@@ -3312,6 +3312,9 @@ bool handleMessage (NSDictionary* message) {
                         metrics.mediaTextures.frameReadyEvents
                     ),
                     @"stalledFrames": @(metrics.mediaTextures.stalledFrames),
+                    @"wrapDiscardedFrames": @(
+                        metrics.mediaTextures.wrapDiscardedFrames
+                    ),
                     @"frameUploads": @(metrics.mediaTextures.frameUploads),
                     @"pendingFrames": @(metrics.mediaTextures.pendingFrames),
                     @"seekRequests": @(metrics.mediaTextures.seekRequests),

@@ -66,18 +66,40 @@ int main () {
     // Position folding back to the start has to be reported, not just applied:
     // a player that reached end-of-stream on the previous pass only knows to
     // start decoding again because the clock says it wrapped.
+    // Steps stay under the suspension threshold, or position does not advance
+    // at all and the fold never happens.
     MediaPlaybackClock wrapClock (2.0, 10.0);
     wrapClock.incrementUsage ();
     sample = wrapClock.sample (100.0);
     require (!sample.wrapped);
-    wrapClock.didDecode (1.9);
-    sample = wrapClock.sample (101.9);
-    require (sample.positionSeconds < 1.9);
+    require (!sample.folded);
+    int folds = 0;
+    double previousPosition = sample.positionSeconds;
+    for (int step = 1; step <= 11; ++step) {
+        sample = wrapClock.sample (100.0 + 0.2 * step);
+        wrapClock.didDecode (sample.positionSeconds);
+        if (sample.folded) {
+            ++folds;
+            require (sample.wrapped);
+            require (sample.shouldDecode);
+            require (sample.positionSeconds < previousPosition);
+            require (sample.positionSeconds < 2.0);
+        }
+        previousPosition = sample.positionSeconds;
+    }
+    require (folds == 1);
+
+    // Decoding ahead of the position is ordinary and reports `wrapped`, because
+    // position is behind the last decode. It must not report `folded` — that is
+    // the loop point, and acting on it discards a frame that was merely early.
+    MediaPlaybackClock aheadClock (2.0, 10.0);
+    aheadClock.incrementUsage ();
+    static_cast<void> (aheadClock.sample (200.0));
+    aheadClock.didDecode (0.5);
+    sample = aheadClock.sample (200.1);
+    require (sample.positionSeconds < 0.5);
     require (sample.wrapped);
-    require (sample.shouldDecode);
-    wrapClock.didDecode (sample.positionSeconds);
-    sample = wrapClock.sample (102.0);
-    require (!sample.wrapped);
+    require (!sample.folded);
 
     MediaPlaybackClock seekClock (2.0, 10.0);
     seekClock.incrementUsage ();

@@ -30,6 +30,9 @@ struct MediaTextureMetrics {
     std::size_t decodedFrames = 0;
     std::size_t frameReadyEvents = 0;
     std::size_t stalledFrames = 0;
+    // Frames decoded before the playback clock wrapped and discarded because
+    // they would not present until a whole loop later.
+    std::size_t wrapDiscardedFrames = 0;
     std::size_t frameUploads = 0;
     std::size_t pendingFrames = 0;
     std::size_t seekRequests = 0;
