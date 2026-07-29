@@ -1806,6 +1806,17 @@ string(REPLACE
     "${particle_header}"
 )
 string(REPLACE
+    "    InitializerFunc createSizeRandomInitializer (const SizeRandomInitializer& init);"
+    "    InitializerFunc createSizeRandomInitializer (const SizeRandomInitializer& init, bool scaleExisting);"
+    particle_header
+    "${particle_header}"
+)
+fresco_require_generated_patch(
+    particle_header
+    "createSizeRandomInitializer (const SizeRandomInitializer& init, bool scaleExisting);"
+    "scaling size initializer declaration"
+)
+string(REPLACE
     "    std::mt19937 m_rng;"
     "    std::mt19937 m_rng;\n    uint64_t m_nextParticleSerial { 1 };\n    bool m_lifecycleKnown { false };\n    bool m_finiteLifecycle { false };\n    std::size_t m_simulationUpdates { 0 };\n    std::size_t m_catchUpFrames { 0 };\n    double m_requestedSeconds { 0.0 };\n    double m_simulatedSeconds { 0.0 };\n    double m_droppedSeconds { 0.0 };\n    double m_maximumRequestedSeconds { 0.0 };\n    double m_maximumSimulatedSeconds { 0.0 };\n    std::size_t m_peakParticleCount { 0 };\n    std::size_t m_poolResizes { 0 };\n    std::size_t m_resourceInitializations { 0 };"
     particle_header
@@ -1835,6 +1846,63 @@ string(REPLACE
     "#include \"WallpaperEngine/Render/Objects/CParticle.h\"\n#include \"FrescoScene/Camera2DControl.h\"\n#include \"FrescoScene/ParticleChildRuntime.h\"\n#include \"FrescoScene/ParticleCompatibility.h\"\n#include \"FrescoScene/SceneObjectModelTransform.h\""
     particle_source
     "${particle_source}"
+)
+# A second sizerandom scales the size the first one set, rather than replacing
+# it. Assignment collapsed Hyuga's leaves from ~70 to the 0.7-1.0 range of their
+# second initializer, measured at 0.4-0.5 pixels and so invisible. Two of the
+# corpus's 66 particle systems declare more than one sizerandom and both are
+# Hyuga's leaves, so nothing else changes. Read as authored, the second is a
+# per-leaf variance -- each leaf at 70-100% of base size -- which is only
+# meaningful if it multiplies; under replacement the first initializer's 70-75
+# would be dead weight. That reading is not confirmed against Wallpaper Engine.
+string(REPLACE
+    "\t    func = createSizeRandomInitializer (*initializer->as<SizeRandomInitializer> ());"
+    "\t    func = createSizeRandomInitializer (\n\t\t*initializer->as<SizeRandomInitializer> (), sawSizeInitializer\n\t    );\n\t    sawSizeInitializer = true;"
+    particle_source
+    "${particle_source}"
+)
+string(REPLACE
+    "void CParticle::setupInitializers () {\n    for (const auto& initializer : m_particle.initializers) {"
+    "void CParticle::setupInitializers () {\n    bool sawSizeInitializer = false;\n    for (const auto& initializer : m_particle.initializers) {"
+    particle_source
+    "${particle_source}"
+)
+string(REPLACE
+    "InitializerFunc CParticle::createSizeRandomInitializer (const SizeRandomInitializer& init) {"
+    "InitializerFunc CParticle::createSizeRandomInitializer (\n    const SizeRandomInitializer& init, const bool scaleExisting\n) {"
+    particle_source
+    "${particle_source}"
+)
+string(REPLACE
+    "    return [this, minValue, maxValue, exponentValue, sizeOverride] (ParticleInstance& p) {\n\tfloat t = WallpaperEngine::Maths::randomFloat (m_rng, 0.0f, 1.0f);\n\tfloat exponent = exponentValue->getFloat ();\n\tfloat min = minValue->getFloat ();\n\tfloat max = maxValue->getFloat ();\n\n\t// Apply exponent for non-linear distribution\n\tfloat adjustedT = std::pow (t, exponent);\n\tp.size = (min + adjustedT * (max - min)) * sizeOverride->getFloat () / 2.0f;\n\tp.initial.size = p.size;\n    };"
+    "    return [this, minValue, maxValue, exponentValue, sizeOverride, scaleExisting] (ParticleInstance& p) {\n\tfloat t = WallpaperEngine::Maths::randomFloat (m_rng, 0.0f, 1.0f);\n\tfloat exponent = exponentValue->getFloat ();\n\tfloat min = minValue->getFloat ();\n\tfloat max = maxValue->getFloat ();\n\n\t// Apply exponent for non-linear distribution\n\tfloat adjustedT = std::pow (t, exponent);\n\tconst float sampled = min + adjustedT * (max - min);\n\tif (scaleExisting) {\n\t    // The instance override and the halving belong to the base size and\n\t    // are already in p.size; applying them again would square them.\n\t    p.size *= sampled;\n\t} else {\n\t    p.size = sampled * sizeOverride->getFloat () / 2.0f;\n\t}\n\tp.initial.size = p.size;\n    };"
+    particle_source
+    "${particle_source}"
+)
+foreach(particle_size_marker IN ITEMS
+    "const SizeRandomInitializer& init, const bool scaleExisting"
+    "bool sawSizeInitializer = false;"
+    "p.size *= sampled;")
+    fresco_require_generated_patch(
+        particle_source
+        "${particle_size_marker}"
+        "scaling size initializer ${particle_size_marker}"
+    )
+endforeach()
+
+# An emitter that produces nothing and one whose particles are invisible look
+# identical on screen. This separates them: live count is what the emitter
+# produced, before any question of where it was drawn.
+string(REPLACE
+    "    // Render particles\n    if (m_particleCount > 0 && m_particle.material) {"
+    "    if (std::getenv (\"FRESCO_SCENE_PARTICLE_TRACE\") != nullptr) {\n\tfloat zMin = 0.0f, zMax = 0.0f, sizeMin = 0.0f, sizeMax = 0.0f, alphaMax = 0.0f;\n\tunsigned int inSlab = 0;\n\tfor (uint32_t i = 0; i < m_particleCount; i++) {\n\t    const auto& p = m_particles[i];\n\t    if (i == 0) {\n\t\tzMin = zMax = p.position.z;\n\t\tsizeMin = sizeMax = p.size;\n\t    }\n\t    zMin = std::min (zMin, p.position.z);\n\t    zMax = std::max (zMax, p.position.z);\n\t    sizeMin = std::min (sizeMin, p.size);\n\t    sizeMax = std::max (sizeMax, p.size);\n\t    alphaMax = std::max (alphaMax, p.alpha);\n\t    if (p.position.z <= 0.0f && p.position.z >= -1000.0f) {\n\t\tinSlab++;\n\t    }\n\t}\n\tstd::fprintf (\n\t    stderr,\n\t    \"particleTrace id=%d live=%u inSlab=%u z=[%.1f,%.1f] size=[%.1f,%.1f] alphaMax=%.3f\\n\",\n\t    this->getId (), m_particleCount, inSlab, zMin, zMax, sizeMin, sizeMax, alphaMax\n\t);\n    }\n\n    // Render particles\n    if (m_particleCount > 0 && m_particle.material) {"
+    particle_source
+    "${particle_source}"
+)
+fresco_require_generated_patch(
+    particle_source
+    "particleTrace id="
+    "particle emission trace"
 )
 string(REPLACE
     "#include <GL/glew.h>"
