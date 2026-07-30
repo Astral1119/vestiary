@@ -42,6 +42,10 @@ struct MediaTextureMetrics {
     // they would not present until a whole loop later.
     std::size_t wrapDiscardedFrames = 0;
     std::size_t frameUploads = 0;
+    // Uploads that reached the texture by blitting the decoder's IOSurface
+    // rather than copying its mapped pixels. Below frameUploads means players
+    // are falling back, which is correct but costs a 33 MB copy each time.
+    std::size_t surfaceBlitUploads = 0;
     std::size_t pendingFrames = 0;
     std::size_t seekRequests = 0;
     std::size_t fallbackPlayers = 0;

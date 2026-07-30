@@ -4,9 +4,19 @@
 #include "FrescoScene/MediaVideoDecoder.h"
 #include "WallpaperEngine/Logging/Log.h"
 
+// The IOSurface path binds through CGL, which the ANGLE build does not have and
+// does not link OpenGL.framework for. That build keeps the mapped-pixel upload.
+#if !defined(FRESCO_SCENE_ANGLE_RUNTIME)
+#define FRESCO_SCENE_MEDIA_IOSURFACE_BLIT 1
+#import <IOSurface/IOSurfaceRef.h>
+#import <OpenGL/CGLCurrent.h>
+#import <OpenGL/CGLIOSurface.h>
+#endif
+
 #include <algorithm>
 #include <cmath>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -243,11 +253,146 @@ public:
         pendingFrameReady = false;
 
         const auto uploadStart = std::chrono::steady_clock::now ();
+        if (uploadThroughSurface (frame)) {
+            ++surfaceBlitUploads;
+        } else {
+            uploadThroughMappedPixels (frame);
+        }
+        uploadSubmissionMilliseconds += std::chrono::duration<double, std::milli> (
+            std::chrono::steady_clock::now () - uploadStart
+        ).count ();
+        ++decodes;
+        ++frameUploads;
+        uploadedBytes += static_cast<std::uint64_t> (frame.width)
+            * static_cast<std::uint64_t> (frame.height) * 4U;
+    }
+
+    // The decoder already hands back a GPU-addressable IOSurface. Copying it
+    // through the CPU cost a 33 MB glTexSubImage2D per frame; binding it and
+    // blitting moves that to the GPU side.
+    //
+    // The surface has to arrive on a rectangle texture, because
+    // CGLTexImageIOSurface2D binds to no other target, and rectangle textures
+    // take unnormalized coordinates and sampler2DRect. Authored shaders in the
+    // corpus sample video through sampler2D, so the surface cannot be put where
+    // they can see it. Blitting into the GL_TEXTURE_2D they already sample
+    // keeps them untouched.
+    //
+    // Returns false for anything it cannot do, and the mapped-pixel path
+    // stands behind it unchanged.
+    bool uploadThroughSurface ([[maybe_unused]] const MediaVideoFrame& frame) {
+#ifndef FRESCO_SCENE_MEDIA_IOSURFACE_BLIT
+        return false;
+#else
+        // The two paths must put the same picture in the texture, and nothing
+        // else can hold one against the other -- the smoke tool builds no
+        // MediaTextureHost, so no scene with a video texture renders under it.
+        // This is the lever that compares them.
+        static const bool disabled =
+            std::getenv ("FRESCO_SCENE_MEDIA_SURFACE_BLIT_DISABLED") != nullptr;
+        if (disabled) {
+            return false;
+        }
+        auto* const surface = static_cast<IOSurfaceRef> (frame.surface);
+        CGLContextObj const context = CGLGetCurrentContext ();
+        if (surface == nullptr || context == nullptr || frame.width == 0
+            || frame.height == 0) {
+            return false;
+        }
+        if (surfaceTexture == 0) {
+            glGenTextures (1, &surfaceTexture);
+            glGenFramebuffers (1, &readFramebuffer);
+            glGenFramebuffers (1, &drawFramebuffer);
+        }
+
+        glBindTexture (GL_TEXTURE_RECTANGLE, surfaceTexture);
+        // GL_BGRA with the reversed packed type is what makes the component
+        // order come out right on read, which is why the destination's swizzle
+        // is cleared below rather than kept.
+        const CGLError bound = CGLTexImageIOSurface2D (
+            context, GL_TEXTURE_RECTANGLE, GL_RGBA,
+            static_cast<GLsizei> (frame.width),
+            static_cast<GLsizei> (frame.height),
+            GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, surface, 0
+        );
+        glBindTexture (GL_TEXTURE_RECTANGLE, 0);
+        if (bound != kCGLNoError) {
+            reportSurfaceUnavailable ("cannot bind IOSurface to a rectangle texture");
+            return false;
+        }
+
         glBindTexture (GL_TEXTURE_2D, texture);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_GREEN);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_ALPHA);
+        clearSwizzle ();
+        if (frame.width != width || frame.height != height) {
+            width = frame.width;
+            height = frame.height;
+            glTexImage2D (
+                GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0,
+                GL_RGBA, GL_UNSIGNED_BYTE, nullptr
+            );
+        }
+
+        // Uploads run inside the scene's frame, so every binding and every
+        // piece of state the blit depends on belongs to whatever pass is in
+        // progress. A leaked glClearColor blanked the scene once already.
+        GLint previousRead = 0;
+        GLint previousDraw = 0;
+        glGetIntegerv (GL_READ_FRAMEBUFFER_BINDING, &previousRead);
+        glGetIntegerv (GL_DRAW_FRAMEBUFFER_BINDING, &previousDraw);
+        const GLboolean scissor = glIsEnabled (GL_SCISSOR_TEST);
+        GLboolean colorMask[4] = { GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE };
+        glGetBooleanv (GL_COLOR_WRITEMASK, colorMask);
+        if (scissor == GL_TRUE) {
+            glDisable (GL_SCISSOR_TEST);
+        }
+        glColorMask (GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+        glBindFramebuffer (GL_READ_FRAMEBUFFER, readFramebuffer);
+        glFramebufferTexture2D (
+            GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+            GL_TEXTURE_RECTANGLE, surfaceTexture, 0
+        );
+        glReadBuffer (GL_COLOR_ATTACHMENT0);
+        glBindFramebuffer (GL_DRAW_FRAMEBUFFER, drawFramebuffer);
+        glFramebufferTexture2D (
+            GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0
+        );
+        glDrawBuffer (GL_COLOR_ATTACHMENT0);
+
+        const bool complete =
+            glCheckFramebufferStatus (GL_READ_FRAMEBUFFER)
+                == GL_FRAMEBUFFER_COMPLETE
+            && glCheckFramebufferStatus (GL_DRAW_FRAMEBUFFER)
+                == GL_FRAMEBUFFER_COMPLETE;
+        if (complete) {
+            const auto blitWidth = static_cast<GLint> (width);
+            const auto blitHeight = static_cast<GLint> (height);
+            glBlitFramebuffer (
+                0, 0, blitWidth, blitHeight, 0, 0, blitWidth, blitHeight,
+                GL_COLOR_BUFFER_BIT, GL_NEAREST
+            );
+        }
+
+        glBindFramebuffer (GL_READ_FRAMEBUFFER, previousRead);
+        glBindFramebuffer (GL_DRAW_FRAMEBUFFER, previousDraw);
+        glColorMask (colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
+        if (scissor == GL_TRUE) {
+            glEnable (GL_SCISSOR_TEST);
+        }
+
+        if (!complete) {
+            // The destination has been reallocated and its swizzle cleared, so
+            // the mapped path must run to put a correct picture in it.
+            reportSurfaceUnavailable ("IOSurface blit framebuffers are incomplete");
+            return false;
+        }
+        return true;
+#endif
+    }
+
+    void uploadThroughMappedPixels (const MediaVideoFrame& frame) {
+        glBindTexture (GL_TEXTURE_2D, texture);
+        applyBGRASwizzle ();
         glPixelStorei (
             GL_UNPACK_ROW_LENGTH,
             static_cast<GLint> (frame.bytesPerRow / 4U)
@@ -266,13 +411,30 @@ public:
             );
         }
         glPixelStorei (GL_UNPACK_ROW_LENGTH, 0);
-        uploadSubmissionMilliseconds += std::chrono::duration<double, std::milli> (
-            std::chrono::steady_clock::now () - uploadStart
-        ).count ();
-        ++decodes;
-        ++frameUploads;
-        uploadedBytes += static_cast<std::uint64_t> (frame.width)
-            * static_cast<std::uint64_t> (frame.height) * 4U;
+    }
+
+    // Set on every upload rather than once, because a player that falls back
+    // mid-stream changes which of the two applies.
+    void applyBGRASwizzle () {
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_GREEN);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_ALPHA);
+    }
+
+    void clearSwizzle () {
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_RED);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_GREEN);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_BLUE);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_ALPHA);
+    }
+
+    void reportSurfaceUnavailable (const std::string& reason) {
+        if (surfaceFailureReported) {
+            return;
+        }
+        surfaceFailureReported = true;
+        sLog.error ("Video texture IOSurface upload unavailable: ", reason);
     }
 
     void seek (double positionSeconds) {
@@ -285,7 +447,27 @@ public:
         endOfStream = false;
     }
 
+    ~Impl () {
+#ifdef FRESCO_SCENE_MEDIA_IOSURFACE_BLIT
+        // Teardown can reach here after the context has gone, and deleting
+        // names without one is undefined rather than a no-op.
+        if (surfaceTexture != 0 && CGLGetCurrentContext () != nullptr) {
+            glDeleteFramebuffers (1, &readFramebuffer);
+            glDeleteFramebuffers (1, &drawFramebuffer);
+            glDeleteTextures (1, &surfaceTexture);
+        }
+#endif
+    }
+
+    Impl (const Impl&) = delete;
+    Impl& operator= (const Impl&) = delete;
+
     GLuint texture;
+    GLuint surfaceTexture = 0;
+    GLuint readFramebuffer = 0;
+    GLuint drawFramebuffer = 0;
+    bool surfaceFailureReported = false;
+    std::size_t surfaceBlitUploads = 0;
     std::unique_ptr<MediaVideoDecoder> decoder;
     MediaPlaybackClock clock;
     std::uint32_t width = 0;
@@ -492,6 +674,7 @@ MediaTextureMetrics MediaTextureHost::metrics () const {
         result.stalledFrames += implementation.stalledFrames;
         result.wrapDiscardedFrames += implementation.wrapDiscardedFrames;
         result.frameUploads += implementation.frameUploads;
+        result.surfaceBlitUploads += implementation.surfaceBlitUploads;
         result.pendingFrames += implementation.pendingFrame.has_value () ? 1U : 0U;
         result.seekRequests += implementation.seekRequests;
         result.fallbackPlayers += implementation.fallback ? 1U : 0U;

@@ -35,6 +35,12 @@ struct MediaVideoFrame {
     MediaVideoPixelFormat format = MediaVideoPixelFormat::bgra8;
     std::shared_ptr<const std::uint8_t> pixels;
     std::size_t pixelBytes = 0;
+    // The IOSurface backing this frame, as an IOSurfaceRef, or null where the
+    // decoder's pixel buffer has none. Non-owning: the CVPixelBuffer that holds
+    // it is retained by `pixels`, so the surface is valid for exactly as long
+    // as that shared_ptr is. Typed as void* to keep IOSurface out of a header
+    // that describes decoded frames rather than how they are drawn.
+    void* surface = nullptr;
 };
 
 class MediaVideoDecoder {

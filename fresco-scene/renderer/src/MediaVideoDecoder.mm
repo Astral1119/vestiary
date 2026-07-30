@@ -240,6 +240,10 @@ std::optional<MediaVideoFrame> MediaVideoDecoder::frameAt (
     );
     frame.presentationSeconds = presentationSeconds;
     frame.pixelBytes = static_cast<std::size_t> (frame.bytesPerRow) * frame.height;
+    // startReader asks for IOSurface-backed buffers, so this is normally set.
+    // It stays null for any buffer that arrives without one, and the caller
+    // falls back to uploading the mapped pixels.
+    frame.surface = CVPixelBufferGetIOSurface (pixelBuffer);
     frame.pixels = std::shared_ptr<const std::uint8_t> (
         static_cast<const std::uint8_t*> (
             CVPixelBufferGetBaseAddress (pixelBuffer)
