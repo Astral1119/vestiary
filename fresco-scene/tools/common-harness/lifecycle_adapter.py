@@ -303,32 +303,74 @@ def _normalized_leak_evidence(report, criteria):
     }
 
 
-def _matched_control_leaks_passed(subject, control, criteria):
+def _matched_control_leak_failures(subject, control, criteria):
+    """Which parts of the matched-control criterion the evidence failed.
+
+    The criterion is a conjunction, and a bare False says only that one of
+    twelve relations did not hold. That has cost several sessions a rediagnosis
+    from the raw leak reports, so the parts are named and the names reach the
+    persisted record.
+    """
     allowed = sorted(
         item["identity"] for item in criteria["allowedNormalizedSignatures"]
     )
     protocol = criteria["controlProtocol"]
     subject_signatures = set(subject["normalization"]["normalizedSignatures"])
     control_signatures = set(control["normalization"]["normalizedSignatures"])
-    return (
-        control["assignment"] == protocol["assignment"]
-        and control["eventTypes"] == protocol["eventTypes"]
-        and control["loadCount"] == protocol["loads"]
-        and sorted(control_signatures) == allowed
-        and subject_signatures <= control_signatures
-        and len(subject_signatures - control_signatures)
-            <= criteria["maximumSubjectOnlySignatures"]
-        and subject["normalization"]["unknownGroupCount"]
-            <= criteria["maximumUnknownGroups"]
-        and subject["normalization"]["forbiddenAttributionGroupCount"]
-            <= criteria["maximumForbiddenAttributionGroups"]
-        and control["normalization"]["unknownGroupCount"]
-            <= criteria["maximumUnknownGroups"]
-        and control["normalization"]["forbiddenAttributionGroupCount"]
-            <= criteria["maximumForbiddenAttributionGroups"]
-        and subject["leakCount"] <= control["leakCount"]
-        and subject["leakedBytes"] <= control["leakedBytes"]
+    subject_only = subject_signatures - control_signatures
+    relations = (
+        ("control-assignment",
+         control["assignment"] == protocol["assignment"], None),
+        ("control-event-types",
+         control["eventTypes"] == protocol["eventTypes"], None),
+        ("control-load-count",
+         control["loadCount"] == protocol["loads"],
+         f"{control['loadCount']} against {protocol['loads']}"),
+        ("control-signatures-match-allowed",
+         sorted(control_signatures) == allowed,
+         f"{len(control_signatures)} control against {len(allowed)} allowed"),
+        ("subject-signatures-subset-of-control",
+         subject_signatures <= control_signatures,
+         f"{len(subject_only)} subject-only"),
+        ("subject-only-signature-budget",
+         len(subject_only) <= criteria["maximumSubjectOnlySignatures"],
+         f"{len(subject_only)} against "
+         f"{criteria['maximumSubjectOnlySignatures']}"),
+        ("subject-unknown-groups",
+         subject["normalization"]["unknownGroupCount"]
+            <= criteria["maximumUnknownGroups"],
+         f"{subject['normalization']['unknownGroupCount']} against "
+         f"{criteria['maximumUnknownGroups']}"),
+        ("subject-forbidden-attribution-groups",
+         subject["normalization"]["forbiddenAttributionGroupCount"]
+            <= criteria["maximumForbiddenAttributionGroups"],
+         f"{subject['normalization']['forbiddenAttributionGroupCount']} against "
+         f"{criteria['maximumForbiddenAttributionGroups']}"),
+        ("control-unknown-groups",
+         control["normalization"]["unknownGroupCount"]
+            <= criteria["maximumUnknownGroups"],
+         f"{control['normalization']['unknownGroupCount']} against "
+         f"{criteria['maximumUnknownGroups']}"),
+        ("control-forbidden-attribution-groups",
+         control["normalization"]["forbiddenAttributionGroupCount"]
+            <= criteria["maximumForbiddenAttributionGroups"],
+         f"{control['normalization']['forbiddenAttributionGroupCount']} against "
+         f"{criteria['maximumForbiddenAttributionGroups']}"),
+        ("subject-leak-count-within-control",
+         subject["leakCount"] <= control["leakCount"],
+         f"{subject['leakCount']} against {control['leakCount']}"),
+        ("subject-leaked-bytes-within-control",
+         subject["leakedBytes"] <= control["leakedBytes"],
+         f"{subject['leakedBytes']} against {control['leakedBytes']}"),
     )
+    return [
+        name if detail is None else f"{name} ({detail})"
+        for name, held, detail in relations if not held
+    ]
+
+
+def _matched_control_leaks_passed(subject, control, criteria):
+    return not _matched_control_leak_failures(subject, control, criteria)
 
 
 def _resource_sample(peak):
@@ -644,9 +686,10 @@ def run_lifecycle(configuration):
         matched_control["normalization"] = _normalized_leak_evidence(
             matched_control, leak_criteria
         )
-        matched_control_passed = _matched_control_leaks_passed(
+        matched_control_leak_failures = _matched_control_leak_failures(
             leak_report, matched_control, leak_criteria
         )
+        matched_control_passed = not matched_control_leak_failures
         raw_evidence = {
             "schemaVersion": 3,
             "auditor": {
@@ -688,7 +731,9 @@ def run_lifecycle(configuration):
             )
         leak_status = "clean" if matched_control_passed else "leaks"
         failures = [] if matched_control_passed else [
-            "macOS leaks --atExit evidence failed the predeclared matched-control criterion"
+            "macOS leaks --atExit evidence failed the predeclared "
+            "matched-control criterion: "
+            + ", ".join(matched_control_leak_failures)
         ]
         lifecycle_resources = {
             **{
