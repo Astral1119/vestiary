@@ -14,7 +14,7 @@ import stat
 MANIFEST_VERSION = 1
 MANIFEST_VERSIONS = {1, 2}
 RESULT_VERSION = 1
-RESULT_VERSIONS = {1, 2}
+RESULT_VERSIONS = {1, 2, 3}
 CATALOG_PATH = pathlib.Path(__file__).with_name("workloads-v1.json")
 HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 TOKEN_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -98,6 +98,20 @@ def _boolean(value, path):
     if not isinstance(value, bool):
         raise ContractError(f"{path} must be a Boolean")
     return value
+
+
+def _availability(value, path):
+    """A measured field the sampler may or may not have supplied:
+    `{available: false}` for an explicit gap, `{available: true, value: ...}`
+    for a real reading. A profiling verdict treats a required-but-unavailable
+    metric as a validity failure, never as a zero measurement."""
+    _object(value, path, {"available"}, optional={"value"})
+    available = _boolean(value["available"], f"{path}.available")
+    if available and "value" not in value:
+        raise ContractError(f"{path} is available but carries no value")
+    if not available and "value" in value:
+        raise ContractError(f"{path} is unavailable but carries a value")
+    return available
 
 
 def _hash(value, path):
@@ -467,6 +481,127 @@ def _validate_execution(execution):
         _metric(execution[field], f"record.execution.{field}")
 
 
+PROFILE_METRICS = {
+    "cpuPowerMilliwatts",
+    "gpuPowerMilliwatts",
+    "gpuActiveResidency",
+    "wakeups",
+    "contextSwitches",
+    "energyImpact",
+    "thermalPressure",
+    "memoryBytes",
+}
+
+# A valid measurement must supply these; their absence forces validity false.
+# Energy Impact is intentionally not required: some macOS builds report it null
+# per task. The component CPU and GPU powers plus wakeups carry the attribution.
+PROFILE_REQUIRED_METRICS = {
+    "cpuPowerMilliwatts",
+    "gpuPowerMilliwatts",
+    "wakeups",
+}
+
+
+def _validate_profile(profile, artifacts, run):
+    _object(
+        profile,
+        "record.profile",
+        {
+            "validity",
+            "invalidReasons",
+            "trialOrder",
+            "quiescenceManifest",
+            "metrics",
+            "rawArtifacts",
+        },
+    )
+    valid = _boolean(profile["validity"], "record.profile.validity")
+
+    reasons = _array(profile["invalidReasons"], "record.profile.invalidReasons")
+    for index, reason in enumerate(reasons):
+        _string(reason, f"record.profile.invalidReasons[{index}]")
+    if valid and reasons:
+        raise ContractError("a valid profiling record carries no invalid reasons")
+    if not valid and not reasons:
+        raise ContractError("an invalid profiling record must state a reason")
+
+    order = _array(profile["trialOrder"], "record.profile.trialOrder", minimum=1)
+    for index, phase in enumerate(order):
+        _string(phase, f"record.profile.trialOrder[{index}]", token=True)
+    if "candidate" not in order:
+        raise ContractError("record.profile.trialOrder must include the candidate phase")
+
+    manifest = _object(
+        profile["quiescenceManifest"],
+        "record.profile.quiescenceManifest",
+        {
+            "powerSource",
+            "lowPowerMode",
+            "thermalWarning",
+            "colorSpace",
+            "displayRefreshMilliHertz",
+            "ownershipClean",
+            "strayProcessCount",
+        },
+    )
+    _availability(manifest["powerSource"], "record.profile.quiescenceManifest.powerSource")
+    _availability(manifest["lowPowerMode"], "record.profile.quiescenceManifest.lowPowerMode")
+    _availability(manifest["thermalWarning"], "record.profile.quiescenceManifest.thermalWarning")
+    _string(manifest["colorSpace"], "record.profile.quiescenceManifest.colorSpace")
+    _integer(
+        manifest["displayRefreshMilliHertz"],
+        "record.profile.quiescenceManifest.displayRefreshMilliHertz",
+        positive=True,
+    )
+    ownership_clean = _boolean(
+        manifest["ownershipClean"], "record.profile.quiescenceManifest.ownershipClean"
+    )
+    _integer(
+        manifest["strayProcessCount"],
+        "record.profile.quiescenceManifest.strayProcessCount",
+    )
+
+    metrics = _object(profile["metrics"], "record.profile.metrics", PROFILE_METRICS)
+    availability = {
+        name: _availability(metrics[name], f"record.profile.metrics.{name}")
+        for name in PROFILE_METRICS
+    }
+
+    references = _array(profile["rawArtifacts"], "record.profile.rawArtifacts")
+    for index, name in enumerate(references):
+        artifact = _string(name, f"record.profile.rawArtifacts[{index}]", token=True)
+        if artifact not in artifacts:
+            raise ContractError(
+                f"record.profile.rawArtifacts references unknown artifact {artifact}"
+            )
+
+    # Validity must reflect the recorded conditions, so an invalid-marked
+    # dev run cannot masquerade as a clean baseline and a clean baseline
+    # cannot hide a real gap.
+    missing_required = sorted(
+        name for name in PROFILE_REQUIRED_METRICS if not availability[name]
+    )
+    if valid:
+        if not ownership_clean:
+            raise ContractError("a valid profiling record requires clean ownership")
+        if manifest["strayProcessCount"] != 0:
+            raise ContractError("a valid profiling record requires zero stray processes")
+        if missing_required:
+            raise ContractError(
+                "a valid profiling record requires metrics: "
+                + ", ".join(missing_required)
+            )
+    else:
+        if not ownership_clean and "ownership-violation" not in reasons:
+            raise ContractError("unclean ownership must be stated as an invalid reason")
+        if missing_required and not any(
+            "metric" in reason for reason in reasons
+        ):
+            raise ContractError(
+                "unavailable required metrics must be stated as an invalid reason"
+            )
+
+
 def _validate_generated_artifacts(generated, artifacts, run):
     asset_ids = {item["identity"] for item in run["assets"]}
     input_ids = {item["identity"] for item in run["inputs"]}
@@ -822,6 +957,7 @@ def _validate_verdict(verdict, purpose, criteria_version, record):
     expected_checks = {
         "correctness": {"build", "correctness", "diagnostics"},
         "lifecycle": {"build", "lifecycle", "resources", "leaks"},
+        "profiling": {"build", "validity", "quiescence"},
     }[purpose]
     _object(verdict, "record.verdict", {"accepted", "criteriaVersion", "checks", "failures"})
     accepted = _boolean(verdict["accepted"], "record.verdict.accepted")
@@ -860,6 +996,16 @@ def _validate_verdict(verdict, purpose, criteria_version, record):
             raise ContractError("leaks check contradicts leak evidence")
         if record["schemaVersion"] == 1 and checks["lifecycle"] is not True:
             raise ContractError("lifecycle check contradicts completed iterations")
+    if purpose == "profiling":
+        profile = record["profile"]
+        if checks["validity"] != profile["validity"]:
+            raise ContractError("validity check contradicts profile validity")
+        manifest = profile["quiescenceManifest"]
+        quiescence_clean = (
+            manifest["ownershipClean"] and manifest["strayProcessCount"] == 0
+        )
+        if checks["quiescence"] != quiescence_clean:
+            raise ContractError("quiescence check contradicts the quiescence manifest")
 
 
 def _referenced_artifact_names(record, purpose):
@@ -892,6 +1038,8 @@ def _referenced_artifact_names(record, purpose):
         tool = record["lifecycle"]["leakEvidence"]["tool"]
         if isinstance(tool, dict) and "artifact" in tool:
             referenced.add(tool["artifact"])
+    if purpose == "profiling":
+        referenced.update(record["profile"]["rawArtifacts"])
     return referenced
 
 
@@ -922,19 +1070,19 @@ def validate_result(record, artifact_root=None):
     purpose_fields = {
         "correctness": {"host", "display", "policy", "correctness", "execution", "shaders"},
         "lifecycle": {"lifecycle"},
+        "profiling": {"host", "display", "policy", "profile"},
     }
     if purpose not in PURPOSES:
         raise ContractError("record purpose is missing or unknown")
-    if purpose == "profiling":
-        if record.get("schemaVersion") not in RESULT_VERSIONS:
-            raise ContractError("unsupported result record version")
-        _validate_run(record["run"])
-        raise ContractError("profiling records are reserved for a later contract version")
     _object(record, "record", common | purpose_fields[purpose])
     if record["schemaVersion"] not in RESULT_VERSIONS:
         raise ContractError("unsupported result record version")
     if record["schemaVersion"] == 2 and purpose != "lifecycle":
         raise ContractError("result record version 2 is lifecycle-only")
+    if record["schemaVersion"] == 3 and purpose != "profiling":
+        raise ContractError("result record version 3 is profiling-only")
+    if purpose == "profiling" and record["schemaVersion"] != 3:
+        raise ContractError("profiling records require result version 3")
     _validate_run(record["run"])
     _validate_candidate(record["candidate"])
     criteria_version = _string(record["criteriaVersion"], "record.criteriaVersion", token=True)
@@ -952,6 +1100,9 @@ def validate_result(record, artifact_root=None):
             else _validate_lifecycle_v1
         )
         validator(record["lifecycle"], artifacts, record["run"], record["build"])
+    if purpose == "profiling":
+        _validate_host_display_policy(record)
+        _validate_profile(record["profile"], artifacts, record["run"])
     _validate_verdict(record["verdict"], purpose, criteria_version, record)
     unreferenced = set(artifacts) - _referenced_artifact_names(record, purpose)
     if unreferenced:
