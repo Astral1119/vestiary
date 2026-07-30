@@ -1352,6 +1352,7 @@ def _media_metrics(event):
         "media texture counters are incomplete",
     )
     for field in (
+        "framePreparationMilliseconds", "frameUploadMilliseconds",
         "decodeMilliseconds", "uploadSubmissionMilliseconds",
         "lastDecodedPresentationSeconds",
     ):
@@ -1360,6 +1361,18 @@ def _media_metrics(event):
             and not isinstance(media.get(field), bool),
             f"media texture metric is missing: {field}",
         )
+    # The two totals cover the media player's per-frame entry points and the
+    # two finer timers measure parts of them. A part exceeding its total means
+    # the timer has come loose from the region it names.
+    _require(
+        media["framePreparationMilliseconds"] >= media["decodeMilliseconds"],
+        "decode time exceeds the frame preparation it is measured inside",
+    )
+    _require(
+        media["frameUploadMilliseconds"]
+        >= media["uploadSubmissionMilliseconds"],
+        "upload submission time exceeds the frame upload it is measured inside",
+    )
     _require(media["decodeAttempts"] >= media["decodedFrames"],
              "decoded frames exceed decode attempts")
     _require(media["decodedFrames"] >= media["frameReadyEvents"],

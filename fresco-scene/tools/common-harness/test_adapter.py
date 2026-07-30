@@ -417,6 +417,8 @@ def media(phase):
         "endOfStreamPlayers": (
             1 if phase == 4 or (phase >= 4 and MODE == "latched-media") else 0
         ),
+        "framePreparationMilliseconds": 1.5,
+        "frameUploadMilliseconds": 0.75,
         "decodeMilliseconds": 1.0,
         "uploadSubmissionMilliseconds": 0.5,
         "lastDecodedPresentationSeconds": (

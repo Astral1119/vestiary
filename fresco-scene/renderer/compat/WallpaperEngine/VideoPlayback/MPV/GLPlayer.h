@@ -24,6 +24,14 @@ struct MediaTextureMetrics {
     std::size_t maximumDecodesPerPlayer = 0;
     std::size_t decodes = 0;
     std::uint64_t uploadedBytes = 0;
+    // Totals over the whole of frame preparation and frame upload. Each of the
+    // finer timers below measures a part of one of them, so the difference is
+    // the work neither names. Ranking media costs from the parts alone once
+    // put the texture upload first while the duplicate hash, timed by nothing,
+    // ran at three times its cost; take a residue that is not small as a
+    // reason to sample the process rather than to trust the ranking.
+    double framePreparationMilliseconds = 0.0;
+    double frameUploadMilliseconds = 0.0;
     double decodeMilliseconds = 0.0;
     double uploadSubmissionMilliseconds = 0.0;
     std::size_t decodeAttempts = 0;

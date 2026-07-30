@@ -29,6 +29,28 @@ double monotonicSeconds () {
     ).count ();
 }
 
+// Accumulates the whole of a scope into a caller-owned total. Timing an entry
+// point this way cannot leave a region uncovered the way a timer placed around
+// one call inside it can.
+class ScopedMilliseconds {
+public:
+    explicit ScopedMilliseconds (double& total) :
+        total (total), start (std::chrono::steady_clock::now ()) { }
+
+    ~ScopedMilliseconds () {
+        total += std::chrono::duration<double, std::milli> (
+            std::chrono::steady_clock::now () - start
+        ).count ();
+    }
+
+    ScopedMilliseconds (const ScopedMilliseconds&) = delete;
+    ScopedMilliseconds& operator= (const ScopedMilliseconds&) = delete;
+
+private:
+    double& total;
+    std::chrono::steady_clock::time_point start;
+};
+
 std::unordered_map<WallpaperEngine::Render::RenderContext*, MediaTextureHost*> hosts;
 std::size_t livePlayers = 0;
 std::size_t playerConstructions = 0;
@@ -112,6 +134,11 @@ public:
     FrescoScene::MediaPlayerFramePreparationEvidence prepareFrame (
         double positionSeconds, bool wrapped = false, bool folded = false
     ) {
+        // Timed here rather than at GLPlayer::prepareFrame because the
+        // constructor prepares its first frame through this function directly,
+        // and a total that misses that path is smaller than the decode time it
+        // is supposed to contain.
+        const ScopedMilliseconds timer (framePreparationMilliseconds);
         if (decoder == nullptr) {
             return {};
         }
@@ -207,6 +234,7 @@ public:
     }
 
     void uploadPendingFrame () {
+        const ScopedMilliseconds timer (frameUploadMilliseconds);
         if (!pendingFrame.has_value () || !pendingFrameReady) {
             return;
         }
@@ -275,6 +303,8 @@ public:
     std::size_t frameUploads = 0;
     std::size_t seekRequests = 0;
     std::uint64_t uploadedBytes = 0;
+    double framePreparationMilliseconds = 0.0;
+    double frameUploadMilliseconds = 0.0;
     double decodeMilliseconds = 0.0;
     double uploadSubmissionMilliseconds = 0.0;
     std::optional<MediaVideoFrame> pendingFrame;
@@ -449,6 +479,10 @@ MediaTextureMetrics MediaTextureHost::metrics () const {
         );
         result.decodes += implementation.decodes;
         result.uploadedBytes += implementation.uploadedBytes;
+        result.framePreparationMilliseconds
+            += implementation.framePreparationMilliseconds;
+        result.frameUploadMilliseconds
+            += implementation.frameUploadMilliseconds;
         result.decodeMilliseconds += implementation.decodeMilliseconds;
         result.uploadSubmissionMilliseconds
             += implementation.uploadSubmissionMilliseconds;

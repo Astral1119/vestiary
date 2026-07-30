@@ -3300,6 +3300,12 @@ bool handleMessage (NSDictionary* message) {
                     ),
                     @"decodes": @(metrics.mediaTextures.decodes),
                     @"uploadedBytes": @(metrics.mediaTextures.uploadedBytes),
+                    @"framePreparationMilliseconds": @(
+                        metrics.mediaTextures.framePreparationMilliseconds
+                    ),
+                    @"frameUploadMilliseconds": @(
+                        metrics.mediaTextures.frameUploadMilliseconds
+                    ),
                     @"decodeMilliseconds": @(
                         metrics.mediaTextures.decodeMilliseconds
                     ),
