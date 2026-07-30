@@ -28,6 +28,14 @@ def render(project, output, *, skipped):
     environment = os.environ.copy()
     environment["FRESCO_SCENE_AUDIO_DISABLED"] = "1"
     environment["FRESCO_SCENE_SOUND_EXPERIMENTAL"] = "0"
+    # Persona's clock renders live seconds through `new Date()`, so without
+    # this every render differs from the last wherever those digits fall, and
+    # the digits sit outside both authored patches. Pinning any one field
+    # freezes the whole reading. Three renders of Persona at this pinning are
+    # byte-identical.
+    environment["FRESCO_SCENE_SCRIPT_CLOCK_HOUR"] = "9"
+    environment["FRESCO_SCENE_SCRIPT_CLOCK_MINUTE"] = "41"
+    environment["FRESCO_SCENE_SCRIPT_CLOCK_SECOND"] = "7"
     if skipped:
         environment["FRESCO_SCENE_SKIP_OBJECTS"] = skipped
     result = subprocess.run(
@@ -79,14 +87,6 @@ with tempfile.TemporaryDirectory(
     persona_skipped = render(
         PERSONA, root / "persona-skipped.png", skipped=PERSONA_LAYERS
     )
-    # Persona's clock renders live seconds, so independent renders differ
-    # wherever those digits fall, and the digits sit outside both authored
-    # patches. Repeat the intact render to locate that region. It runs last so
-    # it spans more elapsed time than the intact/skipped pair it guards, and
-    # therefore cannot understate the drift.
-    persona_control = render(
-        PERSONA, root / "persona-control.png", skipped=None
-    )
     hyuga_intact = render(HYUGA, root / "hyuga-intact.png", skipped=None)
     hyuga_skipped = render(
         HYUGA, root / "hyuga-skipped.png", skipped=HYUGA_LAYERS
@@ -100,27 +100,22 @@ with tempfile.TemporaryDirectory(
         == (1280, 720)
     )
 
-    # The nondeterministic region is stable even though the pixel count in it
-    # is not: more wall time elapses before the third render than the second,
-    # so more digits differ. Take the region, not the count.
-    control_difference = ImageChops.difference(persona_intact, persona_control)
-    live_text_bounds = control_difference.getbbox()
-
+    # With the clock pinned the render is deterministic, so the only difference
+    # between the intact and skipped frames is what skipping the layers changed.
+    # This used to exempt a third region inferred from a repeated intact render,
+    # on the reasoning that the repeat spanned more elapsed time and so could not
+    # understate the drift. It could: the changed-pixel set for one pair of digit
+    # glyphs is not a subset of another's just because more time passed, and the
+    # test failed about half the time on that.
     persona_difference = ImageChops.difference(
         persona_intact, persona_skipped
     )
-    exempt = PERSONA_PATCH_BOUNDS + (
-        (live_text_bounds,) if live_text_bounds else ()
-    )
-    changed, allowed, inside = changed_pixel_counts(
-        persona_difference, bounds=exempt
-    )
+    changed, allowed, inside = changed_pixel_counts(persona_difference)
     outside = changed - allowed
     assert outside == 0 and changed > 100, (
         persona_difference.getbbox(),
         changed,
         outside,
-        live_text_bounds,
         inside,
         PERSONA_PATCH_BOUNDS,
     )
