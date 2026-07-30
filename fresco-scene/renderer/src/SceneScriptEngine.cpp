@@ -2643,9 +2643,11 @@ private:
     //
     // Sharing one object is only sound because no script keeps or writes to it.
     // The non-graph wrapper copies out with Object.assign, and the graph wrapper
-    // hands it to the author's applyUserProperties. A survey of all 27 installed
-    // packages found 652 scripted values, of which 6 receive this object and none
-    // retain or mutate it. Re-run that survey before relying on the sharing.
+    // hands it to the author's applyUserProperties, which is arbitrary workshop
+    // code — so this is a fact about the corpus, not one the engine enforces. A
+    // survey of all 27 installed packages found 652 scripted values, of which 6
+    // receive this object and none retain or mutate it. Re-run it before relying
+    // on the sharing: tools/user-property-sharing-survey/survey.py.
     JSValue sharedUserPropertiesJS () {
         if (JS_IsUndefined (m_userPropertiesJS)) {
             m_userPropertiesJS = userPropertiesToJS (m_initialUserProperties);
