@@ -208,8 +208,22 @@ if(BUILD_TESTING)
             "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/common-harness/test_minimal_3d_contract.py"
     )
+    # The profiling sampler's parsers are pure functions over powermetrics,
+    # pmset, vm_stat, ps and sysctl output, so they are testable against
+    # fixtures without root and belong in the ordinary suite. They arrived on a
+    # branch that registered nothing, and went unrun here for a week.
+    add_test(
+        NAME fresco-scene-common-harness-profiling
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/common-harness/test_profiling.py"
+    )
     set_tests_properties(
         fresco-scene-common-harness-contract PROPERTIES
+            ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
+    )
+    set_tests_properties(
+        fresco-scene-common-harness-profiling PROPERTIES
             ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1"
     )
     set_tests_properties(
