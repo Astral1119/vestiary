@@ -219,6 +219,16 @@ fresco_scene_add_renderer_object(fresco-scene-system-audio
     ${fresco_scene_audio_system_sources})
 fresco_scene_add_renderer_object(fresco-scene-system-media
     ${fresco_scene_media_system_sources})
+# The media player uploads a decoded frame by binding the decoder's IOSurface,
+# which reaches the GPU through CGL on native OpenGL and through EGL on ANGLE.
+# It is the only system object that has to know which, so it is the only one
+# that carries the define.
+if(FRESCO_SCENE_RENDER_BACKEND STREQUAL "angle-metal")
+    target_compile_definitions(fresco-scene-system-media PRIVATE
+        FRESCO_SCENE_ANGLE_RUNTIME=1)
+    target_include_directories(fresco-scene-system-media BEFORE PRIVATE
+        ${FRESCO_SCENE_ANGLE_INCLUDE_DIR})
+endif()
 fresco_scene_add_renderer_object(fresco-scene-system-particles
     ${fresco_scene_particle_system_sources})
 fresco_scene_add_renderer_object(fresco-scene-system-puppet

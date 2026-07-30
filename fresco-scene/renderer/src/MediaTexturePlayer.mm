@@ -4,11 +4,17 @@
 #include "FrescoScene/MediaVideoDecoder.h"
 #include "WallpaperEngine/Logging/Log.h"
 
-// The IOSurface path binds through CGL, which the ANGLE build does not have and
-// does not link OpenGL.framework for. That build keeps the mapped-pixel upload.
-#if !defined(FRESCO_SCENE_ANGLE_RUNTIME)
+// Both backends bind the decoder's IOSurface rather than copying it, and they
+// reach it by different routes: CGL on native OpenGL, EGL_ANGLE_iosurface_client_buffer
+// on ANGLE. Only the bind differs; the rectangle-source-to-2D-destination blit
+// below is shared, so the two paths cannot drift apart in what they produce.
 #define FRESCO_SCENE_MEDIA_IOSURFACE_BLIT 1
 #import <IOSurface/IOSurfaceRef.h>
+#if defined(FRESCO_SCENE_ANGLE_RUNTIME)
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <EGL/eglext_angle.h>
+#else
 #import <OpenGL/CGLCurrent.h>
 #import <OpenGL/CGLIOSurface.h>
 #endif
@@ -60,6 +66,16 @@ private:
     double& total;
     std::chrono::steady_clock::time_point start;
 };
+
+// Where the decoder's IOSurface arrives before it is blitted into the texture
+// shaders sample. CGL binds only to a rectangle texture; ANGLE's rectangle
+// target needs an extension of its own and buys nothing here, because the blit
+// does not care which target it reads from.
+#ifdef FRESCO_SCENE_ANGLE_RUNTIME
+constexpr GLenum surfaceTextureTarget = GL_TEXTURE_2D;
+#else
+constexpr GLenum surfaceTextureTarget = GL_TEXTURE_RECTANGLE;
+#endif
 
 std::unordered_map<WallpaperEngine::Render::RenderContext*, MediaTextureHost*> hosts;
 std::size_t livePlayers = 0;
@@ -271,12 +287,14 @@ public:
     // through the CPU cost a 33 MB glTexSubImage2D per frame; binding it and
     // blitting moves that to the GPU side.
     //
-    // The surface has to arrive on a rectangle texture, because
-    // CGLTexImageIOSurface2D binds to no other target, and rectangle textures
-    // take unnormalized coordinates and sampler2DRect. Authored shaders in the
-    // corpus sample video through sampler2D, so the surface cannot be put where
-    // they can see it. Blitting into the GL_TEXTURE_2D they already sample
-    // keeps them untouched.
+    // On native OpenGL the surface has to arrive on a rectangle texture,
+    // because CGLTexImageIOSurface2D binds to no other target, and rectangle
+    // textures take unnormalized coordinates and sampler2DRect. Authored
+    // shaders in the corpus sample video through sampler2D, so the surface
+    // cannot be put where they can see it. Blitting into the GL_TEXTURE_2D they
+    // already sample keeps them untouched, and ANGLE takes the same shape even
+    // though EGL would let it bind straight to a 2D texture -- one blit for
+    // both backends is what keeps a later comparison between them honest.
     //
     // Returns false for anything it cannot do, and the mapped-pixel path
     // stands behind it unchanged.
@@ -294,9 +312,7 @@ public:
             return false;
         }
         auto* const surface = static_cast<IOSurfaceRef> (frame.surface);
-        CGLContextObj const context = CGLGetCurrentContext ();
-        if (surface == nullptr || context == nullptr || frame.width == 0
-            || frame.height == 0) {
+        if (surface == nullptr || frame.width == 0 || frame.height == 0) {
             return false;
         }
         if (surfaceTexture == 0) {
@@ -304,20 +320,7 @@ public:
             glGenFramebuffers (1, &readFramebuffer);
             glGenFramebuffers (1, &drawFramebuffer);
         }
-
-        glBindTexture (GL_TEXTURE_RECTANGLE, surfaceTexture);
-        // GL_BGRA with the reversed packed type is what makes the component
-        // order come out right on read, which is why the destination's swizzle
-        // is cleared below rather than kept.
-        const CGLError bound = CGLTexImageIOSurface2D (
-            context, GL_TEXTURE_RECTANGLE, GL_RGBA,
-            static_cast<GLsizei> (frame.width),
-            static_cast<GLsizei> (frame.height),
-            GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, surface, 0
-        );
-        glBindTexture (GL_TEXTURE_RECTANGLE, 0);
-        if (bound != kCGLNoError) {
-            reportSurfaceUnavailable ("cannot bind IOSurface to a rectangle texture");
+        if (!bindSurface (surface, frame.width, frame.height)) {
             return false;
         }
 
@@ -350,14 +353,17 @@ public:
         glBindFramebuffer (GL_READ_FRAMEBUFFER, readFramebuffer);
         glFramebufferTexture2D (
             GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-            GL_TEXTURE_RECTANGLE, surfaceTexture, 0
+            surfaceTextureTarget, surfaceTexture, 0
         );
         glReadBuffer (GL_COLOR_ATTACHMENT0);
         glBindFramebuffer (GL_DRAW_FRAMEBUFFER, drawFramebuffer);
         glFramebufferTexture2D (
             GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0
         );
-        glDrawBuffer (GL_COLOR_ATTACHMENT0);
+        // glDrawBuffers rather than glDrawBuffer: the singular form is desktop
+        // GL only and this path compiles against GLES under ANGLE.
+        const GLenum drawTarget = GL_COLOR_ATTACHMENT0;
+        glDrawBuffers (1, &drawTarget);
 
         const bool complete =
             glCheckFramebufferStatus (GL_READ_FRAMEBUFFER)
@@ -379,6 +385,7 @@ public:
         if (scissor == GL_TRUE) {
             glEnable (GL_SCISSOR_TEST);
         }
+        releaseSurface ();
 
         if (!complete) {
             // The destination has been reallocated and its swizzle cleared, so
@@ -389,6 +396,121 @@ public:
         return true;
 #endif
     }
+
+#ifdef FRESCO_SCENE_MEDIA_IOSURFACE_BLIT
+#ifdef FRESCO_SCENE_ANGLE_RUNTIME
+    // ANGLE reaches an IOSurface through a pbuffer bound as a texture image.
+    // The surface arrives on a GL_TEXTURE_2D rather than a rectangle texture,
+    // because ANGLE's rectangle target needs its own extension and the blit
+    // does not care which target it reads from.
+    bool bindSurface (IOSurfaceRef surface, std::uint32_t frameWidth,
+                      std::uint32_t frameHeight) {
+        EGLDisplay const display = eglGetCurrentDisplay ();
+        if (display == EGL_NO_DISPLAY) {
+            return false;
+        }
+        if (!surfaceConfigResolved) {
+            surfaceConfigResolved = true;
+            // The window config is chosen for EGL_WINDOW_BIT and will not
+            // serve a pbuffer, so this asks for its own.
+            const EGLint configAttributes[] = {
+                EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+                EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
+                EGL_BLUE_SIZE, 8, EGL_ALPHA_SIZE, 8,
+                EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+                EGL_BIND_TO_TEXTURE_RGBA, EGL_TRUE,
+                EGL_NONE,
+            };
+            EGLint configCount = 0;
+            if (eglChooseConfig (
+                    display, configAttributes, &surfaceConfig, 1, &configCount
+                ) == EGL_FALSE
+                || configCount == 0) {
+                surfaceConfig = nullptr;
+            }
+        }
+        if (surfaceConfig == nullptr) {
+            reportSurfaceUnavailable ("no EGL config binds an IOSurface pbuffer");
+            return false;
+        }
+        // GL_BGRA_EXT with an unsigned byte type is what makes the component
+        // order come out right on read, which is why the destination's swizzle
+        // is cleared rather than kept -- the same reasoning as the CGL path.
+        const EGLint surfaceAttributes[] = {
+            EGL_WIDTH, static_cast<EGLint> (frameWidth),
+            EGL_HEIGHT, static_cast<EGLint> (frameHeight),
+            EGL_IOSURFACE_PLANE_ANGLE, 0,
+            EGL_TEXTURE_TARGET, EGL_TEXTURE_2D,
+            EGL_TEXTURE_INTERNAL_FORMAT_ANGLE, GL_BGRA_EXT,
+            EGL_TEXTURE_FORMAT, EGL_TEXTURE_RGBA,
+            EGL_TEXTURE_TYPE_ANGLE, GL_UNSIGNED_BYTE,
+            EGL_IOSURFACE_USAGE_HINT_ANGLE, EGL_IOSURFACE_READ_HINT_ANGLE,
+            EGL_NONE,
+        };
+        surfacePbuffer = eglCreatePbufferFromClientBuffer (
+            display, EGL_IOSURFACE_ANGLE, surface, surfaceConfig,
+            surfaceAttributes
+        );
+        if (surfacePbuffer == EGL_NO_SURFACE) {
+            reportSurfaceUnavailable ("cannot create an IOSurface pbuffer");
+            return false;
+        }
+        glBindTexture (GL_TEXTURE_2D, surfaceTexture);
+        if (eglBindTexImage (display, surfacePbuffer, EGL_BACK_BUFFER)
+            == EGL_FALSE) {
+            eglDestroySurface (display, surfacePbuffer);
+            surfacePbuffer = EGL_NO_SURFACE;
+            reportSurfaceUnavailable ("cannot bind an IOSurface pbuffer to a texture");
+            return false;
+        }
+        glBindTexture (GL_TEXTURE_2D, 0);
+        return true;
+    }
+
+    // The pbuffer holds the texture image, so it lives exactly as long as the
+    // blit that reads it. Each decoded frame arrives on a different surface
+    // from AVFoundation's pool, so there is nothing to keep between frames.
+    void releaseSurface () {
+        if (surfacePbuffer == EGL_NO_SURFACE) {
+            return;
+        }
+        EGLDisplay const display = eglGetCurrentDisplay ();
+        if (display != EGL_NO_DISPLAY) {
+            eglReleaseTexImage (display, surfacePbuffer, EGL_BACK_BUFFER);
+            eglDestroySurface (display, surfacePbuffer);
+        }
+        surfacePbuffer = EGL_NO_SURFACE;
+    }
+#else
+    bool bindSurface (IOSurfaceRef surface, std::uint32_t frameWidth,
+                      std::uint32_t frameHeight) {
+        CGLContextObj const context = CGLGetCurrentContext ();
+        if (context == nullptr) {
+            return false;
+        }
+        glBindTexture (GL_TEXTURE_RECTANGLE, surfaceTexture);
+        // GL_BGRA with the reversed packed type is what makes the component
+        // order come out right on read, which is why the destination's swizzle
+        // is cleared rather than kept.
+        const CGLError bound = CGLTexImageIOSurface2D (
+            context, GL_TEXTURE_RECTANGLE, GL_RGBA,
+            static_cast<GLsizei> (frameWidth),
+            static_cast<GLsizei> (frameHeight),
+            GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, surface, 0
+        );
+        glBindTexture (GL_TEXTURE_RECTANGLE, 0);
+        if (bound != kCGLNoError) {
+            reportSurfaceUnavailable ("cannot bind IOSurface to a rectangle texture");
+            return false;
+        }
+        return true;
+    }
+
+    // CGL binds the surface into the texture outright, so there is nothing
+    // holding it once the blit has read it.
+    void releaseSurface () { }
+#endif
+#endif
 
     void uploadThroughMappedPixels (const MediaVideoFrame& frame) {
         glBindTexture (GL_TEXTURE_2D, texture);
@@ -451,7 +573,13 @@ public:
 #ifdef FRESCO_SCENE_MEDIA_IOSURFACE_BLIT
         // Teardown can reach here after the context has gone, and deleting
         // names without one is undefined rather than a no-op.
-        if (surfaceTexture != 0 && CGLGetCurrentContext () != nullptr) {
+#ifdef FRESCO_SCENE_ANGLE_RUNTIME
+        const bool contextLive = eglGetCurrentContext () != EGL_NO_CONTEXT;
+#else
+        const bool contextLive = CGLGetCurrentContext () != nullptr;
+#endif
+        if (surfaceTexture != 0 && contextLive) {
+            releaseSurface ();
             glDeleteFramebuffers (1, &readFramebuffer);
             glDeleteFramebuffers (1, &drawFramebuffer);
             glDeleteTextures (1, &surfaceTexture);
@@ -466,6 +594,12 @@ public:
     GLuint surfaceTexture = 0;
     GLuint readFramebuffer = 0;
     GLuint drawFramebuffer = 0;
+#if defined(FRESCO_SCENE_MEDIA_IOSURFACE_BLIT) \
+    && defined(FRESCO_SCENE_ANGLE_RUNTIME)
+    EGLConfig surfaceConfig = nullptr;
+    EGLSurface surfacePbuffer = EGL_NO_SURFACE;
+    bool surfaceConfigResolved = false;
+#endif
     bool surfaceFailureReported = false;
     std::size_t surfaceBlitUploads = 0;
     std::unique_ptr<MediaVideoDecoder> decoder;

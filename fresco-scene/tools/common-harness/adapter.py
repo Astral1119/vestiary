@@ -1415,21 +1415,17 @@ def _run_media_video(helper, configuration, trace, project, comparison_project):
              and media_initial["frameUploads"] == 1
              and media_initial["pendingFrames"] == 1,
              "initial media upload and future PTS queue are not exact")
-    # Every upload on native OpenGL reaches the texture by blitting the
-    # decoder's IOSurface. Without this the workload passes either way, because
-    # the mapped-pixel path stands behind the blit and produces the same
-    # picture -- a silent fallback would cost a 33 MB copy per frame and read
-    # as success. ANGLE has no CGL and keeps the mapped path.
-    if configuration.expected_backend == "native-opengl":
-        _require(
-            media_initial["surfaceBlitUploads"] == media_initial["frameUploads"],
-            "media uploads fell back off the IOSurface blit path",
-        )
-    else:
-        _require(
-            media_initial["surfaceBlitUploads"] == 0,
-            "media uploads blitted an IOSurface on a backend without CGL",
-        )
+    # Every upload reaches the texture by blitting the decoder's IOSurface, on
+    # both backends -- CGL on native OpenGL, EGL on ANGLE. Without this the
+    # workload passes either way, because the mapped-pixel path stands behind
+    # the blit and produces the same picture, so a silent fallback would cost a
+    # 33 MB copy per frame and read as success. It is required of both because
+    # a backend comparison where one blits and the other copies would charge
+    # that copy to the backend.
+    _require(
+        media_initial["surfaceBlitUploads"] == media_initial["frameUploads"],
+        "media uploads fell back off the IOSurface blit path",
+    )
     first_frame_hash = media_initial["lastDecodedFrameHash"]
     first_sequence_hash = media_initial["decodedFrameSequenceHash"]
     _require(first_frame_hash != 0, "constructor decoded frame hash is missing")
