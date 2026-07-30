@@ -656,6 +656,9 @@ public:
         for (const auto& layer : m_layers) {
             JS_FreeValue (m_context, layer.second.object);
         }
+        // shutdown() drops this too, but it returns early once it has already
+        // run, and nothing stops a tick from rebuilding the cache after it.
+        invalidateSharedUserPropertiesJS ();
         m_quickJS.reset ();
         m_context = nullptr;
         m_runtime = nullptr;
@@ -694,6 +697,7 @@ public:
         FrescoScene::clearSceneZoom (m_scene);
         m_pendingUserProperties.clear ();
         m_initialUserProperties.clear ();
+        invalidateSharedUserPropertiesJS ();
     }
 
     void createDynamicFloat (
@@ -1529,6 +1533,7 @@ public:
         const WallpaperEngine::Audio::UserPropertyBatch& properties
     ) {
         m_initialUserProperties = properties.values;
+        invalidateSharedUserPropertiesJS ();
         applyGenericUserProperties (properties.values);
         applySceneCameraZoom (properties.values);
     }
@@ -1557,6 +1562,7 @@ public:
         for (const auto& [key, value] : m_pendingUserProperties) {
             m_initialUserProperties.insert_or_assign (key, value);
         }
+        invalidateSharedUserPropertiesJS ();
         applied = applied || hasGenericUserPropertyConsumer;
         for (auto& [key, script] : m_propertyScripts) {
             static_cast<void> (key);
@@ -2628,6 +2634,35 @@ private:
         return result;
     }
 
+    // Every generic property script is handed the same user properties, and they
+    // change only when the properties themselves do, so the object is built once
+    // and shared rather than rebuilt per script per tick. Elaina authors 104 of
+    // them across 5651 bytes of key — one key is 847 characters, because the
+    // workshop author pasted markup into property names — and interning those
+    // atoms again for each script was 13.7% of the frame loop.
+    //
+    // Sharing one object is only sound because no script keeps or writes to it.
+    // The non-graph wrapper copies out with Object.assign, and the graph wrapper
+    // hands it to the author's applyUserProperties. A survey of all 27 installed
+    // packages found 652 scripted values, of which 6 receive this object and none
+    // retain or mutate it. Re-run that survey before relying on the sharing.
+    JSValue sharedUserPropertiesJS () {
+        if (JS_IsUndefined (m_userPropertiesJS)) {
+            m_userPropertiesJS = userPropertiesToJS (m_initialUserProperties);
+        }
+        // The caller owns its reference, so a script that changes the properties
+        // mid-tick cannot free the object out from under the call in progress.
+        return JS_DupValue (m_context, m_userPropertiesJS);
+    }
+
+    void invalidateSharedUserPropertiesJS () {
+        if (m_context == nullptr) {
+            return;
+        }
+        JS_FreeValue (m_context, m_userPropertiesJS);
+        m_userPropertiesJS = JS_UNDEFINED;
+    }
+
     JSValue graphVector (const std::array<float, 3>& value) {
         JSValue global = JS_GetGlobalObject (m_context);
         JSValue constructor = JS_GetPropertyStr (
@@ -3164,7 +3199,7 @@ private:
         }
         JS_FreeValue (m_context, setResult);
 
-        JSValue userProperties = userPropertiesToJS (m_initialUserProperties);
+        JSValue userProperties = sharedUserPropertiesJS ();
         JSValue setUserProperties = JS_GetPropertyStr (
             m_context, script.object, "setUserProperties"
         );
@@ -3505,6 +3540,8 @@ private:
         m_initialUserProperties;
     std::map<std::string, WallpaperEngine::Audio::UserPropertyScalar>
         m_pendingUserProperties;
+    // Undefined until built; see sharedUserPropertiesJS.
+    JSValue m_userPropertiesJS = JS_UNDEFINED;
     std::size_t m_dynamicFloatUpdateCount = 0;
     std::size_t m_dynamicFloatChangeCount = 0;
     std::size_t m_updateCount = 0;
