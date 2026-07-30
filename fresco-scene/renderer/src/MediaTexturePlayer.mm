@@ -34,11 +34,34 @@ std::size_t livePlayers = 0;
 std::size_t playerConstructions = 0;
 std::size_t playerDestructions = 0;
 
+// The hash confirms the duplicate that presentation time has already
+// identified, and gives the media workload a content signature to compare
+// across a seek and across a reload. Reading every byte to produce it made it
+// the largest single cost in the helper's frame loop: 33 MB per decoded frame
+// walked as one serial multiply chain, measured on Elaina at 48% of
+// main-thread work against 15% for the texture upload and 4.5% for the
+// AVFoundation decode. It sits outside both decodeMilliseconds and
+// uploadSubmissionMilliseconds, so the counters ranked the upload first and
+// never saw this at all.
+//
+// Sampling rows keeps the signature deterministic and content-sensitive at a
+// cost that no longer scales with frame area — a 4K frame reads about 1 MB
+// rather than 33. Rows are read whole, because a strided read within a row
+// would trade the sequential access for no further saving.
+constexpr std::uint32_t hashedRowBudget = 64;
+
 std::uint64_t frameHash (const FrescoScene::MediaVideoFrame& frame) {
-    std::uint64_t hash = 1469598103934665603ULL;
     constexpr std::uint64_t prime = 1099511628211ULL;
+    std::uint64_t hash = 1469598103934665603ULL;
+    // Geometry joins the signature because sampled rows alone cannot see a
+    // resize that leaves the rows they land on alike.
+    hash = (hash ^ static_cast<std::uint64_t> (frame.width)) * prime;
+    hash = (hash ^ static_cast<std::uint64_t> (frame.height)) * prime;
+    const std::uint32_t rowStride = std::max (
+        1U, frame.height / hashedRowBudget
+    );
     const std::size_t rowBytes = static_cast<std::size_t> (frame.width) * 4U;
-    for (std::uint32_t y = 0; y < frame.height; ++y) {
+    for (std::uint32_t y = 0; y < frame.height; y += rowStride) {
         const auto* row = frame.pixels.get ()
             + static_cast<std::size_t> (y) * frame.bytesPerRow;
         std::size_t x = 0;
