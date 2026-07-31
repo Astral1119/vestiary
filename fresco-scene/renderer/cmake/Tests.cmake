@@ -291,6 +291,46 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        fresco-scene-renderer-gbc-authored-curve
+        tests/gbc_authored_curve_test.cpp
+    )
+    fresco_scene_configure_gpl_consumer(
+        fresco-scene-renderer-gbc-authored-curve
+    )
+    target_link_libraries(
+        fresco-scene-renderer-gbc-authored-curve PRIVATE
+        fresco-scene-renderer-core
+    )
+    target_compile_options(
+        fresco-scene-renderer-gbc-authored-curve PRIVATE
+        -Wall
+        -Wextra
+        -Werror
+        -Wpedantic
+        -Wno-unused-parameter
+    )
+    if(FRESCO_SCENE_RENDER_BACKEND STREQUAL "angle-metal")
+        set_target_properties(
+            fresco-scene-renderer-gbc-authored-curve PROPERTIES
+            BUILD_RPATH "${FRESCO_SCENE_ANGLE_LIBRARY_DIR}"
+        )
+        add_custom_command(
+            TARGET fresco-scene-renderer-gbc-authored-curve POST_BUILD
+            COMMAND "${CMAKE_INSTALL_NAME_TOOL}"
+                -change ./libEGL.dylib @rpath/libEGL.dylib
+                "$<TARGET_FILE:fresco-scene-renderer-gbc-authored-curve>"
+            COMMAND "${CMAKE_INSTALL_NAME_TOOL}"
+                -change ./libGLESv2.dylib @rpath/libGLESv2.dylib
+                "$<TARGET_FILE:fresco-scene-renderer-gbc-authored-curve>"
+            VERBATIM
+        )
+    endif()
+    add_test(
+        NAME fresco-scene-renderer-gbc-authored-curve
+        COMMAND fresco-scene-renderer-gbc-authored-curve
+    )
+
+    add_executable(
         fresco-scene-renderer-text-codepoints
         tests/text_codepoints_test.cpp
         src/TextCodepoints.cpp
