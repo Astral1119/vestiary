@@ -13,12 +13,14 @@ spread is wide relative to any plausible backend delta, that is the answer to
 whether the comparison is affordable here, and it is worth having before a
 night is spent on steps 6 and 7.
 
-Requires root, because powermetrics does. Run the whole script under sudo once
-rather than letting it shell out per block: a long unattended run cannot answer
-a password prompt, and re-authenticating per block would itself perturb the
-measurement.
+powermetrics needs root, but the script does not. A NOPASSWD sudoers rule
+covering /usr/bin/powermetrics is enough and is what this machine has, so the
+script probes the sampler at startup rather than demanding euid 0 — the euid
+check used to refuse runs that would have worked. Either way the credential
+must be non-interactive: a long unattended run cannot answer a password prompt,
+and re-authenticating per block would itself perturb the measurement.
 
-    sudo ./baseline-repeatability.py --blocks 12 --sample-seconds 120 \
+    ./baseline-repeatability.py --blocks 12 --sample-seconds 120 \
         --store ../../../.fresco-evidence/energy-baseline-v1
 
 Protocol obligations this implements, from PROPOSAL.md:566-574 and
@@ -320,6 +322,26 @@ def summarize(values):
     }
 
 
+def write_record(output_path, record):
+    """Write the record to disk. Called after every block, not once at the end.
+
+    An unattended run that dies at hour six otherwise leaves the raw samples on
+    disk with no record of which blocks were valid or what the machine was
+    doing during them, and those per-block snapshots are what decide whether a
+    block is trustworthy. The raw sample alone cannot answer that.
+
+    The write goes to a temporary file and is renamed over the target. Writing
+    150 times makes a crash during a write a real possibility, and a truncated
+    record is worse than a stale one because it reads as valid JSON right up
+    until it does not.
+    """
+    temporary = output_path.with_suffix(".partial")
+    temporary.write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    os.replace(temporary, output_path)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Measure idle baseline repeatability (protocol step 5)."
@@ -361,6 +383,7 @@ def main():
     store.mkdir(parents=True, exist_ok=True)
     raw_directory = store / "raw"
     raw_directory.mkdir(exist_ok=True)
+    output = store / "baseline-repeatability-v1.json"
 
     opening = environment_snapshot(arguments.busy_threshold_percent)
     reference_displays = opening["displays"]
@@ -384,9 +407,7 @@ def main():
             "renderer or daemon processes were running before the first block; "
             "quiesce Fresco and verify ownership before measuring"
         )
-        (store / "baseline-repeatability-v1.json").write_text(
-            json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        write_record(output, record)
         sys.exit(
             "fail: quiesce Fresco first — "
             + ", ".join(
@@ -427,6 +448,7 @@ def main():
             block["valid"] = False
             block["invalidationReason"] = str(violation)
         record["blocks"].append(block)
+        write_record(output, record)
         print(
             f"block {index}: "
             + ("ok " if block["valid"] else "INVALID ")
@@ -453,10 +475,7 @@ def main():
         arguments.busy_threshold_percent
     )
 
-    output = store / "baseline-repeatability-v1.json"
-    output.write_text(
-        json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    write_record(output, record)
     print(f"\nwrote {output}")
     print(json.dumps(record["summary"], indent=2, sort_keys=True))
 
