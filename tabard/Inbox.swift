@@ -1,4 +1,14 @@
 import AppKit
+import Darwin
+import SwiftUI
+
+let panelShownNotification = Notification.Name("com.vestiary.panel.shown")
+let panelHiddenNotification = Notification.Name("com.vestiary.panel.hidden")
+let inboxMarkReadNotification = Notification.Name("local.vestiary.tabard.markread")
+let inboxToggleNotification = Notification.Name("local.vestiary.tabard.inbox.toggle")
+let inboxPanelSource = "inbox"
+let inboxPanelReadyPath = "/tmp/tabard-inbox-\(getuid()).ready"
+let inboxPanelLaunchLockPath = "/tmp/tabard-inbox-\(getuid()).launch.lock"
 
 // MARK: - inbox model
 
@@ -11,6 +21,15 @@ struct InboxEvent {
   let project: String
   let threadName: String
   let label: String
+  // The turn's message: the agent's last message on a finished turn, the ask on
+  // a waiting turn, the command on a shell finish. nil when the producer carried
+  // none (or on idle_prompt, where the finished row already said it). The live
+  // toast has always shown this; carrying it into the log is what lets the
+  // persistent feed read as more than a column of "finished".
+  let message: String?
+  // The tmux pane recorded with the event. Lets attend resolve a row whose task
+  // file has been reaped — the event outlives it. nil for pane-less tasks.
+  let pane: String?
   let tier: InboxTier
 }
 
@@ -93,12 +112,16 @@ final class InboxModel {
     }
     let group = dict["group"] as? String
     let title = dict["title"] as? String ?? id
+    let message = displayMessage(dict["lastMessage"] as? String)
     return InboxEvent(seq: dict["seq"] as? Int ?? position,
                       date: date, thread: group ?? id, project: title,
-                      threadName: group ?? title, label: label, tier: tier)
+                      threadName: group ?? title, label: label,
+                      message: message, pane: dict["pane"] as? String,
+                      tier: tier)
   }
 
   private func loadEvents() {
+    events = []
     guard let data = FileManager.default.contents(atPath: Config.eventsPath),
           let text = String(data: data, encoding: .utf8) else { return }
     events = text.split(separator: "\n", omittingEmptySubsequences: true)
@@ -111,6 +134,7 @@ final class InboxModel {
   }
 
   private func loadSeen() {
+    cursors = [:]
     guard let data = FileManager.default.contents(atPath: Config.seenPath),
           let json = try? JSONSerialization.jsonObject(with: data),
           let root = json as? [String: Any] else { return }
@@ -133,6 +157,13 @@ final class InboxModel {
   func setTasks(_ merged: [String: TaskEntry]) {
     guard !sameTasks(tasks, merged) else { return }
     tasks = merged
+    changed()
+  }
+
+  func reloadFromDisk() {
+    loadSeen()
+    loadEvents()
+    tasks = readTasks().mapValues { $0.entry }
     changed()
   }
 
@@ -319,11 +350,31 @@ final class InboxModel {
 
 // MARK: - inbox views
 
+// The behind-window blur, hosted in SwiftUI exactly as livery does. A plain
+// NSVisualEffectView added as a subview of a plain-NSView content view does NOT
+// pass its blur through the transparent full-size titlebar (the strip reads as a
+// flat dark fill); the identical effect view hosted inside an NSHostingView that
+// IS the content view does. Measured under one wallpaper: plain-subview titlebar
+// (26,24,24) vs hosted (livery) (46,48,60) — same material/tint/opacity, the only
+// delta is the hosting. So the blur lives here and the host is the content view.
+private struct BackdropBlur: NSViewRepresentable {
+  func makeNSView(context: Context) -> NSVisualEffectView { configured(NSVisualEffectView()) }
+  func updateNSView(_ view: NSVisualEffectView, context: Context) { _ = configured(view) }
+  @discardableResult
+  private func configured(_ view: NSVisualEffectView) -> NSVisualEffectView {
+    view.material = .underPageBackground
+    view.blendingMode = .behindWindow
+    view.state = .active
+    view.isEmphasized = false
+    return view
+  }
+}
+
 final class InboxPanel: NSPanel {
   var handleKey: ((NSEvent) -> Bool)?
 
   override var canBecomeKey: Bool { true }
-  override var canBecomeMain: Bool { false }
+  override var canBecomeMain: Bool { true }
 
   override func keyDown(with event: NSEvent) {
     if handleKey?(event) != true { super.keyDown(with: event) }
@@ -350,7 +401,16 @@ final class InboxController: NSObject {
   let model: InboxModel
   private let panel: InboxPanel
   private let root = NSView()
-  private let backdrop = NSVisualEffectView()
+  // Behind-window blur, hosted in SwiftUI and used as the panel content view so
+  // the blur passes through the transparent titlebar. See BackdropBlur.
+  private let backdropHost = NSHostingView(rootView: BackdropBlur())
+  // Base tint over the blur, covering the body only — the top band above it is
+  // left as bare blur so the desktop reads through, matching livery's
+  // transparent titlebar strip that sits above the nav bar.
+  private let bodyTint = NSView()
+  // Surface tint behind the channel list, matching livery's surface-tinted
+  // anchor selector — the rail reads as a panel, not bare base.
+  private let railBG = NSView()
   private let header = NSView()
   private let footer = NSView()
   private let railScroll = NSScrollView()
@@ -363,44 +423,79 @@ final class InboxController: NSObject {
   private var railItems: [InboxRailItem] = []
   private var railRowFrames: [NSRect] = []
   private var detailObserver: NSObjectProtocol?
+  private var panelShownObserver: NSObjectProtocol?
   var attend: ((String) -> Void)?
+  var markRead: (([String: Int]) -> Void)?
+  var onClose: (() -> Void)?
 
   var isOpen: Bool { panel.isVisible }
 
   init(model: InboxModel, theme: Theme) {
     self.model = model
     self.theme = theme
-    panel = InboxPanel(contentRect: .zero,
-                       styleMask: [.borderless, .nonactivatingPanel],
-                       backing: .buffered, defer: true)
+    // A zero-sized titled panel leaves AppKit's titlebar decoration in front
+    // after the first resize, where it covers the behind-window effect. Build
+    // at livery's real size so the transparent titlebar is composed over the
+    // content view from the start.
+    panel = InboxPanel(contentRect: NSRect(x: 0, y: 0,
+                                          width: 900, height: 585),
+                       styleMask: [.titled, .resizable,
+                                   .fullSizeContentView, .utilityWindow],
+                       backing: .buffered, defer: false)
     super.init()
-    panel.level = .statusBar
-    panel.collectionBehavior = [.canJoinAllSpaces, .stationary,
-                                .fullScreenAuxiliary, .ignoresCycle]
+    panel.titleVisibility = .hidden
+    panel.titlebarAppearsTransparent = true
+    panel.title = ""
+    for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton,
+                   .zoomButton] {
+      panel.standardWindowButton(button)?.isHidden = true
+    }
+    panel.level = .floating
+    panel.collectionBehavior = [.canJoinAllSpaces,
+                                .fullScreenAuxiliary, .transient]
+    // Match livery's AX subrole — jankyborders filters by subrole, so a plain
+    // titled panel is skipped; a floating window is tracked and bordered.
+    panel.setAccessibilitySubrole(.floatingWindow)
     // the rounded root layer is the window shape; the panel itself is
     // clear (an opaque panel shows square corners behind the layer)
     panel.isOpaque = false
     panel.backgroundColor = .clear
     panel.hasShadow = true
+    // Don't auto-hide when focus leaves (NSPanel defaults this true) — that's
+    // what made the panel vanish as the cursor moved away. Livery sets it false.
+    panel.hidesOnDeactivate = false
+    // The native titlebar is the sole drag region.
+    panel.isMovableByWindowBackground = false
+    // No show/hide fade. The borderless panel default animates; livery's
+    // titled window doesn't, and the two swap, so the fade reads as asymmetric.
+    panel.animationBehavior = .none
     panel.handleKey = { [weak self] event in self?.handleKey(event) ?? false }
-    // livery's backdrop recipe: behind-window blur under translucent color
-    backdrop.material = .underPageBackground
-    backdrop.blendingMode = .behindWindow
-    backdrop.state = .active
     configure(railScroll, document: railDocument)
     configure(detailScroll, document: detailDocument)
     detailScroll.contentView.postsBoundsChangedNotifications = true
-    root.addSubview(backdrop)
+    // The hosted blur is the content view (spans under the transparent titlebar);
+    // root carries the tint + chrome on top of it, mirroring livery's ZStack of
+    // BackdropBlur under the panel background color.
+    root.addSubview(bodyTint)
+    root.addSubview(railBG)
     root.addSubview(header)
     root.addSubview(footer)
     root.addSubview(railScroll)
     root.addSubview(detailScroll)
-    panel.contentView = root
+    backdropHost.addSubview(root)
+    panel.contentView = backdropHost
     detailObserver = NotificationCenter.default.addObserver(
       forName: NSView.boundsDidChangeNotification,
       object: detailScroll.contentView, queue: .main) {
         [weak self] _ in self?.checkBottom()
       }
+    panelShownObserver = DistributedNotificationCenter.default().addObserver(
+      forName: panelShownNotification, object: nil, queue: .main
+    ) { [weak self] notification in
+      guard let source = notification.userInfo?["source"] as? String,
+            source != inboxPanelSource else { return }
+      self?.close()
+    }
     model.onChange = { [weak self] in self?.modelChanged() }
   }
 
@@ -415,19 +510,24 @@ final class InboxController: NSObject {
   func open(screen: NSScreen?) {
     guard let screen else { return }
     let visible = screen.visibleFrame
-    let width = min(880, visible.width * 0.62)
-    let height = min(620, visible.height * 0.72)
+    let width = min(900, visible.width - 40)
+    let height = min(585, visible.height - 40)
     panel.setFrame(NSRect(x: visible.midX - width / 2,
                           y: visible.midY - height / 2,
                           width: width, height: height), display: false)
     layout(width: width, height: height)
     channel = defaultChannel()
     render()
+    panel.orderFrontRegardless()
     panel.makeKeyAndOrderFront(nil)
+    DistributedNotificationCenter.default().postNotificationName(
+      panelShownNotification, object: nil,
+      userInfo: ["source": inboxPanelSource], deliverImmediately: true)
   }
 
   func close() {
     panel.orderOut(nil)
+    onClose?()
   }
 
   func retheme(_ theme: Theme) {
@@ -436,16 +536,29 @@ final class InboxController: NSObject {
   }
 
   private func layout(width: CGFloat, height: CGFloat) {
-    root.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    let full = NSRect(x: 0, y: 0, width: width, height: height)
+    // Round at the host layer (which carries the behind-window blur), not via
+    // SwiftUI clipShape — clipping a hosted .behindWindow effect view breaks its
+    // vibrancy and forces the panel opaque. This mirrors livery's host mask.
+    backdropHost.frame = full
+    backdropHost.wantsLayer = true
+    backdropHost.layer?.cornerRadius = 16
+    backdropHost.layer?.cornerCurve = .continuous
+    backdropHost.layer?.masksToBounds = true
+    root.frame = full
     root.wantsLayer = true
-    root.layer?.cornerRadius = 16
-    root.layer?.masksToBounds = true
-    backdrop.frame = root.bounds
-    header.frame = NSRect(x: 0, y: height - 52, width: width, height: 52)
+    // Blur + tint cover the whole panel, titlebar included — livery's titlebar
+    // is its blur+tint background showing through the transparent titlebar, not
+    // a bare hole. Content (rail/detail/header) sits below the titlebar.
+    let contentTop = min(height, panel.contentLayoutRect.maxY)
+    let contentHeight = max(0, contentTop - 82)
+    bodyTint.frame = full
+    header.frame = NSRect(x: 0, y: contentTop - 52, width: width, height: 52)
     footer.frame = NSRect(x: 0, y: 0, width: width, height: 30)
-    railScroll.frame = NSRect(x: 0, y: 30, width: 240, height: height - 82)
+    railBG.frame = NSRect(x: 0, y: 30, width: 240, height: contentHeight)
+    railScroll.frame = NSRect(x: 0, y: 30, width: 240, height: contentHeight)
     detailScroll.frame = NSRect(x: 240, y: 30,
-                                width: width - 240, height: height - 82)
+                                width: width - 240, height: contentHeight)
   }
 
   private func label(_ text: String, size: CGFloat = 12,
@@ -463,7 +576,9 @@ final class InboxController: NSObject {
   private func hairline(frame: NSRect) -> NSView {
     let line = NSView(frame: frame)
     line.wantsLayer = true
-    line.layer?.backgroundColor = theme.inboxOutline.cgColor
+    // Match livery's near-invisible dividers (outline at ~0.16–0.20), not a
+    // full-alpha line — the visible light borders read foreign next to livery.
+    line.layer?.backgroundColor = theme.inboxOutline.withAlphaComponent(0.18).cgColor
     return line
   }
 
@@ -502,8 +617,36 @@ final class InboxController: NSObject {
                       preserveDetail: Bool = false) {
     let railTop = railScroll.contentView.bounds.origin.y
     let detailTop = detailScroll.contentView.bounds.origin.y
-    root.layer?.backgroundColor =
-      theme.inboxBG.withAlphaComponent(0.90).cgColor
+    // Mirror livery's proportions: the dark base (background @ 0.46) is the
+    // dominant surface — the body, the rail, AND the detail/event area all sit
+    // on it, like livery's panel body. The bar (surface) is only the thin
+    // header/footer strips. surfaceElevated is reserved for small emphasized
+    // items, not the whole reading area (that was making the inbox read light
+    // and gray next to livery's dark body). The detail document stays clear so
+    // it shows the same base as the rail.
+    root.layer?.backgroundColor = NSColor.clear.cgColor
+    bodyTint.wantsLayer = true
+    bodyTint.layer?.backgroundColor =
+      theme.inboxBase.withAlphaComponent(0.46).cgColor
+    // Header/footer bar: the inbox blur stack renders the bar measurably bluer
+    // than livery's header off the same surface hex, so warm the fill directly
+    // (pull down green and blue) rather than only leaning on opacity. Applied to
+    // the bars only, not the rail, which already matches livery's selector.
+    let bar = theme.inboxBar
+    let warmBar = NSColor(srgbRed: bar.redComponent,
+                          green: bar.greenComponent * 0.90,
+                          blue: bar.blueComponent * 0.76, alpha: 1)
+    header.wantsLayer = true
+    header.layer?.backgroundColor =
+      warmBar.withAlphaComponent(0.70).cgColor
+    footer.wantsLayer = true
+    footer.layer?.backgroundColor =
+      warmBar.withAlphaComponent(0.70).cgColor
+    railBG.wantsLayer = true
+    railBG.layer?.backgroundColor =
+      warmBar.withAlphaComponent(0.65).cgColor
+    detailDocument.wantsLayer = true
+    detailDocument.layer?.backgroundColor = NSColor.clear.cgColor
     renderHeader()
     renderFooter()
     renderRail()
@@ -532,7 +675,7 @@ final class InboxController: NSObject {
   private func renderHeader() {
     header.subviews.forEach { $0.removeFromSuperview() }
     let width = header.frame.width
-    let breadcrumb = label("", size: 15, display: true)
+    let breadcrumb = label("", size: 13, display: true)
     let segments = ["tabard", "inbox"] + (channel.map { [$0] } ?? [])
     let text = NSMutableAttributedString()
     for (index, segment) in segments.enumerated() {
@@ -540,12 +683,16 @@ final class InboxController: NSObject {
         text.append(NSAttributedString(string: " // ", attributes: [
           .foregroundColor: theme.inboxMuted]))
       }
+      // First segment is the app-identity accent (gold), like livery's
+      // primary-colored "livery" title; last is foreground, middle muted.
+      let segColor: NSColor = index == 0
+        ? theme.inboxAccent
+        : (index == segments.count - 1 ? theme.inboxFG : theme.inboxMuted)
       text.append(NSAttributedString(string: segment, attributes: [
-        .foregroundColor: index == segments.count - 1
-          ? theme.inboxFG : theme.inboxMuted]))
+        .foregroundColor: segColor]))
     }
     text.addAttribute(.font,
-      value: theme.font(family: theme.displayFamily, size: 15),
+      value: theme.font(family: theme.displayFamily, size: 13),
       range: NSRange(location: 0, length: text.length))
     breadcrumb.attributedStringValue = text
     breadcrumb.frame = NSRect(x: 22, y: 16, width: width - 170, height: 20)
@@ -703,6 +850,13 @@ final class InboxController: NSObject {
     }
   }
 
+  // The row's saying: the outcome/state word, and — when the producer carried
+  // one — the turn's message after a middot, mirroring the toast body.
+  private func eventDetail(_ event: InboxEvent) -> String {
+    guard let message = event.message else { return event.label }
+    return "\(event.label) · \(message)"
+  }
+
   private func styleMessage(_ row: NSView, event: InboxEvent, unread: Bool) {
     row.wantsLayer = true
     row.layer?.backgroundColor = unread
@@ -713,7 +867,10 @@ final class InboxController: NSObject {
                      color: theme.inboxMuted, mono: true)
     time.frame = NSRect(x: 6, y: 7, width: 48, height: 16)
     row.addSubview(time)
-    let text = label("\(event.threadName)  \(event.label)", size: 11,
+    // In a channel the project is the channel; name the thread only when it's a
+    // group (differs from the project), else the detail stands alone.
+    let thread = event.threadName == event.project ? "" : "\(event.threadName)  "
+    let text = label("\(thread)\(eventDetail(event))", size: 11,
                      color: unread ? theme.inboxFG : theme.inboxMuted)
     text.frame = NSRect(x: 58, y: 6,
                         width: detailDocument.frame.width - 108, height: 18)
@@ -741,8 +898,12 @@ final class InboxController: NSObject {
                        color: theme.inboxMuted, mono: true)
       time.frame = NSRect(x: 6, y: 8, width: 48, height: 18)
       row.addSubview(time)
-      let field = label("\(event.project)  \(event.threadName) — "
-        + "\(event.label)\(suffix)", size: 10.5,
+      // In the unified feed the project leads; name the thread only when it's a
+      // group. Drop the old "vestiary  vestiary" doubling — it ate the width the
+      // message now needs.
+      let thread = event.threadName == event.project ? "" : "  \(event.threadName)"
+      let field = label("\(event.project)\(thread) — "
+        + "\(eventDetail(event))\(suffix)", size: 10.5,
         color: unread ? theme.inboxFG : theme.inboxMuted)
       field.frame = NSRect(x: 58, y: 8,
                            width: detailDocument.frame.width - 108, height: 18)
@@ -826,7 +987,208 @@ final class InboxController: NSObject {
     let visibleBottom = detailScroll.contentView.bounds.maxY
     let contentBottom = detailDocument.frame.height
     guard contentBottom - visibleBottom <= 8 else { return }
-    model.markRead(Dictionary(uniqueKeysWithValues:
+    markRead?(Dictionary(uniqueKeysWithValues:
       project.threads.map { ($0.id, $0.lastSeq) }))
+  }
+}
+
+// MARK: - standalone inbox application
+
+final class InboxPanelAppDelegate: NSObject, NSApplicationDelegate {
+  private var model: InboxModel!
+  private var controller: InboxController!
+  private var eventsWatch: DispatchSourceFileSystemObject?
+  private var seenWatch: DispatchSourceFileSystemObject?
+  private var stateDirectoryWatch: DispatchSourceFileSystemObject?
+  private var tasksWatch: DispatchSourceFileSystemObject?
+  private var pendingReload: DispatchWorkItem?
+  private var rearmTimer: Timer?
+  private var toggleObserver: NSObjectProtocol?
+  private var announcedShown = false
+  private var announcedHidden = false
+  private var terminating = false
+
+  func applicationDidFinishLaunching(_ notification: Notification) {
+    model = InboxModel(loadTasks: true, writesEnabled: false)
+    controller = InboxController(model: model, theme: Theme.load())
+    controller.markRead = { [weak self] positions in
+      self?.requestMarkRead(positions)
+    }
+    controller.attend = { [weak self] thread in self?.attend(thread) }
+    controller.onClose = { [weak self] in self?.terminate() }
+    toggleObserver = DistributedNotificationCenter.default().addObserver(
+      forName: inboxToggleNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      self?.togglePanel()
+    }
+    armWatches()
+    rearmTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) {
+      [weak self] _ in self?.armWatches()
+    }
+    showPanel()
+    markReady()
+  }
+
+  func applicationWillTerminate(_ notification: Notification) {
+    announceHidden()
+    if let toggleObserver {
+      DistributedNotificationCenter.default().removeObserver(toggleObserver)
+    }
+    removeReadyFileIfOwned()
+  }
+
+  private func showPanel() {
+    guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+      terminate()
+      return
+    }
+    _ = NSApp.setActivationPolicy(.regular)
+    _ = NSRunningApplication.current.activate(options: [.activateAllWindows])
+    announcedShown = true
+    controller.open(screen: screen)
+  }
+
+  private func togglePanel() {
+    if controller.isOpen {
+      controller.close()
+    } else {
+      showPanel()
+    }
+  }
+
+  private func terminate() {
+    guard !terminating else { return }
+    terminating = true
+    announceHidden()
+    NSApp.terminate(nil)
+  }
+
+  private func announceHidden() {
+    guard announcedShown, !announcedHidden else { return }
+    announcedHidden = true
+    DistributedNotificationCenter.default().postNotificationName(
+      panelHiddenNotification, object: nil,
+      userInfo: ["source": inboxPanelSource], deliverImmediately: true)
+  }
+
+  private func requestMarkRead(_ positions: [String: Int]) {
+    for (thread, seq) in positions where seq > 0 {
+      DistributedNotificationCenter.default().postNotificationName(
+        inboxMarkReadNotification, object: nil,
+        userInfo: ["thread": thread, "seq": String(seq)],
+        deliverImmediately: true)
+    }
+  }
+
+  private func attend(_ thread: String) {
+    guard let projected = model.threads().first(where: { $0.id == thread })
+    else { return }
+    requestMarkRead([thread: projected.lastSeq])
+    if let member = projected.members.first {
+      // Live task: resolve fresh from the task file — the script re-derives the
+      // current pane and, for a group, ranks to the neediest member.
+      let argument = member.group == nil ? member.id : "digest:inbox:" + thread
+      runAttendHook(argument, pane: member.pane, space: member.space,
+                    group: member.group)
+    } else if let pane = projected.events.last(where: { $0.pane != nil })?.pane {
+      // Reaped/ended task: the file is gone, so attend the pane the event
+      // preserved. Focuses when the pane still lives, no-ops when it's gone.
+      runAttendHook("pane:" + pane, pane: pane, space: nil, group: nil)
+    }
+    controller.close()
+  }
+
+  private func runAttendHook(_ id: String, pane: String?, space: Int?,
+                             group: String?) {
+    guard FileManager.default.isExecutableFile(atPath: Config.attendHook)
+    else {
+      if env("TABARD_DEBUG") != nil { log("attend ignored (no hook) \(id)") }
+      return
+    }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: Config.attendHook)
+    process.arguments = [id]
+    var environment = ProcessInfo.processInfo.environment
+    environment["TABARD_PANE"] = pane
+    environment["TABARD_SPACE"] = space.map(String.init)
+    environment["TABARD_GROUP"] = group
+    process.environment = environment
+    do {
+      try process.run()
+      if env("TABARD_DEBUG") != nil { log("attended \(id)") }
+    } catch {
+      if env("TABARD_DEBUG") != nil { log("attend launch failed \(id)") }
+    }
+  }
+
+  private func armWatches() {
+    if eventsWatch == nil {
+      eventsWatch = watch(path: Config.eventsPath) { [weak self] gone in
+        if gone { self?.eventsWatch = nil }
+        self?.scheduleReload()
+      }
+    }
+    if seenWatch == nil {
+      seenWatch = watch(path: Config.seenPath) { [weak self] gone in
+        if gone { self?.seenWatch = nil }
+        self?.scheduleReload()
+      }
+    }
+    if stateDirectoryWatch == nil {
+      stateDirectoryWatch = watch(path: Config.heraldLogRoot) { [weak self] gone in
+        if gone { self?.stateDirectoryWatch = nil }
+        self?.scheduleReload()
+      }
+    }
+    if tasksWatch == nil {
+      tasksWatch = watch(path: Config.tasksDir) { [weak self] gone in
+        if gone { self?.tasksWatch = nil }
+        self?.scheduleReload()
+      }
+    }
+  }
+
+  private func watch(path: String,
+                     onEvent: @escaping (Bool) -> Void)
+    -> DispatchSourceFileSystemObject? {
+    let fd = open(path, O_EVTONLY)
+    guard fd >= 0 else { return nil }
+    let source = DispatchSource.makeFileSystemObjectSource(
+      fileDescriptor: fd,
+      eventMask: [.write, .extend, .delete, .rename], queue: .main)
+    source.setEventHandler {
+      let gone = source.data.contains(.delete) || source.data.contains(.rename)
+      if gone { source.cancel() }
+      onEvent(gone)
+    }
+    source.setCancelHandler { Darwin.close(fd) }
+    source.resume()
+    return source
+  }
+
+  private func scheduleReload() {
+    pendingReload?.cancel()
+    let work = DispatchWorkItem { [weak self] in
+      self?.model.reloadFromDisk()
+      self?.armWatches()
+    }
+    pendingReload = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + Config.debounce,
+                                  execute: work)
+  }
+
+  private func markReady() {
+    let pid = "\(ProcessInfo.processInfo.processIdentifier)\n"
+    try? pid.write(toFile: inboxPanelReadyPath, atomically: true,
+                   encoding: .utf8)
+  }
+
+  private func removeReadyFileIfOwned() {
+    guard let contents = try? String(contentsOfFile: inboxPanelReadyPath,
+                                     encoding: .utf8),
+          contents.trimmingCharacters(in: .whitespacesAndNewlines)
+            == String(ProcessInfo.processInfo.processIdentifier)
+    else { return }
+    try? FileManager.default.removeItem(atPath: inboxPanelReadyPath)
   }
 }

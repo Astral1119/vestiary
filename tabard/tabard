@@ -15,4 +15,7 @@ if [ ! -x "$BIN" ] || [ "$SRC" -nt "$BIN" ] || [ "$INBOX" -nt "$BIN" ]; then
   CLANG_MODULE_CACHE_PATH="$ROOT/build/module-cache" \
     swiftc -O -warnings-as-errors -framework AppKit "$SRC" "$INBOX" -o "$BIN"
 fi
+if [ "${1:-}" = "inbox" ]; then
+  "$ROOT/build-inbox-app"
+fi
 exec "$BIN" "$@"

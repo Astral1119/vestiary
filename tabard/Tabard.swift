@@ -4,8 +4,8 @@
 // subscriber under the SPEC §4 conformance rules; also the host's
 // designated reaper (herald SPEC §5, v1.2).
 //
-// Verbs: run (default) | pause | resume | status | inbox | inbox-dump |
-// install-agent | uninstall-agent. Env: TABARD_HERALD_ROOT,
+// Verbs: run (default) | pause | resume | status | inbox | inbox-panel |
+// inbox-dump | install-agent | uninstall-agent. Env: TABARD_HERALD_ROOT,
 // LIVERY_RUNTIME (contract §2.1 reserved override), TABARD_REAPER_GRACE /
 // TABARD_REAPER_INTERVAL /
 // TABARD_DIGEST_COLLECT / TABARD_DIGEST_RETOAST / TABARD_DWELL_DONE /
@@ -36,6 +36,12 @@ enum Config {
   static var logPath: String { stateDir + "/tabard.log" }
   static let label = "local.vestiary.tabard"
   static var plistPath: String { home + "/Library/LaunchAgents/\(label).plist" }
+  static let inboxBundleIdentifier = "com.vestiary.tabard.inbox"
+  static var inboxAppPath: String {
+    let cacheRoot = env("XDG_CACHE_HOME").flatMap { $0.isEmpty ? nil : $0 }
+      ?? home + "/.cache"
+    return cacheRoot + "/tabard/Inbox.app"
+  }
 
   static let dwellDone = Double(env("TABARD_DWELL_DONE") ?? "") ?? 5
   static let dwellWaiting = Double(env("TABARD_DWELL_WAITING") ?? "") ?? 10
@@ -75,12 +81,35 @@ func log(_ message: String) {
   FileHandle.standardError.write(Data("\(stamp) \(message)\n".utf8))
 }
 
+// Herald keeps the producer's short message verbatim. Chips and inbox rows are
+// plain text, so remove lightweight Markdown and withhold structured payloads
+// emitted by background agent turns.
+func displayMessage(_ raw: String?) -> String? {
+  guard let raw else { return nil }
+  var message = raw.components(separatedBy: .whitespacesAndNewlines)
+    .filter { !$0.isEmpty }
+    .joined(separator: " ")
+  guard !message.isEmpty else { return nil }
+  let structuredObject = message.hasPrefix("{") && message.contains("\":")
+  let structuredArray = message == "[]" || message.hasPrefix("[{")
+    || message.hasPrefix("[\"")
+  if structuredObject || structuredArray { return nil }
+  message = message.replacingOccurrences(of: "**", with: "")
+    .replacingOccurrences(of: "`", with: "")
+  return message.isEmpty ? nil : message
+}
+
 // MARK: - theme (direct manifest consumer — no adapter, by design)
 
 struct Theme {
   var chipBG = NSColor(red: 0.94, green: 0.93, blue: 0.91, alpha: 1)
   var chipFG = NSColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1)
   var chipAccent = NSColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1)
+  // Three color roles, keyed off the same manifest livery reads, so the two
+  // panels share a palette: base (background) is the panel body, bar (surface)
+  // is the header/footer strip, BG (surfaceElevated) is the reading slab.
+  var inboxBase = NSColor(red: 0.90, green: 0.89, blue: 0.87, alpha: 1)
+  var inboxBar = NSColor(red: 0.92, green: 0.91, blue: 0.89, alpha: 1)
   var inboxBG = NSColor(red: 0.94, green: 0.93, blue: 0.91, alpha: 1)
   var inboxFG = NSColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1)
   var inboxMuted = NSColor(red: 0.40, green: 0.40, blue: 0.40, alpha: 1)
@@ -95,7 +124,10 @@ struct Theme {
     guard let dict = node as? [String: Any],
           let hex = dict["hex"] as? String, hex.count == 7, hex.hasPrefix("#"),
           let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
-    return NSColor(red: CGFloat((value >> 16) & 0xff) / 255,
+    // sRGB, matching livery's Color(.sRGB, …). NSColor(red:…) is device RGB,
+    // which composites the blue channel cooler on wide-gamut displays and made
+    // the inbox read colder than livery off the same manifest hex.
+    return NSColor(srgbRed: CGFloat((value >> 16) & 0xff) / 255,
                    green: CGFloat((value >> 8) & 0xff) / 255,
                    blue: CGFloat(value & 0xff) / 255, alpha: 1)
   }
@@ -112,6 +144,8 @@ struct Theme {
       theme.chipBG = color(ui["inverseSurface"]) ?? theme.chipBG
       theme.chipFG = color(ui["inverseText"]) ?? theme.chipFG
       theme.chipAccent = color(ui["inversePrimary"]) ?? theme.chipFG
+      theme.inboxBase = color(ui["background"]) ?? theme.inboxBase
+      theme.inboxBar = color(ui["surface"]) ?? theme.inboxBar
       theme.inboxBG = color(ui["surfaceElevated"]) ?? color(ui["surface"])
         ?? theme.inboxBG
       theme.inboxFG = color(ui["text"]) ?? theme.inboxFG
@@ -229,6 +263,7 @@ final class Recorder {
     fields["to"] = entry.state
     if entry.state == "waiting", let attention = entry.attention {
       fields["attention"] = attention
+      addMessage(&fields, entry, attention: attention)
     }
     append("state-changed", fields)
   }
@@ -236,13 +271,26 @@ final class Recorder {
   func attentionRequested(_ entry: TaskEntry) {
     var fields = context(entry)
     if let attention = entry.attention { fields["attention"] = attention }
+    addMessage(&fields, entry, attention: entry.attention)
     append("attention-requested", fields)
   }
 
   func finished(_ entry: TaskEntry) {
     var fields = context(entry)
     if let outcome = entry.outcome { fields["outcome"] = outcome }
+    addMessage(&fields, entry, attention: nil)
     append("finished", fields)
+  }
+
+  // The toast already renders entry.lastMessage; carry it into the log too, so
+  // the inbox reads as more than a column of bare "finished". Suppressed on
+  // idle_prompt — that waiting line is just "finished and sitting there", which
+  // the finished row's own message already said (astral's ruling).
+  private func addMessage(_ fields: inout [String: Any], _ entry: TaskEntry,
+                          attention: String?) {
+    guard attention != "idle_prompt",
+          let message = entry.lastMessage, !message.isEmpty else { return }
+    fields["lastMessage"] = message
   }
 
   func reaped(_ entry: TaskEntry) {
@@ -262,6 +310,11 @@ final class Recorder {
     var fields: [String: Any] = ["id": entry.id, "kind": entry.kind,
                                  "title": entry.title]
     if let group = entry.group { fields["group"] = group }
+    // Preserve the tmux pane on the line so the inbox can attend a row whose
+    // task file has since been reaped (events live 30d, task files ~24h). The
+    // pane still focuses if it lives — the cockpit dispatcher outlasts its
+    // workers — and no-ops cleanly once it's gone.
+    if let pane = entry.pane { fields["pane"] = pane }
     return fields
   }
 
@@ -389,7 +442,7 @@ final class Toast {
                    "sandbox": "sandbox approval", "dialog": "dialog open",
                    "idle_prompt": "idle at prompt"]
     var body = reasons[entry.attention ?? ""] ?? entry.attention ?? "waiting"
-    if let message = entry.lastMessage { body += " · " + message }
+    if let message = displayMessage(entry.lastMessage) { body += " · " + message }
     return Toast(id: entry.id, kind: .waiting, glyph: "✳",
                  heading: entry.title, body: body, dwell: Config.dwellWaiting)
   }
@@ -398,7 +451,7 @@ final class Toast {
     let glyphs = ["success": "✓", "failure": "✕", "stopped": "■"]
     let words = ["success": "success", "failure": "failed", "stopped": "stopped"]
     var body = words[entry.outcome ?? ""] ?? "finished"
-    if let message = entry.lastMessage { body += " · " + message }
+    if let message = displayMessage(entry.lastMessage) { body += " · " + message }
     return Toast(id: entry.id, kind: .done,
                  glyph: glyphs[entry.outcome ?? ""] ?? "●",
                  heading: entry.title, body: body, dwell: Config.dwellDone)
@@ -570,8 +623,10 @@ final class Tabard: NSObject, NSApplicationDelegate {
   var theme = Theme.load()
   let recorder = Recorder()
   var inboxModel: InboxModel!
-  var inboxController: InboxController!
-  var inboxObserver: NSObjectProtocol?
+  var markReadObserver: NSObjectProtocol?
+  var panelShownObserver: NSObjectProtocol?
+  var panelHiddenObserver: NSObjectProtocol?
+  var inboxOpen = false
   var previous: [String: TaskEntry]?      // nil until the baseline read
   var visible: [Toast] = []
   var queue: [Toast] = []                 // expiry paused until shown
@@ -596,25 +651,9 @@ final class Tabard: NSObject, NSApplicationDelegate {
       atPath: Config.stateDir, withIntermediateDirectories: true)
     inboxModel = InboxModel()
     recorder.onRecord = { [weak self] event in self?.inboxModel.record(event) }
+    observeInboxIPC()
     if !headless {
       makePanel()
-      inboxController = InboxController(model: inboxModel, theme: theme)
-      inboxController.attend = { [weak self] thread in
-        self?.userAttendInbox(thread)
-      }
-      inboxObserver = DistributedNotificationCenter.default().addObserver(
-        forName: Notification.Name("local.vestiary.tabard.inbox"), object: nil,
-        queue: .main) { [weak self] _ in
-          guard let self else { return }
-          if self.inboxController.isOpen {
-            self.inboxController.close()
-          } else {
-            self.visible.removeAll()
-            self.queue.removeAll()
-            self.render()
-            self.inboxController.open(screen: self.activeScreen())
-          }
-        }
     }
     lookBaseline = currentLookIdentity()
     reconcile()                            // baseline: state, not news (S3)
@@ -631,6 +670,39 @@ final class Tabard: NSObject, NSApplicationDelegate {
     Timer.scheduledTimer(withTimeInterval: Config.reaperInterval,
                          repeats: true) { [weak self] _ in self?.reap() }
     log("tabard up — herald=\(Config.heraldRoot) livery=\(Config.liveryRoot)")
+  }
+
+  func observeInboxIPC() {
+    markReadObserver = DistributedNotificationCenter.default().addObserver(
+      forName: inboxMarkReadNotification, object: nil, queue: .main
+    ) { [weak self] notification in
+      guard let thread = notification.userInfo?["thread"] as? String else { return }
+      let seq: Int?
+      if let value = notification.userInfo?["seq"] as? String {
+        seq = Int(value)
+      } else {
+        seq = notification.userInfo?["seq"] as? Int
+      }
+      guard let seq else { return }
+      self?.inboxModel.markRead(thread, through: seq)
+    }
+    panelShownObserver = DistributedNotificationCenter.default().addObserver(
+      forName: panelShownNotification, object: nil, queue: .main
+    ) { [weak self] notification in
+      guard notification.userInfo?["source"] as? String == inboxPanelSource,
+            let self else { return }
+      inboxOpen = true
+      visible.removeAll()
+      queue.removeAll()
+      if panel != nil { render() }
+    }
+    panelHiddenObserver = DistributedNotificationCenter.default().addObserver(
+      forName: panelHiddenNotification, object: nil, queue: .main
+    ) { [weak self] notification in
+      guard notification.userInfo?["source"] as? String == inboxPanelSource
+      else { return }
+      self?.inboxOpen = false
+    }
   }
 
   func makePanel() {
@@ -907,18 +979,6 @@ final class Tabard: NSObject, NSApplicationDelegate {
     runAttend(id, pane: pane, space: space, group: group)
   }
 
-  func userAttendInbox(_ thread: String) {
-    guard let projected = inboxModel.threads().first(where: { $0.id == thread })
-    else { return }
-    inboxModel.attend(thread)
-    let member = projected.members.first
-    let argument = member?.group == nil ? (member?.id ?? thread)
-      : "digest:inbox:" + thread
-    runAttend(argument, pane: member?.pane, space: member?.space,
-              group: member?.group)
-    inboxController.close()
-  }
-
   func runAttend(_ id: String, pane: String?, space: Int?, group: String?) {
     guard FileManager.default.isExecutableFile(atPath: Config.attendHook)
     else {
@@ -971,7 +1031,6 @@ final class Tabard: NSObject, NSApplicationDelegate {
     lookBaseline = identity
     theme = Theme.load()
     render()                               // retheme anything visible
-    inboxController?.retheme(theme)
     guard identity != nil,
           !FileManager.default.fileExists(atPath: Config.pauseFlag)
     else { return }
@@ -981,7 +1040,7 @@ final class Tabard: NSObject, NSApplicationDelegate {
   // MARK: toast lifecycle
 
   func show(_ toast: Toast) {
-    if inboxController?.isOpen == true {
+    if inboxOpen {
       if env("TABARD_DEBUG") != nil { log("dropped (inbox open)") }
       return
     }
@@ -1204,10 +1263,80 @@ func status() {
   print("log: \(Config.logPath)")
 }
 
+func runningInboxPanelPID() -> Int32? {
+  guard let contents = try? String(contentsOfFile: inboxPanelReadyPath,
+                                   encoding: .utf8),
+        let pid = Int32(contents.trimmingCharacters(in: .whitespacesAndNewlines)),
+        kill(pid, 0) == 0 else {
+    try? FileManager.default.removeItem(atPath: inboxPanelReadyPath)
+    return nil
+  }
+  let directCommand = URL(fileURLWithPath: CommandLine.arguments[0])
+    .resolvingSymlinksInPath().path + " inbox-panel"
+  let bundledCommand = URL(fileURLWithPath: Config.inboxAppPath)
+    .appendingPathComponent("Contents/MacOS/tabard-inbox")
+    .resolvingSymlinksInPath().path
+  guard let command = runTool(["ps", "-p", String(pid), "-o", "command="])?
+    .trimmingCharacters(in: .whitespacesAndNewlines),
+        command == directCommand || command == bundledCommand else {
+    try? FileManager.default.removeItem(atPath: inboxPanelReadyPath)
+    return nil
+  }
+  return pid
+}
+
+func launchOrToggleInboxPanel() {
+  let lockFD = open(inboxPanelLaunchLockPath, O_CREAT | O_RDWR, 0o600)
+  if lockFD >= 0 { flock(lockFD, LOCK_EX) }
+  defer {
+    if lockFD >= 0 {
+      flock(lockFD, LOCK_UN)
+      close(lockFD)
+    }
+  }
+
+  if runningInboxPanelPID() != nil {
+    DistributedNotificationCenter.default().postNotificationName(
+      inboxToggleNotification, object: nil, userInfo: nil,
+      deliverImmediately: true)
+    return
+  }
+
+  let process = Process()
+  process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+  process.arguments = [Config.inboxAppPath]
+  process.standardInput = FileHandle.nullDevice
+  process.standardOutput = FileHandle.nullDevice
+  process.standardError = FileHandle.nullDevice
+  do {
+    try process.run()
+    process.waitUntilExit()
+  } catch {
+    FileHandle.standardError.write(
+      Data("tabard: could not open inbox app: \(error)\n".utf8))
+    exit(1)
+  }
+  guard process.terminationStatus == 0 else {
+    FileHandle.standardError.write(Data("tabard: could not open inbox app\n".utf8))
+    exit(1)
+  }
+  for _ in 0..<40 {
+    if runningInboxPanelPID() != nil { return }
+    Thread.sleep(forTimeInterval: 0.05)
+  }
+}
+
 @main
 enum TabardMain {
   static func main() {
-    let verb = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "run"
+    let verb: String
+    if CommandLine.arguments.count > 1 {
+      verb = CommandLine.arguments[1]
+    } else if Bundle.main.bundleIdentifier == Config.inboxBundleIdentifier {
+      verb = "inbox-panel"
+    } else {
+      verb = "run"
+    }
     switch verb {
     case "run":
       if Config.headlessTest {
@@ -1232,9 +1361,13 @@ enum TabardMain {
     case "status":
       status()
     case "inbox":
-      DistributedNotificationCenter.default().postNotificationName(
-        Notification.Name("local.vestiary.tabard.inbox"), object: nil,
-        userInfo: nil, deliverImmediately: true)
+      launchOrToggleInboxPanel()
+    case "inbox-panel":
+      let app = NSApplication.shared
+      app.setActivationPolicy(.regular)
+      let delegate = InboxPanelAppDelegate()
+      app.delegate = delegate
+      app.run()
     case "inbox-dump":
       let model = InboxModel(loadTasks: true, writesEnabled: false)
       if let data = model.dumpData() {
@@ -1246,8 +1379,8 @@ enum TabardMain {
     case "uninstall-agent":
       uninstallAgent()
     default:
-      print("usage: tabard [run|pause|resume|status|inbox|inbox-dump|"
-        + "install-agent|uninstall-agent]")
+      print("usage: tabard [run|pause|resume|status|inbox|inbox-panel|"
+        + "inbox-dump|install-agent|uninstall-agent]")
       exit(2)
     }
   }
