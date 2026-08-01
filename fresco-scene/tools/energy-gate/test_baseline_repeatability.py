@@ -371,5 +371,133 @@ class WindowLengthTest(unittest.TestCase):
         self.assertNotIn("cpuPowerMilliwatts", verdict)
 
 
+# --- the restart transient ------------------------------------------------
+
+
+class RestartSubjectTest(unittest.TestCase):
+    def setUp(self):
+        self.sequence = []
+        self.killed = []
+        self.commands = []
+
+        def fake_helpers():
+            return self.sequence.pop(0) if self.sequence else []
+
+        def fake_kill(pid, sig):
+            self.killed.append(pid)
+
+        def fake_run(command, **kwargs):
+            self.commands.append(command)
+
+        for module, name, replacement in (
+            (harness, "helper_processes", fake_helpers),
+            (harness.os, "kill", fake_kill),
+            (harness.subprocess, "run", fake_run),
+            (harness.time, "sleep", lambda seconds: None),
+        ):
+            self.addCleanup(setattr, module, name, getattr(module, name))
+            setattr(module, name, replacement)
+
+    @staticmethod
+    def helpers(*pids):
+        return [{"pid": pid, "command": "fresco-scene"} for pid in pids]
+
+    def test_it_claims_the_new_pid_once_two_polls_agree(self):
+        self.sequence = [
+            self.helpers(),          # gone
+            self.helpers(9100),      # back, but seen once
+            self.helpers(9100),      # stable
+        ]
+        event = harness.restart_subject({22836}, 1, "", 60)
+        self.assertEqual(event["previousPids"], [22836])
+        self.assertEqual(event["pids"], [9100])
+        self.assertEqual(self.killed, [22836])
+
+    def test_it_does_not_claim_a_pid_that_is_about_to_exit(self):
+        """A single sighting mid-teardown is not the new subject."""
+        self.sequence = [
+            self.helpers(9100),      # transient, seen once
+            self.helpers(),          # it exited
+            self.helpers(9200),
+            self.helpers(9200),
+        ]
+        event = harness.restart_subject({22836}, 1, "", 60)
+        self.assertEqual(event["pids"], [9200])
+
+    def test_the_old_pid_surviving_is_not_a_restart(self):
+        """The count matches and the process never died, so nothing restarted."""
+        self.sequence = [self.helpers(22836), self.helpers(22836)]
+        with self.assertRaises(harness.SubjectLost):
+            harness.restart_subject({22836}, 1, "", 0.05)
+
+    def test_a_subject_that_never_returns_ends_the_run(self):
+        self.sequence = [self.helpers(), self.helpers()]
+        with self.assertRaises(harness.SubjectLost) as raised:
+            harness.restart_subject({22836}, 1, "", 0.05)
+        self.assertIn("did not come back", str(raised.exception))
+
+    def test_a_restart_command_replaces_the_signal(self):
+        self.sequence = [self.helpers(9100), self.helpers(9100)]
+        harness.restart_subject({22836}, 1, "fresco set 3326873240", 60)
+        self.assertEqual(self.commands, ["fresco set 3326873240"])
+        self.assertEqual(self.killed, [])
+
+    def test_a_pid_that_is_already_gone_is_not_an_error(self):
+        def raising_kill(pid, sig):
+            raise ProcessLookupError
+
+        harness.os.kill = raising_kill
+        self.sequence = [self.helpers(9100), self.helpers(9100)]
+        event = harness.restart_subject({22836}, 1, "", 60)
+        self.assertEqual(event["pids"], [9100])
+
+
+def transient_block(since, value):
+    return {
+        "valid": True,
+        "blocksSinceRestart": since,
+        "figures": {"cpuPowerMilliwatts": value},
+    }
+
+
+class RestartTransientTest(unittest.TestCase):
+    def test_it_reports_the_excess_over_a_settled_block(self):
+        blocks = [
+            transient_block(0, 110.0),
+            transient_block(1, 100.0),
+            transient_block(2, 100.0),
+            transient_block(0, 110.0),
+            transient_block(1, 100.0),
+            transient_block(2, 100.0),
+        ]
+        entry = harness.restart_transient_verdict(blocks)["cpuPowerMilliwatts"]
+        self.assertAlmostEqual(entry["excessPercentOfSettled"], 10.0)
+        self.assertAlmostEqual(entry["settledMean"], 100.0)
+
+    def test_blocks_before_the_first_restart_are_in_neither_group(self):
+        """Their subject had been up for an unknown time, so pooling them with
+        settled blocks mixes two regimes."""
+        blocks = [
+            transient_block(None, 500.0),
+            transient_block(None, 500.0),
+            transient_block(0, 110.0),
+            transient_block(0, 110.0),
+            transient_block(1, 100.0),
+            transient_block(2, 100.0),
+        ]
+        verdict = harness.restart_transient_verdict(blocks)
+        self.assertEqual(verdict["firstBlockAfterRestart"], 2)
+        self.assertEqual(verdict["settledBlocks"], 2)
+        self.assertAlmostEqual(
+            verdict["cpuPowerMilliwatts"]["settledMean"], 100.0
+        )
+
+    def test_one_cycle_is_not_enough_to_compare(self):
+        blocks = [transient_block(0, 110.0), transient_block(1, 100.0)]
+        verdict = harness.restart_transient_verdict(blocks)
+        self.assertNotIn("cpuPowerMilliwatts", verdict)
+        self.assertIn("two blocks in each group", verdict["note"])
+
+
 if __name__ == "__main__":
     unittest.main()

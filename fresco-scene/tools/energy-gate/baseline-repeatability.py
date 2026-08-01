@@ -21,6 +21,14 @@ subject and everything else is still a stray. With the default of 0 the run is
 step 5 exactly as it was measured, because an empty subject set makes every
 helper a stray.
 
+`--restart-every` makes the run restart its own subject on a fixed cadence and
+stamp each block with how many blocks have passed since. Q10 pays a helper
+restart on every backend swap, so the transient decides how much of each
+alternation has to be discarded, and blocked alternation was proposed partly
+to pay it eight times less often. The restart lands after the settle and
+immediately before the window, so the transient falls inside what is measured
+rather than being settled away.
+
 powermetrics needs root, but the script does not. A NOPASSWD sudoers rule
 covering /usr/bin/powermetrics is enough and is what this machine has, so the
 script probes the sampler at startup rather than demanding euid 0 — the euid
@@ -47,6 +55,7 @@ import json
 import os
 import pathlib
 import re
+import signal
 import statistics
 import subprocess
 import sys
@@ -78,6 +87,15 @@ POWER_FIELDS = (
 
 class ProtocolViolation(Exception):
     """A precondition failed. The block is invalidated rather than recorded."""
+
+
+class SubjectLost(Exception):
+    """The subject workload did not come back. The run ends rather than a block.
+
+    A restart that never completes leaves every remaining block failing the
+    ownership check, so continuing spends the rest of the run's wall clock
+    producing invalid blocks.
+    """
 
 
 def utc_now():
@@ -398,6 +416,66 @@ def assert_preconditions(snapshot, reference_displays, subject_pids=()):
             raise ProtocolViolation("display topology changed mid-run")
 
 
+def restart_subject(
+    subject_pids, expected_count, command, timeout_seconds, poll_seconds=0.5
+):
+    """Restart the subject workload and re-claim it, or give up on the run.
+
+    The default action is SIGTERM to each claimed pid, because Fresco's
+    supervisor relaunches a helper that exits unexpectedly
+    (`SceneSupervisor.swift:680`) and killing the process is the closest thing
+    to what a backend swap does. Its restart budget is three within a
+    sixty-second window and older entries are filtered out, so a cadence of one
+    restart per block never accumulates against it. `--restart-command` is for a
+    subject that needs a different mechanism.
+
+    A note on what this does and does not reproduce: a Q10 backend swap also
+    replaces the installed binary, so its relaunch pays page-in cost for a
+    different image. What is measured here is the process-lifecycle share of
+    the transient, which is the share blocked alternation was proposed to
+    amortize.
+
+    The new subject is claimed only once two consecutive polls agree, the count
+    matches, and none of the previous pids survive. Claiming mid-teardown would
+    hand the run a pid that is about to exit.
+    """
+    previous = frozenset(subject_pids)
+    started = time.monotonic()
+    if command:
+        subprocess.run(command, shell=True, capture_output=True, text=True)
+    else:
+        for pid in sorted(previous):
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                # Already gone. The wait below is what decides the outcome.
+                pass
+
+    seen = None
+    while time.monotonic() - started < timeout_seconds:
+        time.sleep(poll_seconds)
+        current = frozenset(entry["pid"] for entry in helper_processes())
+        if (
+            len(current) == expected_count
+            and not (current & previous)
+            and current == seen
+        ):
+            return {
+                "at": utc_now(),
+                "previousPids": sorted(previous),
+                "pids": sorted(current),
+                "waitSeconds": time.monotonic() - started,
+                "command": command or "SIGTERM to the claimed pids",
+            }
+        seen = current
+
+    raise SubjectLost(
+        f"the subject did not come back within {timeout_seconds}s of a restart: "
+        f"expected {expected_count} helpers with pids outside "
+        f"{sorted(previous)}, last saw {sorted(seen or ())}"
+    )
+
+
 def sample_power(seconds, subsamples):
     """One powermetrics window, split into `subsamples` equal sub-windows.
 
@@ -587,6 +665,64 @@ def window_length_verdict(valid_blocks, sample_seconds, subsamples):
     return verdict
 
 
+def restart_transient_verdict(valid_blocks):
+    """How much the first block after a restart differs from a settled one.
+
+    Q10 pays this on every backend swap. If the excess is small against the
+    settled spread then a swap costs nothing and per-block alternation is
+    affordable; if it is large, each alternation has to discard its first block
+    or run in longer runs, which is what blocked alternation buys.
+
+    Only blocks from the restart-cycled part of the run are compared. Blocks
+    before the first restart carry a null `blocksSinceRestart` — the helper had
+    been up for an unknown time — and pooling them with settled blocks would
+    mix two regimes to make the settled group look larger than it is.
+
+    This is a comparison of two means with their counts, not a test. Thirty
+    blocks at a cadence of five put six in the fresh group, which is enough to
+    see a transient that matters and not enough to rule out a small one.
+    """
+    fresh, settled = [], []
+    for block in valid_blocks:
+        since = block.get("blocksSinceRestart")
+        if since is None:
+            continue
+        (fresh if since == 0 else settled).append(block)
+
+    verdict = {"firstBlockAfterRestart": len(fresh), "settledBlocks": len(settled)}
+    if len(fresh) < 2 or len(settled) < 2:
+        verdict["note"] = (
+            "two blocks in each group minimum; run more restart cycles"
+        )
+        return verdict
+
+    for field in POWER_FIELDS:
+        fresh_values = [
+            b["figures"][field] for b in fresh if field in b.get("figures", {})
+        ]
+        settled_values = [
+            b["figures"][field] for b in settled if field in b.get("figures", {})
+        ]
+        if len(fresh_values) < 2 or len(settled_values) < 2:
+            continue
+        fresh_mean = statistics.fmean(fresh_values)
+        settled_mean = statistics.fmean(settled_values)
+        if not settled_mean:
+            continue
+        settled_deviation = statistics.stdev(settled_values)
+        verdict[field] = {
+            "firstBlockAfterRestartMean": fresh_mean,
+            "settledMean": settled_mean,
+            "excessPercentOfSettled": (
+                (fresh_mean - settled_mean) / settled_mean * 100.0
+            ),
+            "settledCoefficientOfVariationPercent": (
+                settled_deviation / settled_mean * 100.0
+            ),
+        }
+    return verdict
+
+
 def write_record(output_path, record):
     """Write the record to disk. Called after every block, not once at the end.
 
@@ -652,11 +788,34 @@ def main():
              "record is unreadable later without it, and nothing else in the "
              "record says which workload was rendering.",
     )
+    parser.add_argument(
+        "--restart-every", type=int, default=0,
+        help="Restart the subject before every Nth block, so the transient a "
+             "Q10 backend swap pays is measurable. 0 never restarts.",
+    )
+    parser.add_argument(
+        "--restart-command", default="",
+        help="Shell command that restarts the subject. The default sends "
+             "SIGTERM to the claimed pids and waits for the supervisor to "
+             "relaunch, which is what a backend swap does to the helper.",
+    )
+    parser.add_argument(
+        "--restart-timeout-seconds", type=int, default=60,
+        help="How long to wait for the subject to come back before ending the "
+             "run. A subject that never returns fails every remaining block.",
+    )
     parser.add_argument("--store", required=True, type=pathlib.Path)
     arguments = parser.parse_args()
 
     if arguments.subject_helpers < 0:
         sys.exit("--subject-helpers cannot be negative")
+    if arguments.restart_every < 0:
+        sys.exit("--restart-every cannot be negative")
+    if arguments.restart_every and not arguments.subject_helpers:
+        sys.exit(
+            "--restart-every needs a subject; --subject-helpers is 0, so there "
+            "is nothing for the run to restart"
+        )
 
     if arguments.sub_samples < 1:
         sys.exit("--sub-samples must be at least 1")
@@ -715,8 +874,11 @@ def main():
             "probeSeconds": arguments.probe_seconds,
             "subjectHelpers": arguments.subject_helpers,
             "subjectNote": arguments.subject_note,
+            "restartEvery": arguments.restart_every,
+            "restartCommand": arguments.restart_command,
         },
         "subjectPids": sorted(subject_pids),
+        "restarts": [],
         "openingEnvironment": opening,
         "blocks": [],
     }
@@ -755,12 +917,52 @@ def main():
         )
         time.sleep(arguments.initial_settle_seconds)
 
+    # None until the first restart. A block before it had a subject that had
+    # been up for an unknown time, which is neither fresh nor part of the
+    # restart-cycled regime the transient is read from.
+    blocks_since_restart = None
+    abandoned = False
+
     for index in range(arguments.blocks):
         time.sleep(arguments.settle_seconds)
+
+        # After the settle and before the window, so the transient is inside
+        # what the block measures rather than settled away ahead of it.
+        restart = None
+        if arguments.restart_every and index % arguments.restart_every == 0:
+            try:
+                restart = restart_subject(
+                    subject_pids,
+                    arguments.subject_helpers,
+                    arguments.restart_command,
+                    arguments.restart_timeout_seconds,
+                )
+            except SubjectLost as lost:
+                record["abandonedAt"] = utc_now()
+                record["abandonReason"] = str(lost)
+                write_record(output, record)
+                print(f"fail: {lost}", flush=True)
+                abandoned = True
+                break
+            subject_pids = frozenset(restart["pids"])
+            record["restarts"].append(dict(restart, beforeBlock=index))
+            blocks_since_restart = 0
+            print(
+                f"restart before block {index}: {restart['previousPids']} -> "
+                f"{restart['pids']} in {restart['waitSeconds']:.1f}s",
+                flush=True,
+            )
+        elif blocks_since_restart is not None:
+            blocks_since_restart += 1
+
         before = environment_snapshot(
             arguments.busy_threshold_percent, subject_pids
         )
-        block = {"index": index, "before": before}
+        block = {
+            "index": index,
+            "blocksSinceRestart": blocks_since_restart,
+            "before": before,
+        }
         probe_watcher = (
             MidBlockProbe(
                 arguments.busy_threshold_percent,
@@ -856,6 +1058,9 @@ def main():
     record["summary"] = {
         "validBlocks": len(valid),
         "invalidBlocks": len(record["blocks"]) - len(valid),
+        # A run that ended early still summarizes what it collected. The flag
+        # is what stops those blocks being read as the run that was asked for.
+        "abandoned": abandoned,
     }
     for field in POWER_FIELDS:
         values = [
@@ -867,6 +1072,8 @@ def main():
         record["summary"]["windowLength"] = window_length_verdict(
             valid, arguments.sample_seconds, arguments.sub_samples
         )
+    if arguments.restart_every:
+        record["summary"]["restartTransient"] = restart_transient_verdict(valid)
     record["completedAt"] = utc_now()
     record["closingEnvironment"] = environment_snapshot(
         arguments.busy_threshold_percent, subject_pids
