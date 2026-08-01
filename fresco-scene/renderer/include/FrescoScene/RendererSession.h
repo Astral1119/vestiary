@@ -139,6 +139,10 @@ struct FrameEvidence {
     ShaderTarget shaderTarget;
     int width = 0;
     int height = 0;
+    // The authored orthographic projection, which is the space cursor events are
+    // carried in. The host needs it to convert a screen position into one.
+    int projectionWidth = 0;
+    int projectionHeight = 0;
     int logicalWidth = 0;
     int logicalHeight = 0;
     int scaleMilli = 0;

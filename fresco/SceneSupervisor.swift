@@ -61,6 +61,9 @@ final class SceneHelperSupervisor {
     private var acceptedMediaEvents: [String: [String: Any]] = [:]
     private var pendingThumbnailPayloads: [[String: Any]] = []
     private var supportsSoundCursorClick = false
+    private var projectionSize: NSSize?
+    private var lastCursorMoveAt = Date.distantPast
+    private var lastCursorScenePoint: NSPoint?
     private var latestAudioSpectrum: [Double]?
     private var pendingAudioSpectrum: [Double]?
     private var pendingAudioSequence: UInt64 = 0
@@ -68,6 +71,9 @@ final class SceneHelperSupervisor {
     private var audioTimer: Timer?
     private var lastAudioSendAt = Date.distantPast
     private let audioInterval: TimeInterval
+    // One move per frame at 60 Hz. The renderer reads the pointer once per
+    // frame, so anything above this is discarded before a script sees it.
+    private let cursorMoveInterval: TimeInterval = 1.0 / 60.0
 
     // Diagnostics only. The helper answers `metrics` with everything the
     // renderer knows about itself, and nothing outside this process could ask
@@ -244,6 +250,44 @@ final class SceneHelperSupervisor {
         guard desired, ready, desiredVisible, !desiredPaused,
               supportsSoundCursorClick, displayFrame.contains(location) else { return }
         send(type: "cursor-click", values: ["objectID": 289])
+    }
+
+    // Scene coordinates are absolute and bottom-up over the authored projection,
+    // which is the same sense as NSEvent.mouseLocation, so this is a rescale of
+    // the position within the display this scene occupies.
+    private func scenePoint(for location: NSPoint) -> NSPoint? {
+        guard let projectionSize, displayFrame.width > 0, displayFrame.height > 0,
+              displayFrame.contains(location) else { return nil }
+        return NSPoint(
+            x: (location.x - displayFrame.minX) / displayFrame.width
+                * projectionSize.width,
+            y: (location.y - displayFrame.minY) / displayFrame.height
+                * projectionSize.height
+        )
+    }
+
+    private var acceptsCursor: Bool {
+        desired && ready && desiredVisible && !desiredPaused
+    }
+
+    func cursorMoved(to location: NSPoint) {
+        // A move per event would outrun the helper on a fast drag; the scripts
+        // that read this interpolate anyway.
+        guard Date().timeIntervalSince(lastCursorMoveAt) >= cursorMoveInterval else {
+            return
+        }
+        sendCursor(phase: "move", at: location)
+    }
+
+    func cursorDown(at location: NSPoint) { sendCursor(phase: "down", at: location) }
+
+    func cursorUp(at location: NSPoint) { sendCursor(phase: "up", at: location) }
+
+    private func sendCursor(phase: String, at location: NSPoint) {
+        guard acceptsCursor, let point = scenePoint(for: location) else { return }
+        lastCursorMoveAt = Date()
+        lastCursorScenePoint = point
+        send(type: "cursor-\(phase)", values: ["x": point.x, "y": point.y])
     }
 
     private func scheduleAudioSpectrum() {
@@ -491,6 +535,12 @@ final class SceneHelperSupervisor {
             assetsAccepted = false
         case "ready":
             ready = true
+            if let projection = event["projection"] as? [String: Any],
+               let width = projection["width"] as? Double,
+               let height = projection["height"] as? Double,
+               width > 0, height > 0 {
+                projectionSize = NSSize(width: width, height: height)
+            }
             startHeartbeat()
             flushSchedulingPolicy()
             if desiredPaused {
@@ -584,6 +634,7 @@ final class SceneHelperSupervisor {
         ready = false
         supportsAudioSpectrum = false
         supportsSoundCursorClick = false
+        projectionSize = nil
         let completedGeneration = launchGeneration
         let completions = pendingMuteCompletions.filter { $0.0 == completedGeneration }
         pendingMuteCompletions.removeAll { $0.0 == completedGeneration }

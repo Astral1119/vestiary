@@ -2843,6 +2843,10 @@ bool handleMessage (NSDictionary* message) {
                 @"shaderTarget": shaderTargetPayload (evidence.shaderTarget),
                 @"width": @(evidence.width),
                 @"height": @(evidence.height),
+                @"projection": @{
+                    @"width": @(evidence.projectionWidth),
+                    @"height": @(evidence.projectionHeight),
+                },
                 @"display": @{
                     @"logicalWidth": @(evidence.logicalWidth),
                     @"logicalHeight": @(evidence.logicalHeight),

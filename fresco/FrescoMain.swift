@@ -512,10 +512,10 @@ enum FrescoMain {
             let executable = testRoot.appendingPathComponent(name)
             let capture = testRoot.appendingPathComponent("\(name).jsonl")
             let readyAction = readyDelay > 0
-                ? "sleep \(readyDelay); printf '%s\\n' '{\"protocolVersion\":1,\"type\":\"ready\",\"assignmentID\":\"audio-test\"}'"
-                : "printf '%s\\n' '{\"protocolVersion\":1,\"type\":\"ready\",\"assignmentID\":\"audio-test\"}'"
+                ? "sleep \(readyDelay); printf '%s\\n' '{\"protocolVersion\":1,\"type\":\"ready\",\"assignmentID\":\"audio-test\",\"projection\":{\"width\":3840,\"height\":2160}}'"
+                : "printf '%s\\n' '{\"protocolVersion\":1,\"type\":\"ready\",\"assignmentID\":\"audio-test\",\"projection\":{\"width\":3840,\"height\":2160}}'"
             let loadAction = stopReadingAfterLoad
-                ? "printf '%s\\n' '{\"protocolVersion\":1,\"type\":\"ready\",\"assignmentID\":\"audio-test\"}'; sleep 1; exit 0"
+                ? "printf '%s\\n' '{\"protocolVersion\":1,\"type\":\"ready\",\"assignmentID\":\"audio-test\",\"projection\":{\"width\":3840,\"height\":2160}}'; sleep 1; exit 0"
                 : readyAction
             let audioAction = exitAfterAudio ? "exit 1" : ":"
             let source = """
@@ -603,9 +603,24 @@ enum FrescoMain {
         runLoop(for: 0.03)
         supervisor.cursorClick(at: NSPoint(x: 100, y: 100))
         supervisor.cursorClick(at: NSPoint(x: 2_000, y: 2_000))
+        // The 1280x720 display maps onto the fake helper's 3840x2160 projection,
+        // so (100, 100) is scene (300, 300). Off-display positions send nothing.
+        supervisor.cursorDown(at: NSPoint(x: 100, y: 100))
+        supervisor.cursorUp(at: NSPoint(x: 100, y: 100))
+        supervisor.cursorMoved(to: NSPoint(x: 2_000, y: 2_000))
         runLoop(for: 0.03)
         let preReady = messages(at: capture, type: "audio-spectrum")
         let cursorClicks = messages(at: capture, type: "cursor-click")
+        let cursorDowns = messages(at: capture, type: "cursor-down")
+        let cursorUps = messages(at: capture, type: "cursor-up")
+        let cursorMoves = messages(at: capture, type: "cursor-move")
+        guard cursorDowns.count == 1, cursorUps.count == 1, cursorMoves.isEmpty,
+              cursorDowns.first?["x"] as? Double == 300,
+              cursorDowns.first?["y"] as? Double == 300,
+              cursorUps.first?["x"] as? Double == 300 else {
+            fputs("scene audio self-test failed: cursor events\n", stderr)
+            exit(1)
+        }
         let schedulingPolicies = messages(at: capture, type: "scheduling-policy")
         let loadPolicy = messages(at: capture, type: "load").first
         guard ready, supervisor.audioSpectrumSupported, preReady.count == 1,

@@ -3439,9 +3439,19 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             guard let self else { return }
             if event.type != .mouseMoved && !desktopReceives(event) { return }
             self.desktopWebHosts.forEach { $0.push(event: event) }
-            if event.type == .leftMouseUp {
-                let location = NSEvent.mouseLocation
-                self.sceneSupervisors.forEach { $0.cursorClick(at: location) }
+            let location = NSEvent.mouseLocation
+            switch event.type {
+            case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+                self.sceneSupervisors.forEach { $0.cursorMoved(to: location) }
+            case .leftMouseDown:
+                self.sceneSupervisors.forEach { $0.cursorDown(at: location) }
+            case .leftMouseUp:
+                self.sceneSupervisors.forEach {
+                    $0.cursorUp(at: location)
+                    $0.cursorClick(at: location)
+                }
+            default:
+                break
             }
         }
 

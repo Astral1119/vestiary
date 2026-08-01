@@ -1154,6 +1154,10 @@ public:
 
         m_evidence.width = m_width;
         m_evidence.height = m_height;
+        if (m_scene != nullptr) {
+            m_evidence.projectionWidth = m_scene->getWidth ();
+            m_evidence.projectionHeight = m_scene->getHeight ();
+        }
         m_evidence.minimum = minimum;
         m_evidence.maximum = maximum;
         m_evidence.varyingPixels = varyingPixels;

@@ -227,6 +227,14 @@ classified script handled it. `cursor-click` carries integer `objectID` and an
 optional finite `monotonicMilliseconds` test clock. It returns `cursor-clicked`
 with the object ID and handled state.
 
+Scene coordinates are absolute and bottom-up over the authored orthographic
+projection, whose size `ready` reports as `projection`. They also set the
+renderer's pointer, which reaches shaders as `g_PointerPosition` and
+`g_PointerPositionLast`. `metrics` and `frame-difference` report the resolved
+value as `pointerPosition`, normalized and y-inverted the way those uniforms are
+bound: scene `(0, 0)` reads `[0, 1]`. The position survives a reload. `down` and
+`up` additionally set and clear the left button.
+
 `capture-frame-difference` renders one fixed-step frame and compares its final
 RGB framebuffer with the most recent evidence readback. It emits
 `frame-difference`. Its `presented` Boolean reports whether that draw actually
