@@ -337,7 +337,7 @@
       "role": "audio-puppet-interaction-stretch",
       "picker": {
         "status": "reach",
-        "note": "elements render and animate but are badly mis-positioned — many layers pile toward one side of the face vs WE reference; native/ANGLE promotion measured consistency, not correctness"
+        "note": "composition is correct as of 2026-07-31 — the layer pile-up was puppet layers drawing local mesh coordinates under a scene projection, fixed by 0c8c714 and fe5618b and confirmed against a live apply. Held at reach because the cursor and click interaction this scene is built around is unimplemented, not because of placement; native/ANGLE promotion measured consistency, not correctness"
       },
       "creatorSteamID": "76561199211352973",
       "workshopUpdatedAt": "2025-06-11T17:16:03Z",
