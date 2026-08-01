@@ -2873,6 +2873,12 @@ bool handleMessage (NSDictionary* message) {
                     @"width": @(evidence.projectionWidth),
                     @"height": @(evidence.projectionHeight),
                 },
+                @"visibleScene": @{
+                    @"x": @(evidence.visibleSceneX),
+                    @"y": @(evidence.visibleSceneY),
+                    @"width": @(evidence.visibleSceneWidth),
+                    @"height": @(evidence.visibleSceneHeight),
+                },
                 @"display": @{
                     @"logicalWidth": @(evidence.logicalWidth),
                     @"logicalHeight": @(evidence.logicalHeight),

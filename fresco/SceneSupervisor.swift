@@ -62,7 +62,10 @@ final class SceneHelperSupervisor {
     private var pendingThumbnailPayloads: [[String: Any]] = []
     private var supportsSoundCursorClick = false
     private var supportsCursorHitTest = false
-    private var projectionSize: NSSize?
+    // The part of the authored projection the renderer actually puts on screen,
+    // in scene coordinates. Equal to the whole projection only when the display
+    // shares the scene's aspect.
+    private var visibleScene: NSRect?
     private var lastCursorMoveAt = Date.distantPast
     private var lastCursorScenePoint: NSPoint?
     private var latestAudioSpectrum: [Double]?
@@ -262,15 +265,20 @@ final class SceneHelperSupervisor {
 
     // Scene coordinates are absolute and bottom-up over the authored projection,
     // which is the same sense as NSEvent.mouseLocation, so this is a rescale of
-    // the position within the display this scene occupies.
+    // the position within the display this scene occupies. It rescales onto the
+    // visible window rather than onto the projection: the renderer crops the
+    // scene to the display's aspect, so on a display that is not the scene's
+    // shape the edge of the screen is not the edge of the scene.
     private func scenePoint(for location: NSPoint) -> NSPoint? {
-        guard let projectionSize, displayFrame.width > 0, displayFrame.height > 0,
+        guard let visibleScene, displayFrame.width > 0, displayFrame.height > 0,
               displayFrame.contains(location) else { return nil }
         return NSPoint(
-            x: (location.x - displayFrame.minX) / displayFrame.width
-                * projectionSize.width,
-            y: (location.y - displayFrame.minY) / displayFrame.height
-                * projectionSize.height
+            x: visibleScene.minX
+                + (location.x - displayFrame.minX) / displayFrame.width
+                * visibleScene.width,
+            y: visibleScene.minY
+                + (location.y - displayFrame.minY) / displayFrame.height
+                * visibleScene.height
         )
     }
 
@@ -548,7 +556,17 @@ final class SceneHelperSupervisor {
                let width = projection["width"] as? Double,
                let height = projection["height"] as? Double,
                width > 0, height > 0 {
-                projectionSize = NSSize(width: width, height: height)
+                // A helper that does not report the crop is taken at its word
+                // that the whole projection is on screen, which is what the
+                // host assumed before the field existed.
+                visibleScene = NSRect(x: 0, y: 0, width: width, height: height)
+            }
+            if let visible = event["visibleScene"] as? [String: Any],
+               let x = visible["x"] as? Double, let y = visible["y"] as? Double,
+               let width = visible["width"] as? Double,
+               let height = visible["height"] as? Double,
+               width > 0, height > 0 {
+                visibleScene = NSRect(x: x, y: y, width: width, height: height)
             }
             startHeartbeat()
             flushSchedulingPolicy()
@@ -644,7 +662,7 @@ final class SceneHelperSupervisor {
         supportsAudioSpectrum = false
         supportsSoundCursorClick = false
         supportsCursorHitTest = false
-        projectionSize = nil
+        visibleScene = nil
         let completedGeneration = launchGeneration
         let completions = pendingMuteCompletions.filter { $0.0 == completedGeneration }
         pendingMuteCompletions.removeAll { $0.0 == completedGeneration }

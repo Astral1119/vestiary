@@ -899,6 +899,11 @@ public:
             initialScriptProperties
         );
         m_scene->setDestinationFramebuffer (0);
+        // CWallpaper::render computes the texture UVs after it draws, so without
+        // this the first frame would map the pointer through a window of zero
+        // width. Seeding it with the viewport the driver reports is what that
+        // frame would have computed anyway.
+        m_scene->updateUVs ({ 0, 0, m_width, m_height }, true);
         // A reload keeps the pointer where the host last put it, so the scene
         // does not start by believing the cursor sits at the origin.
         applyCursorScenePosition ();
@@ -1158,6 +1163,13 @@ public:
         if (m_scene != nullptr) {
             m_evidence.projectionWidth = m_scene->getWidth ();
             m_evidence.projectionHeight = m_scene->getHeight ();
+            const VisibleWindow window = visibleWindow ();
+            m_evidence.visibleSceneX = window.uLow * m_evidence.projectionWidth;
+            m_evidence.visibleSceneY = window.vLow * m_evidence.projectionHeight;
+            m_evidence.visibleSceneWidth
+                = (window.uHigh - window.uLow) * m_evidence.projectionWidth;
+            m_evidence.visibleSceneHeight
+                = (window.vHigh - window.vLow) * m_evidence.projectionHeight;
         }
         m_evidence.minimum = minimum;
         m_evidence.maximum = maximum;
@@ -1564,10 +1576,46 @@ public:
                                   : m_scene->getScriptEngine ().cursorEvent (name, x, y);
     }
 
+    // The visible window as bottom-up fractions of the projection. ZoomFillUVs
+    // crops whichever axis the display over-covers, and the crop is centred, so
+    // the low and high edges always sum to 1. Taken as min/max rather than as
+    // the raw pair because a non-vflipped output swaps the v ends; either way
+    // the bottom-up window is the same one, since the fraction the mouse is
+    // mapped through works out to low + f * (high - low) under both.
+    struct VisibleWindow {
+        double uLow = 0.0;
+        double uHigh = 1.0;
+        double vLow = 0.0;
+        double vHigh = 1.0;
+    };
+
+    [[nodiscard]] VisibleWindow visibleWindow () const {
+        if (m_scene == nullptr) {
+            return {};
+        }
+        const auto uvs = m_scene->getState ().getTextureUVs ();
+        const VisibleWindow window {
+            .uLow = std::min (uvs.ustart, uvs.uend),
+            .uHigh = std::max (uvs.ustart, uvs.uend),
+            .vLow = std::min (uvs.vstart, uvs.vend),
+            .vHigh = std::max (uvs.vstart, uvs.vend),
+        };
+        // Zero until the first frame computes them, which is the state a reload
+        // applies its remembered pointer in.
+        if (window.uHigh <= window.uLow || window.vHigh <= window.vLow) {
+            return {};
+        }
+        return window;
+    }
+
     // Scene world coordinates are absolute and bottom-up, which is already the
     // convention MouseInput::position () is read in; only the scale differs.
-    // CScene::updateMouse divides by the viewport it is rendered at, so the
-    // pointer has to be expressed in that viewport rather than in scene units.
+    // CScene::updateMouse divides by the viewport it is rendered at and then
+    // maps that fraction through the texture UVs, so this has to be its inverse:
+    // scale by the visible window rather than by the whole projection, or the
+    // crop gets applied twice and the pointer lands short of where it was aimed.
+    // A coordinate outside the window is off screen; updateMouse clamps it to
+    // the nearest visible edge.
     void applyCursorScenePosition () {
         if (!m_cursorScenePosition.has_value () || m_scene == nullptr) {
             return;
@@ -1577,9 +1625,12 @@ public:
         if (sceneWidth <= 0.0 || sceneHeight <= 0.0) {
             return;
         }
+        const VisibleWindow window = visibleWindow ();
         m_mouse.setPosition ({
-            m_cursorScenePosition->x * m_width / sceneWidth,
-            m_cursorScenePosition->y * m_height / sceneHeight,
+            (m_cursorScenePosition->x / sceneWidth - window.uLow)
+                / (window.uHigh - window.uLow) * m_width,
+            (m_cursorScenePosition->y / sceneHeight - window.vLow)
+                / (window.vHigh - window.vLow) * m_height,
         });
     }
 

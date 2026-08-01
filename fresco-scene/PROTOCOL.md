@@ -236,7 +236,14 @@ topmost because a scene may stack several scripted copies of one layer, which
 GBC Subaru does. A point over no such layer handles nothing.
 
 Scene coordinates are absolute and bottom-up over the authored orthographic
-projection, whose size `ready` reports as `projection`. They also set the
+projection, whose size `ready` reports as `projection`. A scene is drawn to fill
+the surface, matching one axis and cropping the other, so a surface whose aspect
+differs from the projection's does not show all of it. `ready` reports the part
+that is on screen as `visibleScene`, an `x`, `y`, `width` and `height` in the
+same scene coordinates, centred within the projection. A host converting a
+position on the surface maps it onto that rectangle rather than onto the whole
+projection. A coordinate outside it is off screen and resolves to the nearest
+visible edge. They also set the
 renderer's pointer, which reaches shaders as `g_PointerPosition` and
 `g_PointerPositionLast`. `metrics` and `frame-difference` report the resolved
 value as `pointerPosition`, normalized and y-inverted the way those uniforms are

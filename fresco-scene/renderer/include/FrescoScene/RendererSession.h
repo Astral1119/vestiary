@@ -143,6 +143,15 @@ struct FrameEvidence {
     // carried in. The host needs it to convert a screen position into one.
     int projectionWidth = 0;
     int projectionHeight = 0;
+    // The part of that projection actually on screen. Scenes render ZoomFillUVs,
+    // which matches one axis and crops the other, so a display whose aspect
+    // differs from the projection's never shows all of it. The host has to map a
+    // screen position onto this window rather than onto the whole projection.
+    // Bottom-up, in scene units, like every other cursor coordinate.
+    double visibleSceneX = 0.0;
+    double visibleSceneY = 0.0;
+    double visibleSceneWidth = 0.0;
+    double visibleSceneHeight = 0.0;
     int logicalWidth = 0;
     int logicalHeight = 0;
     int scaleMilli = 0;
