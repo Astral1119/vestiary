@@ -70,7 +70,7 @@ namespace {
  *
  * Wallpapers read the clock through `new Date()`, so an unpinned one makes
  * every render of a scene with a clock in it differ from the last. `pinned` is
- * set when any of the three environment overrides is present; the whole reading
+ * set when any of the six environment overrides is present; the whole reading
  * is then frozen at construction, because a `Date` whose hour is pinned and
  * whose minute still runs is not a time anyone can reason about.
  */
@@ -82,14 +82,14 @@ struct ScriptClock {
     long long epochMilliseconds = 0;
 };
 
-std::optional<int> clockOverride (const char* variable, int limit) {
+std::optional<int> clockOverride (const char* variable, int limit, int minimum = 0) {
     const char* injected = std::getenv (variable);
     if (injected == nullptr) {
         return std::nullopt;
     }
     char* end = nullptr;
     const long value = std::strtol (injected, &end, 10);
-    if (end == injected || *end != '\0' || value < 0 || value > limit) {
+    if (end == injected || *end != '\0' || value < minimum || value > limit) {
         return std::nullopt;
     }
     return static_cast<int> (value);
@@ -104,9 +104,28 @@ ScriptClock scriptClock () {
     const auto minute = clockOverride ("FRESCO_SCENE_SCRIPT_CLOCK_MINUTE", 59);
     const auto second = clockOverride ("FRESCO_SCENE_SCRIPT_CLOCK_SECOND", 59);
 
+    // The date needs pinning for the same reason the time does. A script that
+    // renders the calendar date draws different glyphs every day, and a test
+    // measuring where those glyphs land then passes or fails on the width of
+    // whatever digit today ends in. Month and day are given in their calendar
+    // form -- 1-12 and 1-31 -- rather than tm's 0-based month, because the
+    // caller is writing a date, not a struct tm.
+    const auto year = clockOverride ("FRESCO_SCENE_SCRIPT_CLOCK_YEAR", 9999, 1970);
+    const auto month = clockOverride ("FRESCO_SCENE_SCRIPT_CLOCK_MONTH", 12, 1);
+    const auto day = clockOverride ("FRESCO_SCENE_SCRIPT_CLOCK_DAY", 31, 1);
+
     local.tm_hour = hour.value_or (local.tm_hour);
     local.tm_min = minute.value_or (local.tm_min);
     local.tm_sec = second.value_or (local.tm_sec);
+    if (year.has_value ()) {
+        local.tm_year = *year - 1900;
+    }
+    if (month.has_value ()) {
+        local.tm_mon = *month - 1;
+    }
+    if (day.has_value ()) {
+        local.tm_mday = *day;
+    }
     local.tm_isdst = -1;
 
     // mktime normalizes, so a pinned reading that a DST jump makes impossible
@@ -116,7 +135,8 @@ ScriptClock scriptClock () {
         .hour = local.tm_hour,
         .minute = local.tm_min,
         .second = local.tm_sec,
-        .pinned = hour.has_value () || minute.has_value () || second.has_value (),
+        .pinned = hour.has_value () || minute.has_value () || second.has_value ()
+                  || year.has_value () || month.has_value () || day.has_value (),
         .epochMilliseconds = static_cast<long long> (pinned) * 1000,
     };
 }
