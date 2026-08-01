@@ -56,6 +56,25 @@ EDGE_TOLERANCE = 3
 # alignment offset wrongly applied to centred text moves it half a raster --
 # 51 pixels for 646 -- so this separates the two without pinning font metrics.
 CENTRE_TOLERANCE = 4
+# Right alignment places the text's advance edge on the origin, and the last
+# glyph's ink stops short of its own advance by that glyph's right side bearing.
+# Measured on 626 across every day of a month: 2.4 pixels for most final digits
+# and 6.4 for a final '1'. So the ink extent cannot be held to EDGE_TOLERANCE of
+# the authored origin without pinning font metrics, which is the same reason the
+# centred control below stopped requiring ink on the first raster column. Eight
+# admits the widest measured bearing and still excludes the padding-wide error.
+ORIGIN_TOLERANCE = 8
+
+# 626 renders the calendar date, so an unpinned clock draws different glyphs
+# every day and this test's outcome follows whatever digit today ends in -- it
+# failed on the 1st, 11th, 21st and 31st and passed on the other 27 days. The
+# date is pinned to a final '1' deliberately: that is the widest bearing the
+# fixture produces, so the bounds below are exercised at their worst case.
+PINNED_DATE = {
+    "FRESCO_SCENE_SCRIPT_CLOCK_YEAR": "2026",
+    "FRESCO_SCENE_SCRIPT_CLOCK_MONTH": "8",
+    "FRESCO_SCENE_SCRIPT_CLOCK_DAY": "1",
+}
 
 
 def package_scene():
@@ -91,14 +110,27 @@ def authored_origin_x(scene, obj):
     )
 
 
-def render(directory, identifier):
-    output = pathlib.Path(directory) / f"solo-{identifier}.png"
+def render(directory, identifier, composited=True):
+    """One object rendered alone, through the composited path or the direct one.
+
+    The direct path is the reference the composited path is measured against:
+    it draws the same glyphs with the same alignment and no text effect, so any
+    difference between the two is the compositing, which is what this test is
+    about. Comparing composited ink to the authored origin instead measures the
+    font's side bearings.
+    """
+    suffix = "composited" if composited else "direct"
+    output = pathlib.Path(directory) / f"solo-{identifier}-{suffix}.png"
     environment = os.environ.copy()
     environment["FRESCO_SCENE_AUDIO_DISABLED"] = "1"
     environment["FRESCO_SCENE_OBJECT_FILTER"] = str(identifier)
     environment["FRESCO_SCENE_TEXT_EFFECT_PROBE"] = "1"
     environment["FRESCO_SCENE_TEXT_EFFECT_TRACE"] = "1"
-    environment.pop("FRESCO_SCENE_TEXT_EFFECTS_DISABLED", None)
+    environment.update(PINNED_DATE)
+    if composited:
+        environment.pop("FRESCO_SCENE_TEXT_EFFECTS_DISABLED", None)
+    else:
+        environment["FRESCO_SCENE_TEXT_EFFECTS_DISABLED"] = "1"
     result = subprocess.run(
         [RENDERER, PERSONA, ASSETS, output, "2"],
         capture_output=True,
@@ -175,17 +207,42 @@ with tempfile.TemporaryDirectory(prefix="fresco-persona-composited-align-") as d
         f"{raster_width}-wide raster at padding {padding}: {probe}"
     )
 
-    image = Image.open(output).convert("RGB")
-    assert image.size == RENDER_SIZE, image.size
-    background = Image.new("RGB", image.size, image.getpixel((0, 0)))
-    extent = ImageChops.difference(image, background).getbbox()
-    assert extent is not None, f"object {ALIGNED} composited alone drew nothing"
+    def ink_extent(path, label):
+        image = Image.open(path).convert("RGB")
+        assert image.size == RENDER_SIZE, image.size
+        background = Image.new("RGB", image.size, image.getpixel((0, 0)))
+        found = ImageChops.difference(image, background).getbbox()
+        assert found is not None, f"object {ALIGNED} {label} alone drew nothing"
+        return found
+
+    extent = ink_extent(output, "composited")
     rightmost = extent[2] - 1
     origin_x = authored_origin_x(scene, aligned)
 
-    # Result: and the composited quad ends where the authored right alignment
-    # says it ends. The unfixed build lands a padding short of it.
-    assert abs(rightmost - origin_x) <= EDGE_TOLERANCE, (
+    direct_output, _ = render(directory, ALIGNED, composited=False)
+    direct_extent = ink_extent(direct_output, "direct")
+    direct_rightmost = direct_extent[2] - 1
+
+    # Result: compositing does not move the text. The direct path draws the same
+    # glyphs with the same alignment, so it carries the same side bearing, and
+    # the difference between the two is the compositing alone. The unfixed build
+    # landed a padding short of the direct path.
+    assert abs(rightmost - direct_rightmost) <= EDGE_TOLERANCE, (
+        f"object {ALIGNED} composited to a right extent of {rightmost} against "
+        f"the direct path's {direct_rightmost}; composited extent={extent}, "
+        f"direct extent={direct_extent}, padding={padding}, capture={output}"
+    )
+
+    # And the alignment itself still lands: the ink never crosses the authored
+    # origin, and sits close enough to it to exclude a padding-wide error. This
+    # bound is coarse because it spans the final glyph's bearing; the precise
+    # check is the one above.
+    assert rightmost <= origin_x, (
+        f"object {ALIGNED} composited to a right extent of {rightmost}, past "
+        f"its authored right-aligned origin of {origin_x:.1f}; extent={extent}, "
+        f"capture={output}"
+    )
+    assert origin_x - rightmost <= ORIGIN_TOLERANCE, (
         f"object {ALIGNED} composited to a right extent of {rightmost} against "
         f"an authored right-aligned origin of {origin_x:.1f}; extent={extent}, "
         f"padding={padding}, capture={output}"
