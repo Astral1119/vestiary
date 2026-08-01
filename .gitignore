@@ -17,3 +17,6 @@ repose/mockups/README.md
 fresco/FEASIBILITY.md
 fresco-scene/build/
 .fresco-evidence/
+
+# ctest scratch from running the harness suite out of the tools directory
+fresco-scene/tools/common-harness/Testing/
