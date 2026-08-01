@@ -67,6 +67,29 @@ file(READ
     "${upstream}/src/WallpaperEngine/Render/Shaders/ShaderUnit.cpp"
     shader_unit_source
 )
+string(REPLACE
+    "#include \"WallpaperEngine/Logging/Log.h\""
+    "#include \"WallpaperEngine/Logging/Log.h\"\n#include \"FrescoScene/ShaderSourceCompatibility.h\""
+    shader_unit_source
+    "${shader_unit_source}"
+)
+# Workshop shaders are authored against WE's own compiler, which accepts an
+# unmatched #endif and HLSL's implicit vector truncation. glslang accepts
+# neither, and a shader that trips one takes its object down with it — for a
+# composition layer, that is the whole subtree beneath it. Repair runs at the
+# end of preprocessing so everything downstream sees the repaired source, and it
+# is a no-op for a shader that does not need it.
+string(REPLACE
+    "\tstart_pos += to.length (); // Handles case where 'to' is a substring of 'from'\n    }\n}"
+    "\tstart_pos += to.length (); // Handles case where 'to' is a substring of 'from'\n    }\n\n    auto frescoRepaired = FrescoScene::repairShaderSource (this->m_preprocessed);\n    for (const auto& frescoRepair : frescoRepaired.repairs) {\n\tsLog.out (\n\t    \"Shader compatibility repair in \", this->m_file, \" line \",\n\t    frescoRepair.line, \": \", frescoRepair.detail\n\t);\n    }\n    this->m_preprocessed = std::move (frescoRepaired.source);\n}"
+    shader_unit_source
+    "${shader_unit_source}"
+)
+fresco_require_generated_patch(
+    shader_unit_source
+    "FrescoScene::repairShaderSource"
+    "workshop shader source compatibility"
+)
 file(READ
     "${upstream}/src/WallpaperEngine/Render/Shaders/ShaderUnit.h"
     shader_unit_header

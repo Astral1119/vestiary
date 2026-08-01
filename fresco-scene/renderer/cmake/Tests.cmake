@@ -331,6 +331,27 @@ if(BUILD_TESTING)
     )
 
     add_executable(
+        fresco-scene-renderer-shader-source-compatibility
+        tests/shader_source_compatibility_test.cpp
+        src/ShaderSourceCompatibility.cpp
+    )
+    target_include_directories(
+        fresco-scene-renderer-shader-source-compatibility PRIVATE include
+    )
+    target_compile_options(
+        fresco-scene-renderer-shader-source-compatibility PRIVATE
+        -Wall
+        -Wextra
+        -Werror
+        -Wpedantic
+        -Wno-unused-parameter
+    )
+    add_test(
+        NAME fresco-scene-renderer-shader-source-compatibility
+        COMMAND fresco-scene-renderer-shader-source-compatibility
+    )
+
+    add_executable(
         fresco-scene-renderer-text-codepoints
         tests/text_codepoints_test.cpp
         src/TextCodepoints.cpp

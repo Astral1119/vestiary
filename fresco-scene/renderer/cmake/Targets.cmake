@@ -156,6 +156,7 @@ set(fresco_scene_legacy_gl_sources
     ${upstream}/src/WallpaperEngine/Render/Shaders/Variables/ShaderVariableVector4.cpp
     src/TextureCache.cpp
     src/RenderProgramCache.cpp
+    src/ShaderSourceCompatibility.cpp
     src/ShaderTranslationCache.cpp)
 
 set(fresco_scene_gpl_private_includes
