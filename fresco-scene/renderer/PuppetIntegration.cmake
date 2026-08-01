@@ -577,7 +577,7 @@ void CImage::updatePuppetPositionBuffer (const glm::vec2& size) {
     if (size.x > 0.0f && size.y > 0.0f && spanX != 0.0f && spanY != 0.0f) {
 	for (std::size_t index = 0; index + 2 < scenePositions.size (); index += 3) {
 	    scenePositions[index] = this->m_pos.x + scenePositions[index] / size.x * spanX;
-	    scenePositions[index + 1] = this->m_pos.y + scenePositions[index + 1] / size.y * spanY;
+	    scenePositions[index + 1] = this->m_pos.w - scenePositions[index + 1] / size.y * spanY;
 	}
     }
     if (this->m_puppetScenePosition == GL_NONE) {
