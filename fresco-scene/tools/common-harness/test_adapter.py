@@ -931,7 +931,7 @@ PASSES = [
      "blendingMode": 2, "truncatedTokens": 0},
 ]
 PUPPET_MASKED = {
-    "pixelRGBAHash": 16300020904919580163, "pixelRGBTotal": 15889920,
+    "pixelRGBAHash": 7940419935580131587, "pixelRGBTotal": 15889920,
     "varyingPixels": 8036,
     "pixelProbes": [
         {"identity": "source", "normalized": [400, 500],
@@ -951,7 +951,7 @@ PUPPET_MASKED = {
     ],
 }
 PUPPET_UNMASKED = {
-    "pixelRGBAHash": 8502827985783239311, "pixelRGBTotal": 18135374,
+    "pixelRGBAHash": 15357224467639414063, "pixelRGBTotal": 18135374,
     "varyingPixels": 15908,
     "pixelProbes": [PUPPET_MASKED["pixelProbes"][0],
                     {"identity": "target", "normalized": [575, 500],

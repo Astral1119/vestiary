@@ -33,7 +33,7 @@
     {"identity": "puppet-mask-texture-output", "sha256": "ac2142b32d0b9d0f121000424f004b44b121b2378de1761811a3c924a2bafc90", "bytes": 79}
   ],
   "inputs": [
-    {"identity": "trace-v1", "sha256": "ef56aef236f11aadd116dfb9e4289c44a6f95b346bfa4999f60bd544b1cb20c7", "bytes": 6107},
+    {"identity": "trace-v1", "sha256": "9679a591c6cadb85585222b5d567136d8c1fb9a9cd38b28264a4c5517c901826", "bytes": 6107},
     {"identity": "puppet-generator-parameters-v1", "sha256": "d67c281872be3c794db342c89bfaa96210435802460ee1d45a98482531dbb52b", "bytes": 411}
   ],
   "reference": {

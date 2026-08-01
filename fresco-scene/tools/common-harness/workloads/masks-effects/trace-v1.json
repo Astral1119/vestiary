@@ -151,7 +151,7 @@
   "expectedPuppetOutputs": {
     "native-opengl": {
       "masked": {
-        "pixelRGBAHash": 16300020904919580163,
+        "pixelRGBAHash": 7940419935580131587,
         "pixelRGBTotal": 15889920,
         "varyingPixels": 8036,
         "pixelProbes": [
@@ -190,7 +190,7 @@
         ]
       },
       "unmasked": {
-        "pixelRGBAHash": 8502827985783239311,
+        "pixelRGBAHash": 15357224467639414063,
         "pixelRGBTotal": 18135374,
         "varyingPixels": 15908,
         "pixelProbes": [
