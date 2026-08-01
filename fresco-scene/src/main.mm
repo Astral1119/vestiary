@@ -2342,6 +2342,9 @@ bool handleMessage (NSDictionary* message) {
             @"camera2DZoom": @(evidence.camera2DZoom),
             @"sceneZoomActive": @(evidence.sceneZoomActive),
             @"sceneZoom": @(evidence.sceneZoom),
+            @"pointerPosition": @[
+                @(evidence.pointerPositionX), @(evidence.pointerPositionY)
+            ],
             @"soundControls": soundControlPayload (evidence.soundControls),
             @"drawComplete": @(evidence.drawComplete),
         });
@@ -2954,6 +2957,9 @@ bool handleMessage (NSDictionary* message) {
                 @"sceneZoomActive": @(evidence.sceneZoomActive),
                 @"sceneZoom": @(evidence.sceneZoom),
                 @"cursorScripts": @(evidence.cursorScripts),
+                @"pointerPosition": @[
+                    @(evidence.pointerPositionX), @(evidence.pointerPositionY)
+                ],
                 @"deferredScriptValues": @(runtimeDeferredScriptValues),
                 @"soundControls": soundControlPayload (evidence.soundControls),
                 @"drawComplete": @(evidence.drawComplete),

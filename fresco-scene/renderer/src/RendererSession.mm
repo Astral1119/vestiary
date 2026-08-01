@@ -88,16 +88,29 @@ std::uint64_t spectrumHash (const std::array<float, 128>& values) {
     return floatArrayHash (values);
 }
 
-class StillMouse final : public MouseInput {
+// The host has no window to poll, so the pointer is pushed in from the protocol
+// rather than pulled from a driver. position () is contracted to viewport pixels
+// with y increasing upwards, the same convention GLFWMouseInput lands on after it
+// flips the window's top-down coordinate.
+class HostMouse final : public MouseInput {
 public:
     void update () override { }
-    [[nodiscard]] glm::dvec2 position () const override { return { 0.0, 0.0 }; }
-    [[nodiscard]] MouseClickStatus leftClick () const override {
-        return WallpaperEngine::Input::Released;
-    }
+
+    [[nodiscard]] glm::dvec2 position () const override { return m_position; }
+
+    [[nodiscard]] MouseClickStatus leftClick () const override { return m_leftClick; }
+
     [[nodiscard]] MouseClickStatus rightClick () const override {
         return WallpaperEngine::Input::Released;
     }
+
+    void setPosition (glm::dvec2 position) { m_position = position; }
+
+    void setLeftClick (MouseClickStatus status) { m_leftClick = status; }
+
+private:
+    glm::dvec2 m_position = { 0.0, 0.0 };
+    MouseClickStatus m_leftClick = WallpaperEngine::Input::Released;
 };
 
 class WindowOutput final : public Output {
@@ -885,6 +898,9 @@ public:
             initialScriptProperties
         );
         m_scene->setDestinationFramebuffer (0);
+        // A reload keeps the pointer where the host last put it, so the scene
+        // does not start by believing the cursor sits at the origin.
+        applyCursorScenePosition ();
         setMuted (configuration.muted);
 
         const auto& authoredObjects = m_scene->getScene ().objects;
@@ -1332,6 +1348,10 @@ public:
         m_evidence.sceneZoomActive = sceneZoom.active;
         m_evidence.sceneZoom = sceneZoom.zoom;
         m_evidence.cursorScripts = scriptEngine.cursorScriptCount ();
+        if (const auto* pointer = m_scene->getMousePosition (); pointer != nullptr) {
+            m_evidence.pointerPositionX = pointer->x;
+            m_evidence.pointerPositionY = pointer->y;
+        }
         m_evidence.deferredScriptValues = scriptEngine.deferredScriptCount ();
         m_evidence.scriptTimers = scriptEngine.timerEvidence ();
         m_evidence.scriptTimeMilliseconds
@@ -1481,8 +1501,34 @@ public:
 
     std::size_t cursorEvent (std::string_view name, float x, float y) {
         ScopedRendererClockActivation clockActivation (m_clock);
+        m_cursorScenePosition = glm::dvec2 (x, y);
+        applyCursorScenePosition ();
+        if (name == "down") {
+            m_mouse.setLeftClick (WallpaperEngine::Input::Clicked);
+        } else if (name == "up") {
+            m_mouse.setLeftClick (WallpaperEngine::Input::Released);
+        }
         return m_scene == nullptr ? 0
                                   : m_scene->getScriptEngine ().cursorEvent (name, x, y);
+    }
+
+    // Scene world coordinates are absolute and bottom-up, which is already the
+    // convention MouseInput::position () is read in; only the scale differs.
+    // CScene::updateMouse divides by the viewport it is rendered at, so the
+    // pointer has to be expressed in that viewport rather than in scene units.
+    void applyCursorScenePosition () {
+        if (!m_cursorScenePosition.has_value () || m_scene == nullptr) {
+            return;
+        }
+        const double sceneWidth = m_scene->getWidth ();
+        const double sceneHeight = m_scene->getHeight ();
+        if (sceneWidth <= 0.0 || sceneHeight <= 0.0) {
+            return;
+        }
+        m_mouse.setPosition ({
+            m_cursorScenePosition->x * m_width / sceneWidth,
+            m_cursorScenePosition->y * m_height / sceneHeight,
+        });
     }
 
     [[nodiscard]] WallpaperEngine::Audio::SoundPropertyEvidence setUserProperties (
@@ -1656,6 +1702,12 @@ public:
             .sceneZoomActive = FrescoScene::sceneZoomEvidence (*m_scene).active,
             .sceneZoom = FrescoScene::sceneZoomEvidence (*m_scene).zoom,
             .cursorScripts = scriptEngine.cursorScriptCount (),
+            .pointerPositionX = m_scene->getMousePosition () == nullptr
+                ? 0.0
+                : m_scene->getMousePosition ()->x,
+            .pointerPositionY = m_scene->getMousePosition () == nullptr
+                ? 0.0
+                : m_scene->getMousePosition ()->y,
             .deferredScriptValues = scriptEngine.deferredScriptCount (),
             .scriptTimers = scriptTimers,
             .scriptTimeMilliseconds
@@ -1709,7 +1761,8 @@ public:
     std::unique_ptr<RenderSurface> m_surface;
     TextEffectRegistrySession m_textEffectRegistry;
     WallpaperApplication m_app;
-    StillMouse m_mouse;
+    HostMouse m_mouse;
+    std::optional<glm::dvec2> m_cursorScenePosition;
     std::optional<SceneScriptStoragePool::Lease> m_scriptStorageLease;
     RuntimeMediaSource m_media;
     AudioContext m_audio;

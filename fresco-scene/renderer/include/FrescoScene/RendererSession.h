@@ -199,6 +199,10 @@ struct FrameEvidence {
     bool sceneZoomActive = false;
     double sceneZoom = 1.0;
     std::size_t cursorScripts = 0;
+    // The pointer as the shaders see it: normalized, after CScene::updateMouse
+    // has mapped it through the viewport and the texture UVs.
+    double pointerPositionX = 0.0;
+    double pointerPositionY = 0.0;
     std::size_t deferredScriptValues = 0;
     SceneScriptTimerEvidence scriptTimers;
     double scriptTimeMilliseconds = 0.0;
@@ -303,6 +307,10 @@ struct RendererMetrics {
     bool sceneZoomActive = false;
     double sceneZoom = 1.0;
     std::size_t cursorScripts = 0;
+    // The pointer as the shaders see it: normalized, after CScene::updateMouse
+    // has mapped it through the viewport and the texture UVs.
+    double pointerPositionX = 0.0;
+    double pointerPositionY = 0.0;
     std::size_t deferredScriptValues = 0;
     SceneScriptTimerEvidence scriptTimers;
     double scriptTimeMilliseconds = 0.0;
