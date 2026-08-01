@@ -7,11 +7,19 @@ tree has run it. The question is not which backend costs less. It is whether
 this machine can produce a repeatable idle baseline at all, because a
 candidate delta means nothing until the measurement noise floor is known.
 
-The run takes no workload and loads no backend. It samples an idle,
+Step 5 itself takes no workload and loads no backend. It samples an idle,
 quiesced machine in repeated bracketed blocks and reports the spread. If the
 spread is wide relative to any plausible backend delta, that is the answer to
 whether the comparison is affordable here, and it is worth having before a
 night is spent on steps 6 and 7.
+
+The loaded calibration run uses the same harness with a subject. Step 5
+measured an idle machine, and Q10 compares two backends under load, so the
+figure that sizes Q10 is loaded CoV rather than idle CoV. `--subject-helpers`
+says how many renderer processes the workload legitimately runs; those are the
+subject and everything else is still a stray. With the default of 0 the run is
+step 5 exactly as it was measured, because an empty subject set makes every
+helper a stray.
 
 powermetrics needs root, but the script does not. A NOPASSWD sudoers rule
 covering /usr/bin/powermetrics is enough and is what this machine has, so the
@@ -191,12 +199,13 @@ def load_average():
     return {"1m": one, "5m": five, "15m": fifteen}
 
 
-def stray_helper_processes():
-    """Any renderer or daemon process that would contaminate an idle baseline.
+def helper_processes():
+    """Every renderer or daemon process on the machine, subject or not.
 
     BRIEF.md:111-113 records that five leaked full-resolution helpers
-    invalidated the earlier ANGLE pass. This is the assertion that would have
-    caught it, and it is cheap enough to run before every block.
+    invalidated the earlier ANGLE pass. Enumerating them is cheap enough to run
+    before every block; deciding which of them belong to the run is
+    `classify_helpers`.
     """
     text = run_text(["ps", "-Ao", "pid=,comm="])
     found = []
@@ -209,6 +218,20 @@ def stray_helper_processes():
         if basename in HELPER_PROCESS_NAMES:
             found.append({"pid": int(pid), "command": command.strip()})
     return found
+
+
+def classify_helpers(found, subject_pids):
+    """Split the helpers into the ones the run owns and the ones it does not.
+
+    An idle run passes an empty subject set, which makes every helper a stray —
+    the step 5 rule, reproduced rather than special-cased. A loaded run names
+    its subject by pid, so a leaked or restarted helper is still caught: it has
+    a pid the run never claimed.
+    """
+    subject, strays = [], []
+    for entry in found:
+        (subject if entry["pid"] in subject_pids else strays).append(entry)
+    return subject, strays
 
 
 def busy_processes(threshold_percent):
@@ -236,8 +259,9 @@ def busy_processes(threshold_percent):
     return busy[:20]
 
 
-def environment_snapshot(busy_threshold):
+def environment_snapshot(busy_threshold, subject_pids=()):
     source = power_source()
+    subject, strays = classify_helpers(helper_processes(), subject_pids)
     return {
         "at": utc_now(),
         "powerSource": source,
@@ -245,7 +269,8 @@ def environment_snapshot(busy_threshold):
         "thermal": thermal_state(),
         "displays": display_topology(),
         "loadAverage": load_average(),
-        "strayHelpers": stray_helper_processes(),
+        "subjectHelpers": subject,
+        "strayHelpers": strays,
         "busyProcesses": busy_processes(busy_threshold),
     }
 
@@ -267,9 +292,10 @@ class MidBlockProbe:
     block stays with whoever reads the evidence.
     """
 
-    def __init__(self, busy_threshold, interval_seconds):
+    def __init__(self, busy_threshold, interval_seconds, subject_pids=()):
         self._busy_threshold = busy_threshold
         self._interval = interval_seconds
+        self._subject_pids = frozenset(subject_pids)
         self._stop = threading.Event()
         self._thread = None
         self.observations = []
@@ -280,11 +306,15 @@ class MidBlockProbe:
         # first observation lands one interval in, since t=0 is already covered
         # by the `before` snapshot.
         while not self._stop.wait(self._interval):
+            subject, strays = classify_helpers(
+                helper_processes(), self._subject_pids
+            )
             self.observations.append(
                 {
                     "at": utc_now(),
                     "loadAverage": load_average(),
-                    "strayHelpers": stray_helper_processes(),
+                    "subjectHelpers": subject,
+                    "strayHelpers": strays,
                     "busyProcesses": busy_processes(self._busy_threshold),
                 }
             )
@@ -311,7 +341,12 @@ class MidBlockProbe:
         """
         strays = {}
         peaks = {}
+        missing_subject = 0
         for observation in self.observations:
+            if {
+                entry["pid"] for entry in observation["subjectHelpers"]
+            } != self._subject_pids:
+                missing_subject += 1
             for entry in observation["strayHelpers"]:
                 strays[entry["pid"]] = entry
             for entry in observation["busyProcesses"]:
@@ -327,12 +362,23 @@ class MidBlockProbe:
             "probeCount": len(self.observations),
             "probeIntervalSeconds": self._interval,
             "strayHelpers": sorted(strays.values(), key=lambda e: e["pid"]),
+            # A subject that dies and respawns inside the window leaves both
+            # boundary snapshots reading correct, exactly as the 2026-07-31
+            # outlier load did. The block after it is measuring a restart
+            # transient rather than a steady workload.
+            "observationsMissingSubject": missing_subject,
             "peakBusyProcesses": ranked[:20],
         }
 
 
-def assert_preconditions(snapshot, reference_displays):
-    """Raise if the block cannot be trusted. Invalidation beats averaging."""
+def assert_preconditions(snapshot, reference_displays, subject_pids=()):
+    """Raise if the block cannot be trusted. Invalidation beats averaging.
+
+    Two ownership failures, not one. A stray helper adds load the run did not
+    ask for; a missing subject helper removes the load the run exists to
+    measure, and a block sampled after the workload died reads as a clean idle
+    baseline rather than as a failure.
+    """
     if snapshot["strayHelpers"]:
         raise ProtocolViolation(
             "renderer or daemon processes are running: "
@@ -340,6 +386,12 @@ def assert_preconditions(snapshot, reference_displays):
                 f"{entry['command']}({entry['pid']})"
                 for entry in snapshot["strayHelpers"]
             )
+        )
+    present = {entry["pid"] for entry in snapshot.get("subjectHelpers", [])}
+    if present != frozenset(subject_pids):
+        raise ProtocolViolation(
+            "the subject workload is not the one the run claimed: expected "
+            f"{sorted(subject_pids)}, found {sorted(present)}"
         )
     if reference_displays is not None:
         if snapshot["displays"] != reference_displays:
@@ -587,8 +639,24 @@ def main():
              "outlier blocks valid. 0 disables the probe.",
     )
     parser.add_argument("--busy-threshold-percent", type=float, default=5.0)
+    parser.add_argument(
+        "--subject-helpers", type=int, default=0,
+        help="How many renderer processes the subject workload legitimately "
+             "runs; 1 for a single live scene. Those become the subject and "
+             "every other helper is still a stray. 0 is the idle step 5 run, "
+             "where any helper at all disqualifies the machine.",
+    )
+    parser.add_argument(
+        "--subject-note", default="",
+        help="What the subject is — scene, backend, resolution. A loaded "
+             "record is unreadable later without it, and nothing else in the "
+             "record says which workload was rendering.",
+    )
     parser.add_argument("--store", required=True, type=pathlib.Path)
     arguments = parser.parse_args()
+
+    if arguments.subject_helpers < 0:
+        sys.exit("--subject-helpers cannot be negative")
 
     if arguments.sub_samples < 1:
         sys.exit("--sub-samples must be at least 1")
@@ -620,12 +688,24 @@ def main():
     raw_directory.mkdir(exist_ok=True)
     output = store / "baseline-repeatability-v1.json"
 
-    opening = environment_snapshot(arguments.busy_threshold_percent)
+    # The subject is claimed once, before the first snapshot, and by pid. A
+    # count alone would let a helper die and be replaced between blocks without
+    # anything noticing, and the replacement's first block carries the restart
+    # transient the calibration is meant to measure separately.
+    found_helpers = helper_processes()
+    subject_pids = frozenset(entry["pid"] for entry in found_helpers)
+    opening = environment_snapshot(
+        arguments.busy_threshold_percent, subject_pids
+    )
     reference_displays = opening["displays"]
 
     record = {
         "schemaVersion": 1,
-        "purpose": "backend-profiling-step-5-baseline-repeatability",
+        "purpose": (
+            "backend-profiling-loaded-calibration"
+            if arguments.subject_helpers
+            else "backend-profiling-step-5-baseline-repeatability"
+        ),
         "startedAt": utc_now(),
         "parameters": {
             "blocks": arguments.blocks,
@@ -633,25 +713,38 @@ def main():
             "settleSeconds": arguments.settle_seconds,
             "subSamples": arguments.sub_samples,
             "probeSeconds": arguments.probe_seconds,
+            "subjectHelpers": arguments.subject_helpers,
+            "subjectNote": arguments.subject_note,
         },
+        "subjectPids": sorted(subject_pids),
         "openingEnvironment": opening,
         "blocks": [],
     }
 
-    if opening["strayHelpers"]:
-        record["abandonedAt"] = utc_now()
-        record["abandonReason"] = (
-            "renderer or daemon processes were running before the first block; "
-            "quiesce Fresco and verify ownership before measuring"
-        )
-        write_record(output, record)
-        sys.exit(
-            "fail: quiesce Fresco first — "
-            + ", ".join(
-                f"{entry['command']}({entry['pid']})"
-                for entry in opening["strayHelpers"]
+    if len(found_helpers) != arguments.subject_helpers:
+        listed = ", ".join(
+            f"{entry['command']}({entry['pid']})" for entry in found_helpers
+        ) or "none"
+        if len(found_helpers) > arguments.subject_helpers:
+            # The ANGLE pass was invalidated by five leaked full-resolution
+            # helpers, which is this branch with the count set to one.
+            reason = (
+                f"{len(found_helpers)} renderer or daemon processes were "
+                f"running before the first block and the run claimed "
+                f"{arguments.subject_helpers}; quiesce Fresco and verify "
+                "ownership before measuring"
             )
-        )
+        else:
+            reason = (
+                f"the subject workload is not running: {arguments.subject_helpers} "
+                f"helpers were claimed and {len(found_helpers)} are up; a run "
+                "that starts without its workload measures an idle machine and "
+                "reports it as loaded"
+            )
+        record["abandonedAt"] = utc_now()
+        record["abandonReason"] = reason
+        write_record(output, record)
+        sys.exit(f"fail: {reason} — {listed}")
 
     for warning in opening["powerSettings"]["warnings"]:
         print(f"warning: {warning}", flush=True)
@@ -664,17 +757,21 @@ def main():
 
     for index in range(arguments.blocks):
         time.sleep(arguments.settle_seconds)
-        before = environment_snapshot(arguments.busy_threshold_percent)
+        before = environment_snapshot(
+            arguments.busy_threshold_percent, subject_pids
+        )
         block = {"index": index, "before": before}
         probe_watcher = (
             MidBlockProbe(
-                arguments.busy_threshold_percent, arguments.probe_seconds
+                arguments.busy_threshold_percent,
+                arguments.probe_seconds,
+                subject_pids,
             )
             if arguments.probe_seconds > 0
             else None
         )
         try:
-            assert_preconditions(before, reference_displays)
+            assert_preconditions(before, reference_displays, subject_pids)
             if probe_watcher is not None:
                 probe_watcher.start()
             try:
@@ -731,9 +828,17 @@ def main():
                             for entry in digest["strayHelpers"]
                         )
                     )
-            after = environment_snapshot(arguments.busy_threshold_percent)
+                if digest["observationsMissingSubject"]:
+                    raise ProtocolViolation(
+                        "the subject workload was absent for "
+                        f"{digest['observationsMissingSubject']} of "
+                        f"{digest['probeCount']} observations inside the window"
+                    )
+            after = environment_snapshot(
+                arguments.busy_threshold_percent, subject_pids
+            )
             block["after"] = after
-            assert_preconditions(after, reference_displays)
+            assert_preconditions(after, reference_displays, subject_pids)
             block["valid"] = True
         except ProtocolViolation as violation:
             block["valid"] = False
@@ -764,7 +869,7 @@ def main():
         )
     record["completedAt"] = utc_now()
     record["closingEnvironment"] = environment_snapshot(
-        arguments.busy_threshold_percent
+        arguments.busy_threshold_percent, subject_pids
     )
 
     write_record(output, record)

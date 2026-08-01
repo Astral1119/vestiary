@@ -141,18 +141,18 @@ class PowerFieldsTest(unittest.TestCase):
 
 class MidBlockProbeTest(unittest.TestCase):
     def setUp(self):
-        self.stray = []
+        self.helpers = []
         self.busy = []
         for name, replacement in (
-            ("stray_helper_processes", lambda: list(self.stray)),
+            ("helper_processes", lambda: list(self.helpers)),
             ("busy_processes", lambda threshold: list(self.busy)),
             ("load_average", lambda: {"1m": 0.1}),
         ):
             self.addCleanup(setattr, harness, name, getattr(harness, name))
             setattr(harness, name, replacement)
 
-    def run_probe(self, during=None):
-        probe = harness.MidBlockProbe(5.0, 0.01)
+    def run_probe(self, during=None, subject_pids=()):
+        probe = harness.MidBlockProbe(5.0, 0.01, subject_pids)
         probe.start()
         if during is not None:
             during()
@@ -171,9 +171,9 @@ class MidBlockProbeTest(unittest.TestCase):
         window, so both boundary snapshots read clean."""
 
         def during():
-            self.stray = [{"pid": 4242, "command": "fresco-scene"}]
+            self.helpers = [{"pid": 4242, "command": "fresco-scene"}]
             time.sleep(0.05)
-            self.stray = []
+            self.helpers = []
 
         digest = self.run_probe(during).digest()
         self.assertEqual(
@@ -210,6 +210,115 @@ class MidBlockProbeTest(unittest.TestCase):
         digest = self.run_probe().digest()
         self.assertEqual(digest["strayHelpers"], [])
         self.assertEqual(digest["peakBusyProcesses"], [])
+
+    def test_the_subject_is_not_reported_as_a_stray(self):
+        """The loaded run's whole point. Without this the subject invalidates
+        every block it renders."""
+        self.helpers = [{"pid": 22836, "command": "fresco-scene"}]
+        digest = self.run_probe(subject_pids={22836}).digest()
+        self.assertEqual(digest["strayHelpers"], [])
+        self.assertEqual(digest["observationsMissingSubject"], 0)
+
+    def test_a_subject_that_dies_inside_the_window_is_counted(self):
+        """Both boundary snapshots read correct if it respawns before the
+        window closes, and the block is then measuring a restart rather than a
+        steady workload."""
+        self.helpers = [{"pid": 22836, "command": "fresco-scene"}]
+
+        def during():
+            self.helpers = []
+            time.sleep(0.05)
+            self.helpers = [{"pid": 22836, "command": "fresco-scene"}]
+
+        digest = self.run_probe(during, subject_pids={22836}).digest()
+        self.assertGreater(digest["observationsMissingSubject"], 0)
+
+    def test_a_second_helper_beside_the_subject_is_a_stray(self):
+        """A leaked helper is caught by pid, not by count — the ANGLE pass was
+        invalidated by five of them."""
+        self.helpers = [
+            {"pid": 22836, "command": "fresco-scene"},
+            {"pid": 9001, "command": "fresco-scene"},
+        ]
+        digest = self.run_probe(subject_pids={22836}).digest()
+        self.assertEqual(
+            digest["strayHelpers"], [{"pid": 9001, "command": "fresco-scene"}]
+        )
+
+
+# --- ownership ------------------------------------------------------------
+
+
+def snapshot(subject=(), strays=(), displays=None):
+    return {
+        "subjectHelpers": list(subject),
+        "strayHelpers": list(strays),
+        "displays": displays if displays is not None else {"count": 1},
+    }
+
+
+class ClassifyHelpersTest(unittest.TestCase):
+    def test_an_empty_subject_set_makes_every_helper_a_stray(self):
+        """The idle step 5 rule, reproduced rather than special-cased."""
+        found = [{"pid": 1, "command": "fresco-scene"}]
+        subject, strays = harness.classify_helpers(found, frozenset())
+        self.assertEqual(subject, [])
+        self.assertEqual(strays, found)
+
+    def test_it_splits_on_pid(self):
+        found = [
+            {"pid": 1, "command": "fresco-scene"},
+            {"pid": 2, "command": "fresco-scene"},
+        ]
+        subject, strays = harness.classify_helpers(found, {2})
+        self.assertEqual([e["pid"] for e in subject], [2])
+        self.assertEqual([e["pid"] for e in strays], [1])
+
+
+class PreconditionTest(unittest.TestCase):
+    def test_the_subject_does_not_invalidate_its_own_block(self):
+        harness.assert_preconditions(
+            snapshot(subject=[{"pid": 7, "command": "fresco-scene"}]),
+            {"count": 1},
+            {7},
+        )
+
+    def test_a_stray_still_invalidates_a_loaded_block(self):
+        with self.assertRaises(harness.ProtocolViolation) as raised:
+            harness.assert_preconditions(
+                snapshot(
+                    subject=[{"pid": 7, "command": "fresco-scene"}],
+                    strays=[{"pid": 8, "command": "fresco-scene"}],
+                ),
+                {"count": 1},
+                {7},
+            )
+        self.assertIn("fresco-scene(8)", str(raised.exception))
+
+    def test_a_dead_subject_invalidates_rather_than_reading_as_idle(self):
+        """A block sampled after the workload died is a clean idle baseline,
+        which is the one failure that looks like a good measurement."""
+        with self.assertRaises(harness.ProtocolViolation) as raised:
+            harness.assert_preconditions(snapshot(), {"count": 1}, {7})
+        self.assertIn("expected [7], found []", str(raised.exception))
+
+    def test_a_restarted_subject_is_not_the_one_the_run_claimed(self):
+        """Same count, different process. Its first block carries the restart
+        transient the calibration measures separately."""
+        with self.assertRaises(harness.ProtocolViolation):
+            harness.assert_preconditions(
+                snapshot(subject=[{"pid": 9, "command": "fresco-scene"}]),
+                {"count": 1},
+                {7},
+            )
+
+    def test_an_idle_run_still_refuses_any_helper(self):
+        with self.assertRaises(harness.ProtocolViolation) as raised:
+            harness.assert_preconditions(
+                snapshot(strays=[{"pid": 7, "command": "fresco-scene"}]),
+                {"count": 1},
+            )
+        self.assertIn("fresco-scene(7)", str(raised.exception))
 
 
 # --- window length --------------------------------------------------------
