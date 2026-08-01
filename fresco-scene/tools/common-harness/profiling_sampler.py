@@ -71,6 +71,25 @@ def parse_powermetrics_plist(data: bytes, target_pids=None) -> dict:
     idle_ratio = first(gpu, ["idle_ratio"])
     gpu_active = None if idle_ratio is None else max(0.0, 1.0 - float(idle_ratio))
 
+    # GPU clock state. Power and residency together cannot separate "more work"
+    # from "same work at a higher clock", and the 2026-08-01 calibration run
+    # found launches splitting 8% in power while residency moved the other way,
+    # which is the signature of the second. freq_hz is the mean over the window;
+    # dvfmStates is the residency histogram over the discrete clock states, and
+    # is what distinguishes a genuinely different clock from a mean dragged by
+    # a few samples. The sampler already requests gpu_power, so both fields are
+    # in every plist this has ever parsed and were being discarded here.
+    gpu_freq = first(gpu, ["freq_hz"])
+    dvfm = first(gpu, ["dvfm_states"])
+    dvfm_states = None
+    if isinstance(dvfm, list):
+        dvfm_states = [
+            {"freqMhz": entry.get("freq"),
+             "usedRatio": entry.get("used_ratio")}
+            for entry in dvfm
+            if isinstance(entry, dict) and entry.get("freq") is not None
+        ] or None
+
     thermal = root.get("thermal_pressure") if isinstance(root, dict) else None
 
     tasks = root.get("tasks") if isinstance(root, dict) else None
@@ -82,6 +101,8 @@ def parse_powermetrics_plist(data: bytes, target_pids=None) -> dict:
         "gpuPowerMilliwatts": _available(gpu_power) if gpu_power is not None else UNAVAILABLE,
         "packagePowerMilliwatts": _available(package_power) if package_power is not None else UNAVAILABLE,
         "gpuActiveResidency": _available(gpu_active) if gpu_active is not None else UNAVAILABLE,
+        "gpuFrequencyMhz": _available(gpu_freq) if gpu_freq is not None else UNAVAILABLE,
+        "gpuDvfmStates": _available(dvfm_states) if dvfm_states is not None else UNAVAILABLE,
         "thermalPressure": _available(thermal) if thermal is not None else UNAVAILABLE,
         "tasks": task_roll,
         "elapsedNs": _available(root.get("elapsed_ns")) if isinstance(root, dict) and "elapsed_ns" in root else UNAVAILABLE,

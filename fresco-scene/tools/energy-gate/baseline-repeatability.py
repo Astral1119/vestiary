@@ -82,7 +82,12 @@ POWER_FIELDS = (
     "gpuPowerMilliwatts",
     "packagePowerMilliwatts",
     "gpuActiveResidency",
+    "gpuFrequencyMhz",
 )
+
+# `gpuDvfmStates` is deliberately not a POWER_FIELD: it is a histogram over the
+# discrete clock states, not a scalar, and `reduce_figures` would take a mean of
+# a list. It is reduced by `reduce_dvfm_states` and recorded per block instead.
 
 
 class ProtocolViolation(Exception):
@@ -537,6 +542,39 @@ def reduce_figures(sub_figures):
         for name, value in figures.items():
             collected.setdefault(name, []).append(value)
     return {name: statistics.fmean(values) for name, values in collected.items()}
+
+
+def reduce_dvfm_states(samples):
+    """Mean residency per GPU clock state over the block's sub-samples.
+
+    Two launches drawing different power at the same workload are either doing
+    different work or running the same work at a different clock, and the mean
+    frequency alone does not separate them: a mean can be dragged by a handful
+    of samples at a high state while the bulk sits low. The histogram says which
+    states were actually occupied.
+
+    A state absent from a sub-sample counts as zero residency in that window
+    rather than being skipped, because absence here means the state was not
+    entered — unlike a missing power field, where absence means unread.
+    """
+    per_state = {}
+    windows = 0
+    for sample in samples:
+        entry = sample.get("gpuDvfmStates")
+        if not (isinstance(entry, dict) and entry.get("available")):
+            continue
+        windows += 1
+        for state in entry["value"]:
+            freq = state.get("freqMhz")
+            if freq is not None:
+                per_state.setdefault(freq, []).append(state.get("usedRatio") or 0.0)
+    if not windows:
+        return None
+    return [
+        {"freqMhz": freq,
+         "usedRatio": sum(ratios) / windows}
+        for freq, ratios in sorted(per_state.items())
+    ]
 
 
 def parse_power(sample):
@@ -994,6 +1032,9 @@ def main():
             block["rawPath"] = raw_path.name
             sub_figures = [parse_power(sample) for sample in samples]
             block["figures"] = reduce_figures(sub_figures)
+            dvfm_states = reduce_dvfm_states(samples)
+            if dvfm_states is not None:
+                block["gpuDvfmStates"] = dvfm_states
             if len(sub_figures) > 1:
                 block["subFigures"] = sub_figures
                 # Within-block spread is the quantity that says whether the

@@ -136,6 +136,51 @@ class PowerFieldsTest(unittest.TestCase):
         self.assertEqual(figures, {"cpuPowerMilliwatts": 37.6})
 
 
+class ReduceDvfmStatesTest(unittest.TestCase):
+    """The clock-state histogram, which says whether two launches drawing
+    different power are doing different work or the same work at a different
+    clock. It is reduced separately because it is a list, and `reduce_figures`
+    would take a mean of one."""
+
+    @staticmethod
+    def sample(*pairs):
+        return {
+            "gpuDvfmStates": available(
+                [{"freqMhz": freq, "usedRatio": ratio} for freq, ratio in pairs]
+            )
+        }
+
+    def test_residency_is_averaged_per_state_over_the_sub_windows(self):
+        reduced = harness.reduce_dvfm_states(
+            [self.sample((338, 0.4), (1500, 0.6)),
+             self.sample((338, 0.2), (1500, 0.8))]
+        )
+        self.assertEqual([s["freqMhz"] for s in reduced], [338, 1500])
+        self.assertAlmostEqual(reduced[0]["usedRatio"], 0.3)
+        self.assertAlmostEqual(reduced[1]["usedRatio"], 0.7)
+
+    def test_a_state_absent_from_one_window_counts_as_zero_there(self):
+        """Unlike a missing power field, an absent state means the clock was
+        never entered in that window. Averaging over only the windows that
+        listed it would report a state as busier than it was."""
+        reduced = harness.reduce_dvfm_states(
+            [self.sample((338, 0.5), (1500, 0.5)), self.sample((338, 1.0))]
+        )
+        self.assertAlmostEqual(reduced[1]["usedRatio"], 0.25)
+
+    def test_states_are_ordered_by_frequency(self):
+        reduced = harness.reduce_dvfm_states([self.sample((1500, 0.6), (338, 0.4))])
+        self.assertEqual([s["freqMhz"] for s in reduced], [338, 1500])
+
+    def test_no_histogram_in_any_window_yields_nothing(self):
+        """An older macOS that stops emitting `dvfm_states` has to read as
+        absent, not as an empty histogram that summarizes to zero residency."""
+        self.assertIsNone(harness.reduce_dvfm_states([{}, {}]))
+        self.assertIsNone(
+            harness.reduce_dvfm_states([{"gpuDvfmStates": {"available": False}}])
+        )
+
+
 # --- the mid-block probe --------------------------------------------------
 
 
