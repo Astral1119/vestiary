@@ -323,10 +323,26 @@ bool finiteProperty (JSContext* context, JSValueConst object, const char* name, 
     return valid;
 }
 
+// SceneScript reads and writes layer angles in degrees while scene.json stores
+// them in radians. Two corpus fixtures pin the convention: 3477054430's head
+// script seeds `new Vec3(0, -32, 0)` against an authored -0.55851, which is -32
+// degrees exactly, and labels its slider "Max Rotation (degrees)"; GBC's object
+// 137 drives a zRotation slider carrying 360 straight into `value.z`. GBC's head
+// multiplies a scene-unit cursor x by 0.003, which is 11.52 at the right edge —
+// a plausible tilt in degrees and two full turns in radians.
+JSValue vector3ToJS (JSContext* context, const glm::vec3& vector) {
+    JSValue result = JS_NewObject (context);
+    JS_SetPropertyStr (context, result, "x", JS_NewFloat64 (context, vector.x));
+    JS_SetPropertyStr (context, result, "y", JS_NewFloat64 (context, vector.y));
+    JS_SetPropertyStr (context, result, "z", JS_NewFloat64 (context, vector.z));
+    return result;
+}
+
 bool updateDynamicValueFromJS (
     JSContext* context,
     JSValueConst result,
-    DynamicValue& value
+    DynamicValue& value,
+    bool degrees = false
 ) {
     switch (value.getType ()) {
         case DynamicValue::Vec2: {
@@ -353,7 +369,8 @@ bool updateDynamicValueFromJS (
                 || !finiteProperty (context, result, "z", z)) {
                 return false;
             }
-            const glm::vec3 next (x, y, z);
+            const glm::vec3 read (x, y, z);
+            const glm::vec3 next = degrees ? glm::radians (read) : read;
             if (next != value.getVec3 ()) {
                 value.update (next, DynamicValue::UpdateSource::Script);
             }
@@ -1137,6 +1154,7 @@ public:
                     .profile = compatibility.profile,
                     .objectId = objectId,
                     .target = target,
+                    .propertyName = key.substr (0, key.rfind ('_')),
                     .sceneCameraZoom = cameraZoomCapability,
                     .primaryColorTransition
                         = compatibility.profile == "generic-media-thumbnail-primary-color-v1"
@@ -1166,6 +1184,7 @@ public:
                     .profile = compatibility.profile,
                     .objectId = objectId,
                     .target = target,
+                    .propertyName = key.substr (0, key.rfind ('_')),
                 }
             );
             return;
@@ -1210,6 +1229,7 @@ public:
                     .profile = compatibility.profile,
                     .objectId = objectId,
                     .target = target,
+                    .propertyName = key.substr (0, key.rfind ('_')),
                     .namedAnimations = std::move (targets),
                 }
             );
@@ -1508,6 +1528,7 @@ public:
                 .profile = profile,
                 .objectId = objectId,
                 .target = target,
+                .propertyName = key.substr (0, key.rfind ('_')),
                 .camera2DControl = std::move (camera2DControl),
                 .sharedField = profile == "generic-shared-state-value-v1"
                     ? sharedReaderField (source) : std::nullopt,
@@ -1975,6 +1996,8 @@ public:
         std::vector<GenericPropertyScriptEvidence> result;
         result.reserve (m_genericPropertyScripts.size ());
         for (const auto& [key, script] : m_genericPropertyScripts) {
+            const bool vector = script.value != nullptr
+                && script.value->getType () == DynamicValue::Vec3;
             result.push_back ({
                 .key = key,
                 .profile = script.profile,
@@ -1982,6 +2005,8 @@ public:
                 .property = script.propertyName,
                 .updates = script.updates,
                 .changes = script.changes,
+                .hasValue = vector,
+                .value = vector ? script.value->getVec3 () : glm::vec3 {},
             });
         }
         return result;
@@ -2161,6 +2186,7 @@ public:
                             = "generic-inert-local-animation-layer-click-v1",
                         .objectId = pending.objectId,
                         .target = pending.target,
+                        .propertyName = key.substr (0, key.rfind ('_')),
                     }
                 );
                 if (std::getenv ("FRESCO_SCENE_SCRIPT_PROFILE_TRACE") != nullptr) {
@@ -2713,6 +2739,27 @@ private:
         return result;
     }
 
+    // True when this script's property is a layer rotation, which SceneScript
+    // exchanges in degrees while the scene stores radians.
+    [[nodiscard]] static bool scriptAnglesInDegrees (
+        const GenericPropertyScript& script
+    ) {
+        return script.propertyName == "angles" && script.value != nullptr
+            && script.value->getType () == DynamicValue::Vec3;
+    }
+
+    // The value handed to a script's update hook, in the unit that script reads.
+    JSValue propertyValueToJS (const GenericPropertyScript& script) {
+        const bool graph = usesSceneLayerGraph (script.profile);
+        if (scriptAnglesInDegrees (script)) {
+            const glm::vec3 degrees = glm::degrees (script.value->getVec3 ());
+            return graph ? graphVector ({degrees.x, degrees.y, degrees.z})
+                         : vector3ToJS (m_context, degrees);
+        }
+        return graph ? graphDynamicValueToJS (*script.value)
+                     : dynamicValueToJS (m_context, *script.value);
+    }
+
     JSValue graphDynamicValueToJS (const DynamicValue& value) {
         if (value.getType () == DynamicValue::Vec3) {
             const auto vector = value.getVec3 ();
@@ -3051,7 +3098,7 @@ private:
         JSValue function = JS_GetPropertyStr (
             m_context, script.object, "initialize"
         );
-        JSValue argument = graphDynamicValueToJS (*script.value);
+        JSValue argument = propertyValueToJS (script);
         JSValue result = JS_Call (
             m_context, function, script.object, 1, &argument
         );
@@ -3064,7 +3111,9 @@ private:
             JS_FreeValue (m_context, result);
             return;
         }
-        if (!updateDynamicValueFromJS (m_context, result, *script.value)) {
+        if (!updateDynamicValueFromJS (
+                m_context, result, *script.value,
+                scriptAnglesInDegrees (script))) {
             ++m_errorCount;
             ++m_genericPropertyScriptErrorCount;
             sLog.error (
@@ -3275,9 +3324,7 @@ private:
 
         const glm::vec4 prior = script.value->getVec4 ();
         JSValue tick = JS_GetPropertyStr (m_context, script.object, "tick");
-        JSValue argument = usesSceneLayerGraph (script.profile)
-            ? graphDynamicValueToJS (*script.value)
-            : dynamicValueToJS (m_context, *script.value);
+        JSValue argument = propertyValueToJS (script);
         JSValue result = JS_Call (
             m_context, tick, script.object, 1, &argument
         );
@@ -3429,7 +3476,9 @@ private:
                 return;
             }
         }
-        if (!updateDynamicValueFromJS (m_context, valueResult, *script.value)) {
+        if (!updateDynamicValueFromJS (
+                m_context, valueResult, *script.value,
+                scriptAnglesInDegrees (script))) {
             ++m_errorCount;
             ++m_genericPropertyScriptErrorCount;
             sLog.error ("SceneScript generic-property update returned an incompatible value");

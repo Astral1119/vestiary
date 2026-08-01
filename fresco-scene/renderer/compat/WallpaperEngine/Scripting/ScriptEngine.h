@@ -3,6 +3,8 @@
 #include "WallpaperEngine/Audio/AudioContext.h"
 #include "FrescoScene/SceneScriptTimerEvidence.h"
 
+#include <glm/glm.hpp>
+
 #include <cstddef>
 #include <map>
 #include <memory>
@@ -54,6 +56,12 @@ public:
         std::string property;
         std::size_t updates = 0;
         std::size_t changes = 0;
+        // What the script last left on the property, in the scene's own units
+        // rather than the script's. Angles are the case that needs it: the
+        // script reads and writes degrees and the scene stores radians, so a
+        // conversion fault is invisible in every other counter here.
+        bool hasValue = false;
+        glm::vec3 value {};
     };
 
     ScriptEngine (Render::Wallpapers::CScene&, Media::MediaSource&);

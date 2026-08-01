@@ -96,9 +96,29 @@ void setProperty (JSContext *context, JSValueConst object, const char *name,
     }
 }
 
+// SceneScript reads and writes layer angles in degrees; scene.json stores them
+// in radians, and every other property crosses in the unit it is stored in. Two
+// corpus fixtures pin the convention. 3477054430's head script seeds
+// `new Vec3(0, -32, 0)` for a layer authored at -0.55851, which is -32 degrees
+// exactly, and labels its slider "Max Rotation (degrees)". GBC's own object 137
+// drives a zRotation slider carrying 360 straight into `value.z`.
+//
+// Converting in float and back lands on the same float — the double round trip
+// errs far below half a float ulp — so a script that returns what it was given
+// still reads as unmoved and does not spend a write.
+glm::vec3 anglesToScript (const glm::vec3 &radians) {
+    return glm::degrees (radians);
+}
+
+glm::vec3 anglesFromScript (const glm::vec3 &degrees) {
+    return glm::radians (degrees);
+}
+
 // The values last mirrored into the JS layer object. applyToScene writes a
 // property back only when the graph script moved it away from this, so a
 // property another writer owns is not reverted to the pre-tick snapshot.
+// `angles` is held here in the script's degrees rather than the scene's radians,
+// so both directions compare against the same numbers the script saw.
 struct BindingMirror {
     glm::vec3 origin {};
     glm::vec3 scale {};
@@ -228,7 +248,9 @@ class SceneScriptLayerGraph::Impl {
   function resolved(layer, seen = new Set()) {
     if (!layer || seen.has(layer.id)) throw new Error('cyclic or missing SceneScript parent');
     seen.add(layer.id);
-    const local = { origin: layer.origin, scale: layer.scale, angle: layer.angles.z || 0 };
+    // layer.angles is in degrees, the unit SceneScript reads it in; the parent
+    // chain below rotates with it, so it converts here rather than at each use.
+    const local = { origin: layer.origin, scale: layer.scale, angle: (layer.angles.z || 0) * Math.PI / 180 };
     const parent = layer.parentId == null ? null : byId[layer.parentId];
     if (!parent) return local;
     const outer = resolved(parent, seen);
@@ -428,12 +450,15 @@ class SceneScriptLayerGraph::Impl {
         const bool full = !mirrored.trusted;
         JSValue object = layer (binding.id);
         const auto syncVector = [&] (
-            const char *name, DynamicValue *target, glm::vec3 &mirror
+            const char *name, DynamicValue *target, glm::vec3 &mirror,
+            glm::vec3 (*toScript) (const glm::vec3 &) = nullptr
         ) {
             if (target == nullptr) {
                 return;
             }
-            const glm::vec3 next = target->getVec3 ();
+            const glm::vec3 scene = target->getVec3 ();
+            const glm::vec3 next
+                = toScript == nullptr ? scene : toScript (scene);
             if (!full && next == mirror) {
                 return;
             }
@@ -442,7 +467,7 @@ class SceneScriptLayerGraph::Impl {
         };
         syncVector ("origin", binding.origin, mirrored.origin);
         syncVector ("scale", binding.scale, mirrored.scale);
-        syncVector ("angles", binding.angles, mirrored.angles);
+        syncVector ("angles", binding.angles, mirrored.angles, anglesToScript);
         syncVector ("color", binding.color, mirrored.color);
         if (binding.angles == nullptr && full) {
             setProperty (
@@ -528,9 +553,10 @@ class SceneScriptLayerGraph::Impl {
             setProperty (context, object, "scale",
                          vector3 (context, binding->scale->getVec3 ()));
         } else if (propertyName == "angles" && binding->angles != nullptr) {
-            binding->mirrored.angles = binding->angles->getVec3 ();
-            setProperty (context, object, "angles",
-                         vector3 (context, binding->angles->getVec3 ()));
+            const glm::vec3 script
+                = anglesToScript (binding->angles->getVec3 ());
+            binding->mirrored.angles = script;
+            setProperty (context, object, "angles", vector3 (context, script));
         } else if (propertyName == "visible" && binding->visible != nullptr) {
             binding->mirrored.visible = binding->visible->getBool ();
             setProperty (context, object, "visible",
@@ -562,7 +588,8 @@ class SceneScriptLayerGraph::Impl {
             // next sync writes it in full.
             bool trusted = true;
             const auto applyVector = [&] (
-                const char *name, DynamicValue *target, glm::vec3 &mirrored
+                const char *name, DynamicValue *target, glm::vec3 &mirrored,
+                glm::vec3 (*fromScript) (const glm::vec3 &) = nullptr
             ) {
                 if (target == nullptr) {
                     return;
@@ -578,14 +605,19 @@ class SceneScriptLayerGraph::Impl {
                     return;
                 }
                 mirrored = *next;
-                if (target->getVec3 () != *next) {
-                    updateVector (target, *next);
+                const glm::vec3 scene
+                    = fromScript == nullptr ? *next : fromScript (*next);
+                if (target->getVec3 () != scene) {
+                    updateVector (target, scene);
                     ++changes;
                 }
             };
             applyVector ("origin", binding.origin, binding.mirrored.origin);
             applyVector ("scale", binding.scale, binding.mirrored.scale);
-            applyVector ("angles", binding.angles, binding.mirrored.angles);
+            applyVector (
+                "angles", binding.angles, binding.mirrored.angles,
+                anglesFromScript
+            );
             applyVector ("color", binding.color, binding.mirrored.color);
             if (binding.visible != nullptr) {
                 JSValue value = property (context, object, "visible");

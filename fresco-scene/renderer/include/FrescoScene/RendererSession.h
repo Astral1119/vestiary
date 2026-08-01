@@ -107,6 +107,19 @@ struct ScriptedDynamicFloatEvidence {
     std::size_t changes = 0;
 };
 
+// A vector-valued layer property a script drives, reported in the scene's own
+// units. SceneScript exchanges angles in degrees and the scene stores radians,
+// so the counters beside this one move identically whether that conversion is
+// right or absent; only the value shows it.
+struct ScriptedPropertyVectorEvidence {
+    std::string key;
+    int objectId = 0;
+    std::string property;
+    double x = 0.0;
+    double y = 0.0;
+    double z = 0.0;
+};
+
 struct PropertyScriptEvidence {
     std::string key;
     std::string profile;
@@ -280,6 +293,7 @@ struct RendererMetrics {
     std::size_t mediaThumbnailScriptDispatches = 0;
     std::size_t mediaPropertyScriptErrors = 0;
     std::vector<ScriptedDynamicFloatEvidence> scriptedDynamicFloats;
+    std::vector<ScriptedPropertyVectorEvidence> scriptedPropertyVectors;
     std::size_t scriptedDynamicFloatUpdates = 0;
     std::size_t scriptedDynamicFloatChanges = 0;
     std::size_t scriptErrors = 0;

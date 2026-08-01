@@ -573,6 +573,21 @@ NSArray* scriptedDynamicFloatPayload (
     return result;
 }
 
+NSArray* scriptedPropertyVectorPayload (
+    const std::vector<FrescoScene::ScriptedPropertyVectorEvidence>& values
+) {
+    NSMutableArray* result = [NSMutableArray arrayWithCapacity:values.size ()];
+    for (const auto& value : values) {
+        [result addObject:@{
+            @"key": toNSString (value.key),
+            @"objectID": @(value.objectId),
+            @"property": toNSString (value.property),
+            @"value": @[@(value.x), @(value.y), @(value.z)],
+        }];
+    }
+    return result;
+}
+
 NSArray* numberPayload (const std::vector<double>& values) {
     NSMutableArray* result = [NSMutableArray arrayWithCapacity:values.size ()];
     for (const double value : values) {
@@ -3253,6 +3268,9 @@ bool handleMessage (NSDictionary* message) {
                 @"mediaPropertyScriptErrors": @(metrics.mediaPropertyScriptErrors),
                 @"scriptedDynamicFloats": scriptedDynamicFloatPayload (
                     metrics.scriptedDynamicFloats
+                ),
+                @"scriptedPropertyVectors": scriptedPropertyVectorPayload (
+                    metrics.scriptedPropertyVectors
                 ),
                 @"scriptedDynamicFloatUpdates": @(
                     metrics.scriptedDynamicFloatUpdates

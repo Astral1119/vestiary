@@ -1729,6 +1729,24 @@ public:
                 }
                 return result;
             } (),
+            .scriptedPropertyVectors = [&scriptEngine] {
+                std::vector<ScriptedPropertyVectorEvidence> result;
+                for (const auto& script :
+                         scriptEngine.genericPropertyScriptEvidence ()) {
+                    if (!script.hasValue) {
+                        continue;
+                    }
+                    result.push_back ({
+                        .key = script.key,
+                        .objectId = script.objectId,
+                        .property = script.property,
+                        .x = script.value.x,
+                        .y = script.value.y,
+                        .z = script.value.z,
+                    });
+                }
+                return result;
+            } (),
             .scriptedDynamicFloatUpdates = scriptEngine.dynamicFloatUpdateCount (),
             .scriptedDynamicFloatChanges = scriptEngine.dynamicFloatChangeCount (),
             .scriptErrors = scriptEngine.errorCount (),
