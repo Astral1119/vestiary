@@ -337,7 +337,7 @@
       "role": "audio-puppet-interaction-stretch",
       "picker": {
         "status": "reach",
-        "note": "composition is correct as of 2026-07-31 — the layer pile-up was puppet layers drawing local mesh coordinates under a scene projection, fixed by 0c8c714 and fe5618b and confirmed against a live apply. Cursor and click interaction is implemented as of 2026-07-31 — the pointer reaches shaders and scripts, and clicks route by hit-test to both of this scene's click scripts. Held at reach pending an operator verdict on a live apply, which is the only thing that has ever judged this fixture correctly; native/ANGLE promotion measured consistency, not correctness"
+        "note": "composition is correct as of 2026-07-31 — the layer pile-up was puppet layers drawing local mesh coordinates under a scene projection, fixed by 0c8c714 and fe5618b and confirmed against a live apply. Cursor and click interaction is implemented as of 2026-07-31 and the scene responds to it on a live apply, but responds wrongly: the host maps a screen position onto the whole authored projection while the renderer crops the scene to the display aspect, measured at 6.3% off each side. Held at reach on that defect, not on placement; native/ANGLE promotion measured consistency, not correctness"
       },
       "creatorSteamID": "76561199211352973",
       "workshopUpdatedAt": "2025-06-11T17:16:03Z",
