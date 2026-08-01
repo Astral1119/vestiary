@@ -61,6 +61,7 @@ final class SceneHelperSupervisor {
     private var acceptedMediaEvents: [String: [String: Any]] = [:]
     private var pendingThumbnailPayloads: [[String: Any]] = []
     private var supportsSoundCursorClick = false
+    private var supportsCursorHitTest = false
     private var projectionSize: NSSize?
     private var lastCursorMoveAt = Date.distantPast
     private var lastCursorScenePoint: NSPoint?
@@ -247,9 +248,16 @@ final class SceneHelperSupervisor {
     }
 
     func cursorClick(at location: NSPoint) {
-        guard desired, ready, desiredVisible, !desiredPaused,
-              supportsSoundCursorClick, displayFrame.contains(location) else { return }
-        send(type: "cursor-click", values: ["objectID": 289])
+        guard acceptsCursor else { return }
+        // Before hit-testing existed this sent one hardcoded object ID, which
+        // reached exactly one script in one fixture.
+        guard supportsCursorHitTest else {
+            guard supportsSoundCursorClick, displayFrame.contains(location) else { return }
+            send(type: "cursor-click", values: ["objectID": 289])
+            return
+        }
+        guard let point = scenePoint(for: location) else { return }
+        send(type: "cursor-click", values: ["x": point.x, "y": point.y])
     }
 
     // Scene coordinates are absolute and bottom-up over the authored projection,
@@ -516,6 +524,7 @@ final class SceneHelperSupervisor {
             let capabilities = event["capabilities"] as? [String] ?? []
             supportsMediaSession = capabilities.contains("media-session-v1")
             supportsSoundCursorClick = capabilities.contains("sound-cursor-click")
+            supportsCursorHitTest = capabilities.contains("cursor-hit-test-v1")
             let audioSupport = capabilities.contains("audio-spectrum")
             if audioSupport != supportsAudioSpectrum {
                 supportsAudioSpectrum = audioSupport
@@ -634,6 +643,7 @@ final class SceneHelperSupervisor {
         ready = false
         supportsAudioSpectrum = false
         supportsSoundCursorClick = false
+        supportsCursorHitTest = false
         projectionSize = nil
         let completedGeneration = launchGeneration
         let completions = pendingMuteCompletions.filter { $0.0 == completedGeneration }

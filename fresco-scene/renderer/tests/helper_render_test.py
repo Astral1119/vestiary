@@ -552,6 +552,7 @@ assert first_cursor_click == {
     "type": "cursor-clicked",
     "assignmentID": "volume-properties",
     "objectID": 289,
+    "objectIDs": [289],
     "handled": True,
 }, first_cursor_click
 assert second_cursor_click == first_cursor_click, second_cursor_click

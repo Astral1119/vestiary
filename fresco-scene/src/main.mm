@@ -1829,6 +1829,7 @@ bool handleMessage (NSDictionary* message) {
             @"mute-unmute",
             @"sound-volume-properties",
             @"sound-cursor-click",
+            @"cursor-hit-test-v1",
             @"show-hide",
             @"runtime-metrics",
             @"scheduling-policy-v1",
@@ -2188,14 +2189,26 @@ bool handleMessage (NSDictionary* message) {
             return true;
         }
         id rawObjectID = message[@"objectID"];
-        if (![rawObjectID isKindOfClass:[NSNumber class]]) {
+        id rawX = message[@"x"];
+        id rawY = message[@"y"];
+        const bool locating = rawObjectID == nil;
+        if (locating
+            && (![rawX isKindOfClass:[NSNumber class]]
+                || ![rawY isKindOfClass:[NSNumber class]])) {
+            emitEvent (@"warning", assignmentID, @{
+                @"code": @"invalid-cursor-click",
+                @"message": @"cursor click needs an objectID or scene x and y",
+            });
+            return true;
+        }
+        if (!locating && ![rawObjectID isKindOfClass:[NSNumber class]]) {
             emitEvent (@"warning", assignmentID, @{
                 @"code": @"invalid-cursor-click",
                 @"message": @"cursor click objectID must be an integer",
             });
             return true;
         }
-        const int objectID = [rawObjectID intValue];
+        const int objectID = locating ? 0 : [rawObjectID intValue];
         std::optional<double> monotonicMilliseconds = std::nullopt;
         id rawMonotonicMilliseconds = message[@"monotonicMilliseconds"];
         if (rawMonotonicMilliseconds != nil) {
@@ -2209,17 +2222,30 @@ bool handleMessage (NSDictionary* message) {
             }
             monotonicMilliseconds = [rawMonotonicMilliseconds doubleValue];
         }
-        const bool handled = activeRenderer->cursorClick (
-            objectID, monotonicMilliseconds
-        );
+        std::vector<int> reached;
+        if (locating) {
+            reached = activeRenderer->cursorClickAt (
+                static_cast<float> ([rawX doubleValue]),
+                static_cast<float> ([rawY doubleValue]),
+                monotonicMilliseconds
+            );
+        } else if (activeRenderer->cursorClick (objectID, monotonicMilliseconds)) {
+            reached.push_back (objectID);
+        }
+        const bool handled = !reached.empty ();
         if (handled) {
             invalidateCoordinator (
                 FrescoScene::ChangeProducers::script,
                 FrescoScene::ChangeReasons::externalEvent
             );
         }
+        NSMutableArray* reachedIDs = [NSMutableArray arrayWithCapacity:reached.size ()];
+        for (const int identifier : reached) {
+            [reachedIDs addObject:@(identifier)];
+        }
         emitEvent (@"cursor-clicked", assignmentID, @{
-            @"objectID": @(objectID),
+            @"objectID": @(reached.empty () ? objectID : reached.front ()),
+            @"objectIDs": reachedIDs,
             @"handled": @(handled),
         });
 #else

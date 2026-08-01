@@ -96,6 +96,7 @@ public:
     );
     bool cursorClick (int objectId, std::optional<double> monotonicMilliseconds = std::nullopt);
     std::size_t cursorEvent (std::string_view name, float x, float y);
+    [[nodiscard]] bool acceptsCursorClick (int objectId) const;
 
     ScriptLayerHandle createLayerScript (
         const std::string&,

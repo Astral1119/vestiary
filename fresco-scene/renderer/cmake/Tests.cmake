@@ -1772,6 +1772,16 @@ if(BUILD_TESTING
             "${FRESCO_SCENE_RENDER_BACKEND}"
     )
     add_test(
+        NAME fresco-scene-renderer-cursor-click-hit-test
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/cursor_click_hit_test_test.py"
+            "$<TARGET_FILE:fresco-scene>"
+            "${FRESCO_SCENE_WORKSHOP_ROOT}"
+            "${FRESCO_SCENE_ASSETS}"
+            "${FRESCO_SCENE_RENDER_BACKEND}"
+    )
+    add_test(
         NAME fresco-scene-renderer-pointer-position-uniform
         COMMAND
             "${Python3_EXECUTABLE}"

@@ -132,6 +132,16 @@ string(REPLACE
     puppet_image_header
     "${puppet_image_header}"
 )
+# Cursor hit-testing needs the box a layer actually draws, which is m_pos: the
+# resolved parent chain, the scale and the alignment are already folded into it.
+# This lives here rather than in GeneratedPatches.cmake only because CImage is
+# read, patched and written in this file, and two writers would race.
+string(REPLACE
+    "    [[nodiscard]] glm::vec2 getSize () const;"
+    "    [[nodiscard]] glm::vec2 getSize () const;\n\n    /** The drawn box as (left, bottom, right, top) in absolute bottom-up scene coordinates. */\n    [[nodiscard]] glm::vec4 frescoSceneBox () const;"
+    puppet_image_header
+    "${puppet_image_header}"
+)
 # A puppet mesh needs its vertices in two spaces, for the same reason the
 # non-puppet path keeps m_sceneSpacePosition beside m_copySpacePosition. A first
 # pass rendering into an FBO wants the layer-local box; a pass drawing straight
@@ -147,6 +157,11 @@ string(REPLACE
     "    void setupPuppetGeometryCallback (Effects::CPass* pass) const;"
     puppet_image_header
     "${puppet_image_header}"
+)
+fresco_require_generated_patch(
+    puppet_image_header
+    "frescoSceneBox"
+    "scene-space layer box accessor"
 )
 fresco_require_generated_patch(
     puppet_image_header
@@ -928,6 +943,34 @@ fresco_require_generated_patch(
     puppet_image_source
     "const glm::vec2 authoredSize = this->getImage ().size"
     "passthrough composition authored size"
+)
+# m_pos is kept in centred, y-down scene space; cursor events arrive absolute and
+# bottom-up, so invert the two lines updateScenePosition ends with.
+set(scene_box_anchor
+    "GLuint CImage::getSceneSpacePosition () const { return this->m_sceneSpacePosition; }"
+)
+set(scene_box_after [=[glm::vec4 CImage::frescoSceneBox () const {
+    const auto halfWidth = static_cast<float> (this->getScene ().getWidth ()) / 2.0f;
+    const auto halfHeight = static_cast<float> (this->getScene ().getHeight ()) / 2.0f;
+    return {
+	this->m_pos.x + halfWidth,
+	halfHeight - this->m_pos.y,
+	this->m_pos.z + halfWidth,
+	halfHeight - this->m_pos.w,
+    };
+}
+
+GLuint CImage::getSceneSpacePosition () const { return this->m_sceneSpacePosition; }]=])
+string(REPLACE
+    "${scene_box_anchor}"
+    "${scene_box_after}"
+    puppet_image_source
+    "${puppet_image_source}"
+)
+fresco_require_generated_patch(
+    puppet_image_source
+    "glm::vec4 CImage::frescoSceneBox () const"
+    "scene-space layer box"
 )
 fresco_write_generated(
     "${CMAKE_CURRENT_BINARY_DIR}/generated/CImage.cpp"

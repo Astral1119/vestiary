@@ -36,6 +36,7 @@
 #include "WallpaperEngine/Media/MediaSource.h"
 #include "WallpaperEngine/Render/Drivers/Output/Output.h"
 #include "WallpaperEngine/Render/Drivers/VideoDriver.h"
+#include "WallpaperEngine/Render/Objects/CImage.h"
 #include "WallpaperEngine/Render/Objects/CParticle.h"
 #include "WallpaperEngine/Render/RenderContext.h"
 #include "WallpaperEngine/Render/Wallpapers/CScene.h"
@@ -1503,6 +1504,53 @@ public:
             );
     }
 
+    // Every layer under the point that has a click handler, topmost first.
+    // Render order is back to front, so it is walked in reverse.
+    //
+    // All of them, not just the topmost: GBC Subaru carries two full-size copies
+    // of the same layer, one scripted to play a sound and one to run the
+    // head-poke animation, and a topmost-only rule would leave whichever the
+    // author drew first permanently dead. Worth confirming against Wallpaper
+    // Engine on Windows before it is relied on for a second fixture.
+    [[nodiscard]] std::vector<int> objectsAtScenePoint (float x, float y) const {
+        std::vector<int> reached;
+        if (m_scene == nullptr) {
+            return reached;
+        }
+        const auto& scriptEngine = m_scene->getScriptEngine ();
+        const auto& order = m_scene->getObjectsByRenderOrder ();
+        for (auto object = order.rbegin (); object != order.rend (); ++object) {
+            const auto* image
+                = dynamic_cast<const WallpaperEngine::Render::Objects::CImage*> (
+                    *object
+                );
+            if (image == nullptr
+                || !scriptEngine.acceptsCursorClick ((*object)->getId ())) {
+                continue;
+            }
+            const glm::vec4 box = image->frescoSceneBox ();
+            if (x >= box.x && x <= box.z && y >= box.y && y <= box.w) {
+                reached.push_back ((*object)->getId ());
+            }
+        }
+        return reached;
+    }
+
+    std::vector<int> cursorClickAt (
+        float x, float y, std::optional<double> monotonicMilliseconds
+    ) {
+        ScopedRendererClockActivation clockActivation (m_clock);
+        std::vector<int> handled;
+        for (const int objectId : objectsAtScenePoint (x, y)) {
+            if (m_scene->getScriptEngine ().cursorClick (
+                    objectId, monotonicMilliseconds
+                )) {
+                handled.push_back (objectId);
+            }
+        }
+        return handled;
+    }
+
     std::size_t cursorEvent (std::string_view name, float x, float y) {
         ScopedRendererClockActivation clockActivation (m_clock);
         m_cursorScenePosition = glm::dvec2 (x, y);
@@ -1830,6 +1878,12 @@ std::size_t RendererSession::cursorEvent (
     std::string_view name, float x, float y
 ) {
     return m_impl->cursorEvent (name, x, y);
+}
+
+std::vector<int> RendererSession::cursorClickAt (
+    float x, float y, std::optional<double> monotonicMilliseconds
+) {
+    return m_impl->cursorClickAt (x, y, monotonicMilliseconds);
 }
 
 WallpaperEngine::Audio::SoundPropertyEvidence RendererSession::setUserProperties (

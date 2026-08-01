@@ -223,9 +223,17 @@ acknowledges its terminal change and consumed lease, and schedules no retry.
 
 `cursor-down`, `cursor-move`, and `cursor-up` carry numeric scene coordinates in
 `x` and `y`. They return `cursor-event-dispatched` with the phase and whether a
-classified script handled it. `cursor-click` carries integer `objectID` and an
-optional finite `monotonicMilliseconds` test clock. It returns `cursor-clicked`
-with the object ID and handled state.
+classified script handled it. `cursor-click` carries either an integer `objectID`
+or a scene position in `x` and `y`, and an optional finite
+`monotonicMilliseconds` test clock. It returns `cursor-clicked` with `objectIDs`,
+the objects that handled it, `objectID` for the first of them, and the handled
+state.
+
+A positional click reaches every layer under the point that has a click handler,
+topmost first, tested against the box the layer draws with its resolved parent
+chain, scale and alignment folded in. It reaches all of them rather than only the
+topmost because a scene may stack several scripted copies of one layer, which
+GBC Subaru does. A point over no such layer handles nothing.
 
 Scene coordinates are absolute and bottom-up over the authored orthographic
 projection, whose size `ready` reports as `projection`. They also set the

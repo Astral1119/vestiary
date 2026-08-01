@@ -2415,6 +2415,33 @@ public:
         return handled;
     }
 
+    // Membership only, matching what cursorClick dispatches on. Hit-testing asks
+    // this before choosing a target, so it must not run any script.
+    [[nodiscard]] bool acceptsCursorClick (int objectId) const {
+        const bool generic = std::ranges::any_of (
+            m_genericPropertyScripts, [objectId] (const auto& entry) {
+                const auto& script = entry.second;
+                return script.objectId == objectId
+                    && (script.profile
+                            == "generic-inert-local-animation-layer-click-v1"
+                        || script.profile
+                            == "generic-named-animation-double-click-v1"
+                        || usesSceneLayerGraph (script.profile));
+            }
+        );
+        if (generic) {
+            return true;
+        }
+        if (m_rejectedLocalAnimationLayerScripts.contains (objectId)) {
+            return true;
+        }
+        return std::ranges::any_of (
+            m_cursorScripts, [objectId] (const auto& entry) {
+                return entry.second.objectId == objectId;
+            }
+        );
+    }
+
 private:
     [[nodiscard]] static int scriptClockHour () {
         return scriptClock ().hour;
@@ -3677,6 +3704,10 @@ std::size_t ScriptEngine::cursorEvent (
     std::string_view name, float x, float y
 ) {
     return m_impl->cursorEvent (name, x, y);
+}
+
+bool ScriptEngine::acceptsCursorClick (int objectId) const {
+    return m_impl->acceptsCursorClick (objectId);
 }
 
 ScriptLayerHandle ScriptEngine::createLayerScript (

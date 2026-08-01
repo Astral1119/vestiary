@@ -374,6 +374,15 @@ public:
         std::optional<double> monotonicMilliseconds = std::nullopt
     );
     std::size_t cursorEvent (std::string_view name, float x, float y);
+
+    /**
+     * Dispatches a click to every layer under an absolute bottom-up scene point
+     * that has a click handler, topmost first. Returns the objects that handled
+     * it, empty when the point is over no such layer.
+     */
+    std::vector<int> cursorClickAt (
+        float x, float y, std::optional<double> monotonicMilliseconds = std::nullopt
+    );
     [[nodiscard]] WallpaperEngine::Audio::SoundPropertyEvidence setUserProperties (
         const WallpaperEngine::Audio::UserPropertyBatch& properties
     );
