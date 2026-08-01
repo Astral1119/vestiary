@@ -122,7 +122,7 @@ string(REPLACE
 )
 string(REPLACE
     "    std::vector<GLfloat> m_puppetRawPositions = {};"
-    "    std::unique_ptr<FrescoScene::PuppetRuntimeMesh> m_puppetRuntime = nullptr;\n    std::vector<std::shared_ptr<const TextureProvider>> m_puppetMaskTextures = {};\n    std::unordered_map<GLuint, GLuint> m_puppetStencilBuffers = {};\n    GLuint m_puppetMaskProgram = GL_NONE;\n    GLuint m_puppetMaskVAO = GL_NONE;\n    GLint m_puppetMaskPosition = -1;\n    GLint m_puppetMaskTexCoord = -1;\n    GLint m_puppetMaskSize = -1;"
+    "    std::unique_ptr<FrescoScene::PuppetRuntimeMesh> m_puppetRuntime = nullptr;\n    std::vector<std::shared_ptr<const TextureProvider>> m_puppetMaskTextures = {};\n    std::unordered_map<GLuint, GLuint> m_puppetStencilBuffers = {};\n    GLuint m_puppetMaskProgram = GL_NONE;\n    GLuint m_puppetMaskVAO = GL_NONE;\n    GLint m_puppetMaskPosition = -1;\n    GLint m_puppetMaskTexCoord = -1;\n    GLint m_puppetMaskTransform = -1;\n    GLint m_puppetMaskSize = -1;\n    GLint m_puppetMaskUseTransform = -1;"
     puppet_image_header
     "${puppet_image_header}"
 )
@@ -131,6 +131,32 @@ string(REPLACE
     "private:\n    [[nodiscard]] bool isVisibleWithParents () const;\n    bool loadPuppetMesh"
     puppet_image_header
     "${puppet_image_header}"
+)
+# A puppet mesh needs its vertices in two spaces, for the same reason the
+# non-puppet path keeps m_sceneSpacePosition beside m_copySpacePosition. A first
+# pass rendering into an FBO wants the layer-local box; a pass drawing straight
+# to the scene wants scene coordinates with the resolved parent chain in them.
+string(REPLACE
+    "    GLuint m_puppetSpacePosition = GL_NONE;"
+    "    GLuint m_puppetSpacePosition = GL_NONE;\n    GLuint m_puppetScenePosition = GL_NONE;\n    mutable GLuint m_puppetActivePosition = GL_NONE;"
+    puppet_image_header
+    "${puppet_image_header}"
+)
+string(REPLACE
+    "    void setupPuppetGeometryCallback (Effects::CPass* pass) const;"
+    "    void setupPuppetGeometryCallback (Effects::CPass* pass) const;"
+    puppet_image_header
+    "${puppet_image_header}"
+)
+fresco_require_generated_patch(
+    puppet_image_header
+    "m_puppetScenePosition"
+    "scene-space puppet vertex buffer"
+)
+fresco_require_generated_patch(
+    puppet_image_header
+    "m_puppetActivePosition"
+    "puppet active vertex buffer selection"
 )
 fresco_require_generated_patch(
     puppet_image_header
@@ -346,10 +372,16 @@ set(puppet_geometry_implementation [=[bool CImage::loadPuppetMesh (const glm::ve
 		in vec3 a_Position;
 		in vec2 a_TexCoord;
 		uniform vec2 g_Size;
+		uniform mat4 g_Transform;
+		uniform int g_UseTransform;
 		out vec2 v_TexCoord;
 		void main() {
-		    vec2 clip = a_Position.xy / g_Size * 2.0 - 1.0;
-		    gl_Position = vec4(clip, a_Position.z, 1.0);
+		    if (g_UseTransform != 0) {
+			gl_Position = g_Transform * vec4(a_Position, 1.0);
+		    } else {
+			vec2 clip = a_Position.xy / g_Size * 2.0 - 1.0;
+			gl_Position = vec4(clip, a_Position.z, 1.0);
+		    }
 		    v_TexCoord = a_TexCoord;
 		})";
 	    constexpr const char* fragmentSource = R"(#version 300 es
@@ -370,10 +402,16 @@ set(puppet_geometry_implementation [=[bool CImage::loadPuppetMesh (const glm::ve
 		in vec3 a_Position;
 		in vec2 a_TexCoord;
 		uniform vec2 g_Size;
+		uniform mat4 g_Transform;
+		uniform int g_UseTransform;
 		out vec2 v_TexCoord;
 		void main() {
-		    vec2 clip = a_Position.xy / g_Size * 2.0 - 1.0;
-		    gl_Position = vec4(clip, a_Position.z, 1.0);
+		    if (g_UseTransform != 0) {
+			gl_Position = g_Transform * vec4(a_Position, 1.0);
+		    } else {
+			vec2 clip = a_Position.xy / g_Size * 2.0 - 1.0;
+			gl_Position = vec4(clip, a_Position.z, 1.0);
+		    }
 		    v_TexCoord = a_TexCoord;
 		})";
 	    constexpr const char* fragmentSource = R"(#version 330 core
@@ -424,7 +462,9 @@ set(puppet_geometry_implementation [=[bool CImage::loadPuppetMesh (const glm::ve
 	    }
 	    this->m_puppetMaskPosition = glGetAttribLocation (this->m_puppetMaskProgram, "a_Position");
 	    this->m_puppetMaskTexCoord = glGetAttribLocation (this->m_puppetMaskProgram, "a_TexCoord");
+	    this->m_puppetMaskTransform = glGetUniformLocation (this->m_puppetMaskProgram, "g_Transform");
 	    this->m_puppetMaskSize = glGetUniformLocation (this->m_puppetMaskProgram, "g_Size");
+	    this->m_puppetMaskUseTransform = glGetUniformLocation (this->m_puppetMaskProgram, "g_UseTransform");
 	}
 
 	this->updatePuppetPositionBuffer (size);
@@ -523,6 +563,31 @@ void CImage::updatePuppetPositionBuffer (const glm::vec2& size) {
     glBufferData (
 	GL_ARRAY_BUFFER, positions.size () * sizeof (float), positions.data (), GL_DYNAMIC_DRAW
     );
+
+    // positions() is layer-local, centred on the layer's own size, which is what
+    // a first pass rendering into an FBO wants. A pass that draws straight to
+    // the scene is projected with m_modelViewProjectionScreen and expects the
+    // vertices to carry the origin already, exactly as m_pos does for the
+    // non-puppet quad. Mapping the local box onto m_pos gives the same vertices
+    // in that space; without it every puppet layer drew at its mesh
+    // coordinates, so all of them landed on top of each other.
+    std::vector<float> scenePositions = positions;
+    const float spanX = this->m_pos.z - this->m_pos.x;
+    const float spanY = this->m_pos.w - this->m_pos.y;
+    if (size.x > 0.0f && size.y > 0.0f && spanX != 0.0f && spanY != 0.0f) {
+	for (std::size_t index = 0; index + 2 < scenePositions.size (); index += 3) {
+	    scenePositions[index] = this->m_pos.x + scenePositions[index] / size.x * spanX;
+	    scenePositions[index + 1] = this->m_pos.y + scenePositions[index + 1] / size.y * spanY;
+	}
+    }
+    if (this->m_puppetScenePosition == GL_NONE) {
+	glGenBuffers (1, &this->m_puppetScenePosition);
+    }
+    glBindBuffer (GL_ARRAY_BUFFER, this->m_puppetScenePosition);
+    glBufferData (
+	GL_ARRAY_BUFFER, scenePositions.size () * sizeof (float), scenePositions.data (),
+	GL_DYNAMIC_DRAW
+    );
 }
 
 ]=])
@@ -541,7 +606,7 @@ set(puppet_callback_implementation [=[void CImage::setupPuppetGeometryCallback (
 
 	    if (position >= 0) {
 		glEnableVertexAttribArray (position);
-		glBindBuffer (GL_ARRAY_BUFFER, this->m_puppetSpacePosition);
+		glBindBuffer (GL_ARRAY_BUFFER, this->m_puppetActivePosition);
 		glVertexAttribPointer (position, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
 	    }
 	    if (texCoord >= 0) {
@@ -551,6 +616,7 @@ set(puppet_callback_implementation [=[void CImage::setupPuppetGeometryCallback (
 	    }
 	},
 	[this] () {
+	    const bool sceneSpacePuppet = this->m_puppetActivePosition == this->m_puppetScenePosition;
 	    GLint currentFramebuffer = 0;
 	    glGetIntegerv (GL_DRAW_FRAMEBUFFER_BINDING, &currentFramebuffer);
 	    if (currentFramebuffer != static_cast<GLint> (this->getScene ().getFBO ()->getFramebuffer ())) {
@@ -635,7 +701,20 @@ set(puppet_callback_implementation [=[void CImage::setupPuppetGeometryCallback (
 		glActiveTexture (GL_TEXTURE1);
 		glGetIntegerv (GL_TEXTURE_BINDING_2D, &previousTexture1);
 		glUseProgram (this->m_puppetMaskProgram);
+		// The stencil has to land where the geometry lands, so the mask
+		// takes the same transform the draw is using. Scene-space vertices
+		// carry the origin and want the screen projection; layer-local ones
+		// want the [0..size] to clip mapping this shader used to hardcode.
+		// The local path keeps the arithmetic it always had, so a layer
+		// that is not in scene space renders bit-identically; a matrix
+		// doing the same mapping is only equal to within rounding, and
+		// that is enough to move an exact-reference hash.
 		glUniform2f (this->m_puppetMaskSize, this->m_size.x, this->m_size.y);
+		glUniform1i (this->m_puppetMaskUseTransform, sceneSpacePuppet ? 1 : 0);
+		const glm::mat4 maskTransform = this->m_modelViewProjectionScreen;
+		glUniformMatrix4fv (
+		    this->m_puppetMaskTransform, 1, GL_FALSE, &maskTransform[0][0]
+		);
 		glUniform1i (glGetUniformLocation (this->m_puppetMaskProgram, "g_Texture0"), 0);
 		glUniform1i (glGetUniformLocation (this->m_puppetMaskProgram, "g_Texture1"), 1);
 		glActiveTexture (GL_TEXTURE0);
@@ -643,6 +722,10 @@ set(puppet_callback_implementation [=[void CImage::setupPuppetGeometryCallback (
 		glActiveTexture (GL_TEXTURE1);
 		glBindTexture (GL_TEXTURE_2D, this->m_puppetMaskTextures[maskIndex]->getTextureID (0));
 		glBindVertexArray (this->m_puppetMaskVAO);
+		glBindBuffer (GL_ARRAY_BUFFER, this->m_puppetActivePosition);
+		glVertexAttribPointer (
+		    this->m_puppetMaskPosition, 3, GL_FLOAT, GL_FALSE, 0, nullptr
+		);
 		for (const uint32_t sourceOrdinal : mask->maskPartOrdinals) drawPart (sourceOrdinal);
 
 		glActiveTexture (GL_TEXTURE0);
@@ -675,12 +758,55 @@ fresco_replace_section(
     "${puppet_callback_implementation}"
     "puppet masked geometry callback"
 )
+# A layer with no effects has one pass that is both first and final: it is
+# projected with m_modelViewProjectionScreen, so its vertices must carry the
+# origin. Upstream installed the geometry callback before that branch runs and
+# always bound the layer-local buffer, so every such puppet layer drew at its
+# mesh coordinates instead of its authored origin and they all piled up
+# together. Deciding the buffer first and installing the callback after is the
+# whole fix; a first pass that renders into an FBO still gets the local box.
+string(REPLACE
+    "	    spacePosition = this->getSceneSpacePosition ();
+	    drawTo = this->getScene ().getFBO ();"
+    "	    spacePosition = (isFirstPass && this->m_hasPuppetMesh)
+		? this->m_puppetScenePosition
+		: this->getSceneSpacePosition ();
+	    drawTo = this->getScene ().getFBO ();"
+    puppet_image_source
+    "${puppet_image_source}"
+)
+string(REPLACE
+    "	pass->setDestination (drawTo);"
+    "	if (isFirstPass && this->m_hasPuppetMesh) {
+	    this->m_puppetActivePosition = spacePosition;
+	}
+
+	pass->setDestination (drawTo);"
+    puppet_image_source
+    "${puppet_image_source}"
+)
+# Literal FIND rather than the count helper, which matches its marker as a
+# regex and would read these parentheses as groups.
+fresco_require_generated_patch(
+    puppet_image_source
+    "? this->m_puppetScenePosition"
+    "scene-space puppet vertices on the final pass"
+)
+fresco_require_generated_patch(
+    puppet_image_source
+    "m_puppetActivePosition = spacePosition"
+    "puppet active buffer recorded from the pass selection"
+)
+
 set(puppet_delete_before [=[    if (this->m_puppetIndices != GL_NONE) {
 	glDeleteBuffers (1, &this->m_puppetIndices);
     }
 }]=])
 set(puppet_delete_after [=[    if (this->m_puppetIndices != GL_NONE) {
 	glDeleteBuffers (1, &this->m_puppetIndices);
+    }
+    if (this->m_puppetScenePosition != GL_NONE) {
+	glDeleteBuffers (1, &this->m_puppetScenePosition);
     }
     if (this->m_puppetMaskProgram != GL_NONE) {
 	glDeleteProgram (this->m_puppetMaskProgram);
