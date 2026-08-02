@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+SOURCE_BIN="$ROOT/build/tabard"
+APP="${XDG_CACHE_HOME:-$HOME/.cache}/tabard/Inbox.app"
+APP_BIN="$APP/Contents/MacOS/tabard-inbox"
+
+mkdir -p "$APP/Contents/MacOS"
+cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
+
+if [ ! -x "$APP_BIN" ] || [ "$SOURCE_BIN" -nt "$APP_BIN" ]; then
+  NEXT_BIN="$APP_BIN.next.$$"
+  trap 'rm -f "$NEXT_BIN"' EXIT HUP INT TERM
+  cp "$SOURCE_BIN" "$NEXT_BIN"
+  chmod 755 "$NEXT_BIN"
+  mv -f "$NEXT_BIN" "$APP_BIN"
+fi

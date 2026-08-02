@@ -148,9 +148,6 @@ Review results:
    opt-in pinned ANGLE-on-Metal backend behind the same surface and shader
    boundary. SDL3 GPU would require a separate renderer rewrite.
 
-The complete decision, build evidence, architecture, corpus, and acceptance
-gate are in [FEASIBILITY.md](./FEASIBILITY.md).
-
 ### 4. 2D scene compatibility — bounded stretch pass complete
 
 The GPL-3.0 `fresco-scene` target builds independently from Fresco and speaks

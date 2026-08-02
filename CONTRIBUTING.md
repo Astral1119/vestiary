@@ -6,11 +6,11 @@ state contract must not stop a consumer from starting with its own defaults.
 
 ## Start here
 
-Read [`HANDOFF.md`](HANDOFF.md) for the current worktree and next bounded task.
 Read the README for the subsystem you are changing. Read
 [`contract/SPEC.md`](contract/SPEC.md) before changing the theme manifest or
 adapter interface. Read [`livery/ARCHITECTURE.md`](livery/ARCHITECTURE.md)
 before changing Look resolution, transactions, or wallpaper convergence.
+Recent `git log` is the re-entry point for what a subsystem is currently doing.
 
 Inspect `git status` before editing. The repository may contain live experiments
 or generated test state that belongs to another workstream.

@@ -7,9 +7,9 @@ contract's inverse-polarity roles so the chip reads against any look.
 
 Tabard subscribes to herald's tasks channel (files are the bus; tabard
 watches the directory and reconciles by reading) and is the host's
-designated reaper (herald `SPEC.md` §5): orphaned task files from
-publishers without end hooks are unlinked once they are evictable and
-stay so across two sweeps.
+designated reaper: orphaned task files from publishers without end
+hooks are unlinked once they are evictable and stay so across two
+sweeps.
 
 ## Use
 
@@ -40,14 +40,13 @@ jump-to-task tooling — and is quietly eaten otherwise. A transition in
 a tmux pane that is on screen (any pane of the window you have up in an
 attached session) does not toast.
 
-Tasks published with a `group` (herald `SPEC.md` v1.3 — batch
-dispatches like agent swarms) digest instead of parading: completions
-collect for 30s and annunciate as one chip with outcome counts
-("7 finished · 2 failed"), updating in place while visible and
-re-toasting at most every five minutes. Blocked group members
-annunciate immediately — attention never waits in a collector — and
-merge into one "N blocked" chip. The two tiers never share a chip.
-Ungrouped tasks toast individually, as above.
+Tasks published with a `group` (batch dispatches like agent swarms)
+digest instead of parading: completions collect for 30s and annunciate
+as one chip with outcome counts ("7 finished · 2 failed"), updating in
+place while visible and re-toasting at most every five minutes. Blocked
+group members annunciate immediately — attention never waits in a
+collector — and merge into one "N blocked" chip. The two tiers never
+share a chip. Ungrouped tasks toast individually, as above.
 
 Tabard is also the host's designated recorder: observed transitions
 append to `~/.local/state/herald/events.jsonl`, one JSON object per
