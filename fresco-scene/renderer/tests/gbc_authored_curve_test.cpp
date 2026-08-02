@@ -1,7 +1,7 @@
 // GBC Subaru 3448290956 is the only fixture in the corpus that keyframes
 // geometry, and its face was the standing reason to suspect authored curves.
-// HANDOFF.md recorded keyframed property curves as unimplemented on 2026-07-27
-// and named this fixture's left eye-white as the evidence. The curves are in
+// Keyframed property curves were recorded as unimplemented on 2026-07-27,
+// with this fixture's left eye-white as the evidence. The curves are in
 // fact parsed and evaluated; the diagnosis was made by grepping the upstream
 // tree, which has no keyframe support, rather than the patched build, which
 // does — GeneratedPatches.cmake rewrites DynamicValueParser to call

@@ -1,9 +1,9 @@
 """Host, display, and power sampling for the profiling evidence profile.
 
-Produces the `profile`, `host`, and `display` record sections defined in
-docs/FRESCO-GRAPHICS-ARCHITECTURE-PROPOSAL.md (evidence contract, purpose
-`profiling`). The serialized profiling protocol that drives this sampler lives
-in run_profiling.py; this module only reads the machine.
+Produces the `profile`, `host`, and `display` record sections defined by the
+evidence contract (purpose `profiling`). The serialized profiling protocol
+that drives this sampler lives in run_profiling.py; this module only reads
+the machine.
 
 Sources, by privilege:
   - powermetrics (root)  -> CPU/GPU power, GPU active residency, per-task
