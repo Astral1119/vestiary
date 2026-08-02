@@ -39,6 +39,24 @@ and re-authenticating per block would itself perturb the measurement.
     ./baseline-repeatability.py --blocks 12 --sample-seconds 120 \
         --store ../../../.fresco-evidence/energy-baseline-v1
 
+Q10 itself — the backend comparison — is the same harness with `--backend-cycle`
+and one `--backend-binary` per label. The two backends are separate builds
+(`FRESCO_SCENE_RENDER_BACKEND` is a CMake cache variable), so a swap replaces
+the helper binary the daemon launches and restarts the subject:
+
+    ./baseline-repeatability.py --blocks 24 --subject-helpers 1 \
+        --restart-every 1 --backend-cycle native,native,angle,angle \
+        --backend-binary native=fresco-scene/build/fresco-scene \
+        --backend-binary angle=.fresco-evidence/q10-angle-head/fresco-scene \
+        --subject-note "Elaina 3840x2160, five 4K players" \
+        --store ../../../.fresco-evidence/q10-v1
+
+The cycle's runs of two are load-bearing rather than a default: launches
+alternate between two GPU clock states, so a backend that swaps every restart
+gets one state every time and the run reports the clock as a backend delta.
+The record carries the installed image's sha256 per block and the summary says
+whether both backends actually saw both states.
+
 Protocol obligations this implements, from PROPOSAL.md:566-574 and
 BRIEF.md:111-115:
   - fix and record power source, low-power mode, display topology, thermal state
@@ -51,10 +69,12 @@ BRIEF.md:111-115:
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import pathlib
 import re
+import shutil
 import signal
 import statistics
 import subprocess
@@ -69,6 +89,12 @@ import profiling_sampler  # noqa: E402 - path is set immediately above
 
 HELPER_PROCESS_NAMES = ("fresco-scene", "Fresco")
 SAMPLE_INTERVAL_MILLISECONDS = 1000
+
+# Where the daemon looks for the helper it launches (`Fresco.swift:26`, under
+# FRESCO_STATE_DIR). The two render backends are separate builds rather than a
+# runtime switch, so swapping this file and restarting the helper is the whole
+# mechanism of a Q10 backend swap.
+DEFAULT_HELPER_PATH = pathlib.Path.home() / ".config/fresco/bin/fresco-scene"
 
 # The figures carried from a sample all the way through to the summary. This was
 # two lists that disagreed: the summary asked for `aneMilliwatts`, which
@@ -481,6 +507,135 @@ def restart_subject(
     )
 
 
+def parse_backend_binaries(pairs):
+    """Turn `label=path` arguments into a mapping, rejecting what cannot run.
+
+    The paths are checked here rather than at first swap because a typo found
+    at block 40 has already spent the blocks before it.
+    """
+    binaries = {}
+    for pair in pairs:
+        label, separator, raw = pair.partition("=")
+        if not separator or not label or not raw:
+            raise ValueError(
+                f"--backend-binary wants label=path, got {pair!r}"
+            )
+        if label in binaries:
+            raise ValueError(f"--backend-binary names {label!r} twice")
+        path = pathlib.Path(raw).expanduser()
+        if not path.is_file():
+            raise ValueError(f"--backend-binary {label!r} is not a file: {path}")
+        if not os.access(path, os.X_OK):
+            raise ValueError(
+                f"--backend-binary {label!r} is not executable: {path}"
+            )
+        binaries[label] = path
+    return binaries
+
+
+def backend_for_restart(cycle, restart_index):
+    """Which backend the Nth restart installs.
+
+    The cycle is consumed one entry per restart and wraps, so
+    `native,native,angle,angle` swaps the image every second launch while
+    still restarting every launch.
+
+    That shape is the point. The 2026-08-01 loaded runs found the subject's own
+    launches alternate between two GPU clock states — nine launches across two
+    runs alternated perfectly, low then high — and the split is worth 7-8%.
+    A cycle that changes backend on every restart hands one backend every low
+    launch and the other every high one, and reports the clock as a backend
+    delta. A cycle whose backend runs change length two puts each backend on
+    both parities instead, which is what the entry meant by designing around
+    the alternation rather than averaging over it.
+    """
+    return cycle[restart_index % len(cycle)]
+
+
+def install_backend(label, binaries, helper_path):
+    """Put one backend's helper binary where the daemon will launch it.
+
+    Copied rather than symlinked: `ANGLE`'s build carries an absolute `@rpath`
+    into a sibling checkout, so the image works from anywhere, but a symlink
+    would leave the record naming a path whose content can change under it.
+    The copy goes to a temporary name in the same directory and is moved into
+    place, so a helper relaunching mid-write never reads half an image.
+
+    The digest is returned rather than logged because it is the only thing that
+    proves which image a block actually ran; the label is an argument and the
+    path can be re-pointed between runs.
+    """
+    source = binaries[label]
+    helper_path.parent.mkdir(parents=True, exist_ok=True)
+    staged = helper_path.with_name(helper_path.name + ".swapping")
+    shutil.copy2(source, staged)
+    os.replace(staged, helper_path)
+    digest = hashlib.sha256(helper_path.read_bytes()).hexdigest()
+    return {
+        "backend": label,
+        "source": str(source),
+        "installedAt": str(helper_path),
+        "sha256": digest,
+        "bytes": helper_path.stat().st_size,
+    }
+
+
+def summarize_by_backend(valid_blocks):
+    """Per-backend figures, and the parity coverage that makes them readable.
+
+    A backend's mean is only comparable to the other's if both ran on both GPU
+    clock states, so the coverage is reported beside the figures rather than
+    left for a reader to reconstruct from the raw blocks. `gpuFrequencyMhz` is
+    what distinguishes the states; blocks are grouped by it only to the extent
+    of counting distinct rounded values, because the two modes are far enough
+    apart that any finer classification would be inventing a threshold this
+    harness has not measured.
+    """
+    grouped = {}
+    for block in valid_blocks:
+        label = block.get("backend")
+        if label is None:
+            continue
+        grouped.setdefault(label, []).append(block)
+
+    summary = {}
+    for label, blocks in sorted(grouped.items()):
+        entry = {"blocks": len(blocks)}
+        for field in POWER_FIELDS:
+            values = [
+                b["figures"][field]
+                for b in blocks
+                if field in b.get("figures", {})
+            ]
+            if values:
+                entry[field] = summarize(values)
+        frequencies = sorted({
+            round(b["figures"]["gpuFrequencyMhz"])
+            for b in blocks
+            if "gpuFrequencyMhz" in b.get("figures", {})
+        })
+        entry["gpuFrequencyMhzObserved"] = frequencies
+        summary[label] = entry
+
+    # One backend seeing a clock state the other never did is the failure the
+    # cycle exists to prevent, so the run says so rather than leaving two means
+    # side by side to be read as a delta.
+    observed = {
+        label: set(entry["gpuFrequencyMhzObserved"])
+        for label, entry in summary.items()
+    }
+    shared = set.intersection(*observed.values()) if len(observed) > 1 else set()
+    return {
+        "byBackend": summary,
+        "parityCoverage": {
+            "sharedGpuFrequencyMhz": sorted(shared),
+            "balanced": len(observed) > 1 and all(
+                values == shared for values in observed.values()
+            ),
+        },
+    }
+
+
 def sample_power(seconds, subsamples):
     """One powermetrics window, split into `subsamples` equal sub-windows.
 
@@ -842,6 +997,26 @@ def main():
         help="How long to wait for the subject to come back before ending the "
              "run. A subject that never returns fails every remaining block.",
     )
+    parser.add_argument(
+        "--backend-cycle", default="",
+        help="Comma-separated backend labels, one consumed per restart and "
+             "wrapping, e.g. native,native,angle,angle. Runs of length two "
+             "swap the image every second launch while still restarting every "
+             "launch, which puts each backend on both GPU clock parities. A "
+             "cycle that alternates every restart reports the clock as a "
+             "backend delta and is the thing to avoid.",
+    )
+    parser.add_argument(
+        "--backend-binary", action="append", default=[], metavar="LABEL=PATH",
+        help="Helper binary for a backend label, repeatable. Every label in "
+             "--backend-cycle needs one.",
+    )
+    parser.add_argument(
+        "--helper-path", type=pathlib.Path, default=DEFAULT_HELPER_PATH,
+        help="Where the daemon launches its helper from. The backend swap "
+             "replaces this file; it is restored to whatever was there before "
+             "the run when the run ends.",
+    )
     parser.add_argument("--store", required=True, type=pathlib.Path)
     arguments = parser.parse_args()
 
@@ -853,6 +1028,39 @@ def main():
         sys.exit(
             "--restart-every needs a subject; --subject-helpers is 0, so there "
             "is nothing for the run to restart"
+        )
+
+    backend_cycle = [
+        label.strip()
+        for label in arguments.backend_cycle.split(",")
+        if label.strip()
+    ]
+    try:
+        backend_binaries = parse_backend_binaries(arguments.backend_binary)
+    except ValueError as bad:
+        sys.exit(str(bad))
+    if backend_cycle and not arguments.restart_every:
+        # The cycle advances on restarts and nothing else, so without one it
+        # would install its first backend and never swap — a single-backend run
+        # wearing a comparison's record shape.
+        sys.exit(
+            "--backend-cycle needs --restart-every; the cycle advances one "
+            "entry per restart and a run that never restarts never swaps"
+        )
+    missing = sorted(set(backend_cycle) - set(backend_binaries))
+    if missing:
+        sys.exit(
+            "--backend-cycle names backends with no --backend-binary: "
+            + ", ".join(missing)
+        )
+    if backend_binaries and not backend_cycle:
+        sys.exit(
+            "--backend-binary was given without --backend-cycle, so nothing "
+            "would install it"
+        )
+    if backend_cycle and len(set(backend_cycle)) < 2:
+        sys.exit(
+            "--backend-cycle names one backend; a comparison needs two"
         )
 
     if arguments.sub_samples < 1:
@@ -914,6 +1122,11 @@ def main():
             "subjectNote": arguments.subject_note,
             "restartEvery": arguments.restart_every,
             "restartCommand": arguments.restart_command,
+            "backendCycle": backend_cycle,
+            "backendBinaries": {
+                label: str(path) for label, path in backend_binaries.items()
+            },
+            "helperPath": str(arguments.helper_path) if backend_cycle else "",
         },
         "subjectPids": sorted(subject_pids),
         "restarts": [],
@@ -961,13 +1174,71 @@ def main():
     blocks_since_restart = None
     abandoned = False
 
+    # The helper binary the machine had before the run, kept so the daemon is
+    # left as it was found. A backend comparison that ends leaving ANGLE
+    # installed has changed the machine it measured, and the next run's
+    # "before" is then this run's last swap.
+    original_helper = None
+    if backend_cycle:
+        if arguments.helper_path.is_file():
+            original_helper = arguments.helper_path.with_name(
+                arguments.helper_path.name + ".before-run"
+            )
+            shutil.copy2(arguments.helper_path, original_helper)
+            record["originalHelper"] = {
+                "path": str(arguments.helper_path),
+                "savedTo": str(original_helper),
+                "sha256": hashlib.sha256(
+                    arguments.helper_path.read_bytes()
+                ).hexdigest(),
+            }
+        else:
+            # Nothing to restore, and the swap will create it. Recorded so the
+            # absence is a fact in the record rather than an inference.
+            record["originalHelper"] = {
+                "path": str(arguments.helper_path), "absent": True
+            }
+
+    restart_index = 0
+    current_backend = None
+
     for index in range(arguments.blocks):
         time.sleep(arguments.settle_seconds)
 
         # After the settle and before the window, so the transient is inside
         # what the block measures rather than settled away ahead of it.
         restart = None
+        swap = None
         if arguments.restart_every and index % arguments.restart_every == 0:
+            # The image is replaced before the subject is signalled, so the
+            # supervisor's relaunch picks up the new backend. Doing it after
+            # would restart the old image and stamp the block with the label of
+            # one that had not started yet.
+            if backend_cycle:
+                label = backend_for_restart(backend_cycle, restart_index)
+                try:
+                    swap = install_backend(
+                        label, backend_binaries, arguments.helper_path
+                    )
+                except OSError as failed:
+                    record["abandonedAt"] = utc_now()
+                    record["abandonReason"] = (
+                        f"could not install the {label!r} helper binary: "
+                        f"{failed}"
+                    )
+                    write_record(output, record)
+                    print(f"fail: {record['abandonReason']}", flush=True)
+                    abandoned = True
+                    break
+                current_backend = label
+                swap["beforeBlock"] = index
+                record.setdefault("backendSwaps", []).append(swap)
+                print(
+                    f"backend before block {index}: {label} "
+                    f"({swap['sha256'][:12]})",
+                    flush=True,
+                )
+            restart_index += 1
             try:
                 restart = restart_subject(
                     subject_pids,
@@ -1001,6 +1272,14 @@ def main():
             "blocksSinceRestart": blocks_since_restart,
             "before": before,
         }
+        if current_backend is not None:
+            # Stamped on every block, not only the one that swapped, because a
+            # backend keeps running until the next swap and the blocks between
+            # are the ones its mean is made of.
+            block["backend"] = current_backend
+            block["backendSha256"] = swap["sha256"] if swap else (
+                record["backendSwaps"][-1]["sha256"]
+            )
         probe_watcher = (
             MidBlockProbe(
                 arguments.busy_threshold_percent,
@@ -1115,6 +1394,39 @@ def main():
         )
     if arguments.restart_every:
         record["summary"]["restartTransient"] = restart_transient_verdict(valid)
+    if backend_cycle:
+        record["summary"]["backends"] = summarize_by_backend(valid)
+
+    # The file is put back whether the run finished or was abandoned. The helper
+    # that is running keeps the image it launched with until something relaunches
+    # it, so the restore is a statement about the next launch, not this one.
+    if original_helper is not None and original_helper.is_file():
+        try:
+            os.replace(original_helper, arguments.helper_path)
+            record["helperRestored"] = {
+                "path": str(arguments.helper_path),
+                "sha256": hashlib.sha256(
+                    arguments.helper_path.read_bytes()
+                ).hexdigest(),
+                "note": (
+                    "the live helper keeps the last swapped image until it "
+                    "relaunches"
+                ),
+            }
+            print(
+                f"restored {arguments.helper_path} to its pre-run image; "
+                "relaunch the helper to put it back in front of the daemon",
+                flush=True,
+            )
+        except OSError as failed:
+            # Worth shouting about: the machine is left carrying a binary the
+            # operator did not install.
+            record["helperRestoreFailed"] = str(failed)
+            print(
+                f"WARNING: could not restore {arguments.helper_path}: {failed}"
+                f"\nthe pre-run image is at {original_helper}",
+                flush=True,
+            )
     record["completedAt"] = utc_now()
     record["closingEnvironment"] = environment_snapshot(
         arguments.busy_threshold_percent, subject_pids

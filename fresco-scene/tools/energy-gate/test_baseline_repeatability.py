@@ -8,9 +8,13 @@ trustworthy are covered here instead. Every case below is one the 2026-07-31
 run either hit or would have hit.
 """
 
+import hashlib
 import importlib.util
+import os
 import pathlib
+import shutil
 import statistics
+import tempfile
 import threading
 import time
 import unittest
@@ -542,6 +546,191 @@ class RestartTransientTest(unittest.TestCase):
         verdict = harness.restart_transient_verdict(blocks)
         self.assertNotIn("cpuPowerMilliwatts", verdict)
         self.assertIn("two blocks in each group", verdict["note"])
+
+
+# --- backend alternation --------------------------------------------------
+
+
+class ParseBackendBinariesTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = pathlib.Path(
+            tempfile.mkdtemp(prefix="backend-binaries-")
+        )
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+
+    def executable(self, name):
+        path = self.directory / name
+        path.write_bytes(b"#!/bin/sh\n")
+        path.chmod(0o755)
+        return path
+
+    def test_it_maps_labels_to_paths(self):
+        native = self.executable("native")
+        angle = self.executable("angle")
+        mapping = harness.parse_backend_binaries(
+            [f"native={native}", f"angle={angle}"]
+        )
+        self.assertEqual(mapping, {"native": native, "angle": angle})
+
+    def test_a_missing_separator_is_rejected(self):
+        with self.assertRaises(ValueError):
+            harness.parse_backend_binaries(["native"])
+
+    def test_a_repeated_label_is_rejected(self):
+        """Silently keeping the last one would run a backend the command line
+        does not read as naming."""
+        native = self.executable("native")
+        with self.assertRaises(ValueError) as raised:
+            harness.parse_backend_binaries(
+                [f"native={native}", f"native={native}"]
+            )
+        self.assertIn("twice", str(raised.exception))
+
+    def test_a_path_that_is_not_there_is_rejected_before_the_run(self):
+        with self.assertRaises(ValueError) as raised:
+            harness.parse_backend_binaries(
+                [f"angle={self.directory / 'absent'}"]
+            )
+        self.assertIn("not a file", str(raised.exception))
+
+    def test_a_file_that_cannot_run_is_rejected(self):
+        path = self.directory / "unreadable"
+        path.write_bytes(b"")
+        path.chmod(0o644)
+        with self.assertRaises(ValueError) as raised:
+            harness.parse_backend_binaries([f"angle={path}"])
+        self.assertIn("not executable", str(raised.exception))
+
+
+class BackendCycleTest(unittest.TestCase):
+    def test_the_cycle_wraps(self):
+        cycle = ["native", "native", "angle", "angle"]
+        got = [harness.backend_for_restart(cycle, n) for n in range(8)]
+        self.assertEqual(got, cycle + cycle)
+
+    def test_runs_of_two_put_each_backend_on_both_launch_parities(self):
+        """The property the cycle exists for. Launches alternate between two
+        GPU clock states, so pairing restart index parity against backend is
+        what says whether the comparison is confounded."""
+        cycle = ["native", "native", "angle", "angle"]
+        parities = {}
+        for restart in range(8):
+            label = harness.backend_for_restart(cycle, restart)
+            parities.setdefault(label, set()).add(restart % 2)
+        self.assertEqual(parities["native"], {0, 1})
+        self.assertEqual(parities["angle"], {0, 1})
+
+    def test_alternating_every_restart_is_the_confounded_shape(self):
+        """Recorded as a test so the failure mode stays legible: this is what
+        the 7-8% clock split would be reported as a backend delta."""
+        cycle = ["native", "angle"]
+        parities = {}
+        for restart in range(8):
+            label = harness.backend_for_restart(cycle, restart)
+            parities.setdefault(label, set()).add(restart % 2)
+        self.assertEqual(parities["native"], {0})
+        self.assertEqual(parities["angle"], {1})
+
+
+class InstallBackendTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = pathlib.Path(
+            tempfile.mkdtemp(prefix="install-backend-")
+        )
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+        self.source = self.directory / "angle-build"
+        self.source.write_bytes(b"angle image")
+        self.source.chmod(0o755)
+        self.helper = self.directory / "runtime" / "bin" / "fresco-scene"
+
+    def test_it_installs_the_image_and_reports_its_digest(self):
+        event = harness.install_backend(
+            "angle", {"angle": self.source}, self.helper
+        )
+        self.assertEqual(self.helper.read_bytes(), b"angle image")
+        self.assertEqual(event["backend"], "angle")
+        self.assertEqual(
+            event["sha256"], hashlib.sha256(b"angle image").hexdigest()
+        )
+        self.assertEqual(event["bytes"], len(b"angle image"))
+
+    def test_it_replaces_an_existing_image(self):
+        self.helper.parent.mkdir(parents=True)
+        self.helper.write_bytes(b"native image")
+        harness.install_backend("angle", {"angle": self.source}, self.helper)
+        self.assertEqual(self.helper.read_bytes(), b"angle image")
+
+    def test_it_leaves_no_partial_image_behind(self):
+        """The helper is copied to a staging name and moved into place, so a
+        relaunch mid-swap never reads half a binary."""
+        harness.install_backend("angle", {"angle": self.source}, self.helper)
+        staged = self.helper.with_name(self.helper.name + ".swapping")
+        self.assertFalse(staged.exists())
+
+    def test_the_installed_image_stays_executable(self):
+        harness.install_backend("angle", {"angle": self.source}, self.helper)
+        self.assertTrue(os.access(self.helper, os.X_OK))
+
+
+def backend_block(label, cpu, frequency):
+    return {
+        "valid": True,
+        "backend": label,
+        "figures": {
+            "cpuPowerMilliwatts": cpu,
+            "gpuFrequencyMhz": frequency,
+        },
+    }
+
+
+class SummarizeByBackendTest(unittest.TestCase):
+    def test_it_groups_figures_by_backend(self):
+        blocks = [
+            backend_block("native", 100.0, 400),
+            backend_block("native", 102.0, 700),
+            backend_block("angle", 110.0, 400),
+            backend_block("angle", 112.0, 700),
+        ]
+        summary = harness.summarize_by_backend(blocks)
+        self.assertEqual(summary["byBackend"]["native"]["blocks"], 2)
+        self.assertAlmostEqual(
+            summary["byBackend"]["native"]["cpuPowerMilliwatts"]["mean"], 101.0
+        )
+        self.assertAlmostEqual(
+            summary["byBackend"]["angle"]["cpuPowerMilliwatts"]["mean"], 111.0
+        )
+
+    def test_both_backends_on_both_clock_states_is_balanced(self):
+        blocks = [
+            backend_block("native", 100.0, 400),
+            backend_block("native", 102.0, 700),
+            backend_block("angle", 110.0, 400),
+            backend_block("angle", 112.0, 700),
+        ]
+        coverage = harness.summarize_by_backend(blocks)["parityCoverage"]
+        self.assertEqual(coverage["sharedGpuFrequencyMhz"], [400, 700])
+        self.assertTrue(coverage["balanced"])
+
+    def test_one_backend_seeing_a_state_the_other_did_not_is_not_balanced(self):
+        """The confounded run. Two means sitting side by side would read as a
+        backend delta and be the clock."""
+        blocks = [
+            backend_block("native", 100.0, 400),
+            backend_block("native", 101.0, 400),
+            backend_block("angle", 110.0, 700),
+            backend_block("angle", 111.0, 700),
+        ]
+        coverage = harness.summarize_by_backend(blocks)["parityCoverage"]
+        self.assertEqual(coverage["sharedGpuFrequencyMhz"], [])
+        self.assertFalse(coverage["balanced"])
+
+    def test_blocks_without_a_backend_are_left_out(self):
+        blocks = [
+            backend_block("native", 100.0, 400),
+            {"valid": True, "figures": {"cpuPowerMilliwatts": 999.0}},
+        ]
+        summary = harness.summarize_by_backend(blocks)
+        self.assertEqual(list(summary["byBackend"]), ["native"])
 
 
 if __name__ == "__main__":
