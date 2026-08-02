@@ -420,7 +420,9 @@ class MidBlockProbe:
         }
 
 
-def assert_preconditions(snapshot, reference_displays, subject_pids=()):
+def assert_preconditions(
+    snapshot, reference_displays, subject_pids=(), reference_power=None
+):
     """Raise if the block cannot be trusted. Invalidation beats averaging.
 
     Two ownership failures, not one. A stray helper adds load the run did not
@@ -445,6 +447,19 @@ def assert_preconditions(snapshot, reference_displays, subject_pids=()):
     if reference_displays is not None:
         if snapshot["displays"] != reference_displays:
             raise ProtocolViolation("display topology changed mid-run")
+    # The protocol's first obligation is to fix and record the power source,
+    # and recording it was all this did. A machine unplugged mid-run keeps
+    # producing blocks that validate, and on battery the SoC is governed
+    # differently enough that those blocks are not comparable to the ones
+    # before them. Checked against the opening snapshot rather than pinned to
+    # AC, because which source is correct is the run's choice to make.
+    if reference_power is not None:
+        drawing = snapshot.get("powerSource", {}).get("drawingFrom")
+        if drawing != reference_power:
+            raise ProtocolViolation(
+                f"power source changed mid-run: opened on {reference_power!r}, "
+                f"now {drawing!r}"
+            )
 
 
 def restart_subject(
@@ -1103,6 +1118,9 @@ def main():
         arguments.busy_threshold_percent, subject_pids
     )
     reference_displays = opening["displays"]
+    # Whatever the run opened on is what every block must stay on. Q10 wants AC,
+    # but pinning the constant here would refuse a deliberate battery run.
+    reference_power = opening.get("powerSource", {}).get("drawingFrom")
 
     record = {
         "schemaVersion": 1,
@@ -1290,7 +1308,9 @@ def main():
             else None
         )
         try:
-            assert_preconditions(before, reference_displays, subject_pids)
+            assert_preconditions(
+                before, reference_displays, subject_pids, reference_power
+            )
             if probe_watcher is not None:
                 probe_watcher.start()
             try:
@@ -1360,7 +1380,9 @@ def main():
                 arguments.busy_threshold_percent, subject_pids
             )
             block["after"] = after
-            assert_preconditions(after, reference_displays, subject_pids)
+            assert_preconditions(
+                after, reference_displays, subject_pids, reference_power
+            )
             block["valid"] = True
         except ProtocolViolation as violation:
             block["valid"] = False

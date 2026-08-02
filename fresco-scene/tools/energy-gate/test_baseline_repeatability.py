@@ -298,11 +298,12 @@ class MidBlockProbeTest(unittest.TestCase):
 # --- ownership ------------------------------------------------------------
 
 
-def snapshot(subject=(), strays=(), displays=None):
+def snapshot(subject=(), strays=(), displays=None, drawing="AC Power"):
     return {
         "subjectHelpers": list(subject),
         "strayHelpers": list(strays),
         "displays": displays if displays is not None else {"count": 1},
+        "powerSource": {"drawingFrom": drawing},
     }
 
 
@@ -546,6 +547,37 @@ class RestartTransientTest(unittest.TestCase):
         verdict = harness.restart_transient_verdict(blocks)
         self.assertNotIn("cpuPowerMilliwatts", verdict)
         self.assertIn("two blocks in each group", verdict["note"])
+
+
+class PowerSourceTest(unittest.TestCase):
+    """Recording the source was all the harness did with it. An unattended run
+    that loses AC kept producing blocks that validated."""
+
+    def test_the_opening_source_holding_is_fine(self):
+        harness.assert_preconditions(
+            snapshot(drawing="AC Power"), None, (), "AC Power"
+        )
+
+    def test_losing_ac_mid_run_invalidates_the_block(self):
+        with self.assertRaises(harness.ProtocolViolation) as raised:
+            harness.assert_preconditions(
+                snapshot(drawing="Battery Power"), None, (), "AC Power"
+            )
+        self.assertIn("power source changed mid-run", str(raised.exception))
+
+    def test_a_run_that_opened_on_battery_is_not_forced_onto_ac(self):
+        """Which source is correct is the run's choice; the check is that it
+        does not change underneath it."""
+        harness.assert_preconditions(
+            snapshot(drawing="Battery Power"), None, (), "Battery Power"
+        )
+        with self.assertRaises(harness.ProtocolViolation):
+            harness.assert_preconditions(
+                snapshot(drawing="AC Power"), None, (), "Battery Power"
+            )
+
+    def test_no_reference_leaves_the_source_unchecked(self):
+        harness.assert_preconditions(snapshot(drawing="Battery Power"), None)
 
 
 # --- backend alternation --------------------------------------------------
