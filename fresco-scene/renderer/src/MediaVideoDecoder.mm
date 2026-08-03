@@ -36,6 +36,14 @@ class MediaVideoDecoder::Impl {
 public:
     bool startReader (double seconds, MediaVideoError& error) const {
         NSError* readerError = nil;
+        // Releasing the last reference to a reader still in the reading state
+        // does not tear down its decode session: the session's AppleAVD DMA
+        // allocation (~27 MB measured) is held until the process exits. Every
+        // loop wrap lands here, so an uncancelled reader per wrap is unbounded
+        // growth in wired kernel memory that no process RSS reports.
+        if (reader != nil) {
+            [reader cancelReading];
+        }
         reader = [[AVAssetReader alloc] initWithAsset:asset error:&readerError];
         if (reader == nil) {
             setError (
