@@ -45,6 +45,16 @@
            background: radial-gradient(ellipse at center,
              transparent 42%, rgba(0,0,0,.45) 100%); }
   body[data-grade="on"] #scrim { opacity: 1; }
+
+  /* wallpaper-first (reposechrome off, in-cover `c`): the scene is the whole
+     cover. A WE project brings its own clock and visualizer, so ours — and
+     the grade that exists to keep ours legible — get out of the way. The key
+     hint stays: with the furniture gone it is the only way back. */
+  body[data-chrome="off"] .monolith,
+  body[data-chrome="off"] #scenelabel,
+  body[data-chrome="off"] #scrim { display: none; }
+  body[data-chrome="off"] #wall { filter: none; }
+
   /* StandBy-style night tint: one hue over the whole composition */
   body[data-night="on"] { filter: sepia(1) hue-rotate(-40deg) saturate(2.2)
                                   brightness(.6) contrast(1.05); }
@@ -228,7 +238,7 @@
   }
 </style>
 </head>
-<body data-grade="on">
+<body data-grade="on" data-chrome="on">
   <div id="wall"></div>
   <div id="entrance"></div>
   <div id="scrim"></div>
@@ -240,7 +250,7 @@
     <canvas id="visualizer" aria-label="Audio visualizer"></canvas>
     <div id="media"></div>
   </div>
-  <div id="coverhint">←→ scene · tab look · b visualizer · x pixels · v variant · g grade · n night · l label · esc exits</div>
+  <div id="coverhint">←→ scene · tab look · b visualizer · x pixels · v variant · g grade · n night · l label · c chrome · esc exits</div>
   <div id="scenelabel"></div>
   <div id="devhint"></div>
 
@@ -366,6 +376,11 @@
       if (p.reposelabel && p.reposelabel.value !== undefined) {
         document.body.dataset.scenelabel =
           String(p.reposelabel.value) === "off" ? "off" : "on";
+      }
+      if (p.reposechrome && p.reposechrome.value !== undefined) {
+        // the runtime resolves "auto" against the backdrop; this is on|off
+        document.body.dataset.chrome =
+          String(p.reposechrome.value) === "off" ? "off" : "on";
       }
 
       let agentsChanged = false;

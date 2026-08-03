@@ -319,6 +319,23 @@ that only reached the directory stayed unreachable from both pickers. The link
 keeps the source's extension, which is what the catalog matches loose video
 files on.
 
+Scene (`scene.pkg`) wallpapers are a still under the cover. The backdrop
+attaches their Workshop preview and starts no helper, and a helper would be
+occluded anyway: it renders in its own window at desktopIcon−1 while the cover
+panel is `.screenSaver`. Video, image, and web wallpapers all render live,
+web because its host lives inside the cover panel. `docs/HANDOFF.md` §4
+carries the plan for closing this.
+
+`repose.json.chrome` decides whether the composition's furniture — clock,
+date, visualizer, media line, scene label, and the grade vignette that keeps
+them legible — draws over the scene. `auto` is the default: off when the
+backdrop resolves to a Wallpaper Engine project, on for video and image scenes
+and the desktop mirror. A WE project usually carries its own clock and
+visualizer, so over one the two sets stack. The runtime resolves `auto` and
+pushes `reposechrome` as on or off; the composition never sees `auto`. In-cover
+`c` cycles auto/on/off; `fresco repose-chrome auto|on|off` is the external
+editor.
+
 `repose.json.viz` selects the composition's audio renderer. `strings` keeps
 the frozen 10-band Zephyr geometry; `spectrum` uses 24 frequency groups mirrored
 around the center (bass inward, treble outward). Both share the same rolling

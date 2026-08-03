@@ -70,6 +70,7 @@ struct ReposeState {
     var night = "off"
     var pixels = "on"
     var label = "on"
+    var chrome = "auto"
     var scenePool: [String] = []
 
     static func load() -> ReposeState {
@@ -85,6 +86,7 @@ struct ReposeState {
         if let value = object["night"] as? String { state.night = value }
         if let value = object["pixels"] as? String { state.pixels = value }
         if let value = object["label"] as? String { state.label = value }
+        if let value = object["chrome"] as? String { state.chrome = value }
         if let value = object["scenePool"] as? [String] { state.scenePool = value }
         state.reconcileScene()
         return state
@@ -94,7 +96,8 @@ struct ReposeState {
         let object: [String: Any] = ["look": look, "scene": scene, "viz": viz,
                                      "variant": variant,
                                      "grade": grade, "night": night, "pixels": pixels,
-                                     "label": label, "scenePool": scenePool]
+                                     "label": label, "chrome": chrome,
+                                     "scenePool": scenePool]
         if let data = try? JSONSerialization.data(
             withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: reposeStateFile)
@@ -164,6 +167,21 @@ func reposeRotation(_ scenePool: [String]) -> [String] {
         return byID[sceneID]
     }
     return rotation.isEmpty ? ["desktop"] : rotation
+}
+
+// A Wallpaper Engine project usually carries its own clock, date, and
+// visualizer, so repose's furniture lands on top of a wallpaper that already
+// has some — the composition should step back and let it be the whole cover.
+// Plain video and image scenes carry none, so they keep it.
+//
+// Scene (scene.pkg) projects are excluded even though they qualify: the cover
+// only ever gets their still preview (attachBackdrop), and stepping back from
+// a still leaves a bare thumbnail. Move them here once the cover renders them.
+func reposeBackdropIsProject(_ wallpaper: Wallpaper?) -> Bool {
+    switch wallpaper {
+    case .web?: return true
+    default: return false
+    }
 }
 
 func jsonString(_ object: [String: Any]) -> String {
@@ -2587,6 +2605,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
     private let desktopAssignments = RuntimeAssignmentRegistry()
     private var coverDisplays: [CoverDisplay] = []
     private var coverScene = "desktop"
+    private var coverBackdropIsProject = false   // what `chrome auto` reads
     private var compositionRoot: URL?
     private var reposeState = ReposeState.load()
     private var coverMonitor: Any?
@@ -3197,10 +3216,19 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
                 screen: display.screen, index: index, root: root,
                 properties: properties, surface: .cover,
                 attachTo: display.panel, mediaSnapshotJSON: mediaSnapshot)
-        case .scene(_, _, let preview, _)?:
+        case .scene(let root, _, let preview, _)?:
+            // The cover has no live path for scene.pkg: the helper renders in
+            // its own window at desktopIcon−1 and the cover sits at
+            // .screenSaver, so a scene backdrop is the Workshop preview until
+            // the helper can be told to render at cover level.
             if let preview {
                 display.backdropImage = ImageHost(
                     screen: display.screen, url: preview, attachTo: display.panel)
+                print("repose: '\(root.lastPathComponent)' is a scene wallpaper — "
+                    + "the cover shows its preview still, not the running scene")
+            } else {
+                print("repose: '\(root.lastPathComponent)' is a scene wallpaper "
+                    + "with no preview — the cover has nothing to show for it")
             }
         case nil:
             break
@@ -3236,12 +3264,14 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         compositionRoot = root
         coverScene = reposeState.scene
         let backdrop = resolveBackdrop(coverScene)
+        coverBackdropIsProject = reposeBackdropIsProject(backdrop)
         let livery = liveryProperties()
         for (key, value) in livery { properties[key] = value }
         for (key, value) in sceneThemeProperties(coverScene) { properties[key] = value }
         for (key, value) in agentFeed.lastProperties { properties[key] = value }
         for (key, value) in reposeState.properties { properties[key] = value }
         properties["reposebackdrop"] = ["value": backdrop == nil ? "opaque" : "clear"]
+        properties["reposechrome"] = ["value": resolvedChrome()]
         properties["reposecover"] = ["value": "on"]   // shows the key hint once
         let mediaSnapshot = mediaFeed.snapshotJSON()
         let compositionAccessScope = WebAccessScope(
@@ -3330,6 +3360,12 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             reposeState.label = reposeState.label == "on" ? "off" : "on"
             persistAndApply()
             return true
+        case "c":
+            // auto → on → off → auto: the resolved value is in the log line
+            reposeState.chrome = reposeState.chrome == "auto" ? "on"
+                : reposeState.chrome == "on" ? "off" : "auto"
+            persistAndApply()
+            return true
         default:
             return false
         }
@@ -3347,9 +3383,21 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         applyReposeState()
         let scene = reposeState.scene == "desktop"
             ? "desktop" : (reposeState.scene as NSString).lastPathComponent
+        let chrome = reposeState.chrome == "auto"
+            ? "auto (\(resolvedChrome()))" : reposeState.chrome
         print("repose: \(reposeState.look) · \(scene) · \(reposeState.variant)"
             + " · pixels \(reposeState.pixels) · grade \(reposeState.grade)"
-            + " · night \(reposeState.night)")
+            + " · night \(reposeState.night) · chrome \(chrome)")
+    }
+
+    // "auto" is the shipped default: the composition's furniture yields to a
+    // WE project's own, and stays for video/image scenes and the desktop
+    // mirror. `fresco repose-chrome on|off` (in-cover `c`) pins it either way.
+    private func resolvedChrome() -> String {
+        switch reposeState.chrome {
+        case "on", "off": return reposeState.chrome
+        default: return coverBackdropIsProject ? "off" : "on"
+        }
     }
 
     private func applyReposeState() {
@@ -3358,6 +3406,7 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
         if reposeState.scene != coverScene {
             coverScene = reposeState.scene
             let backdrop = resolveBackdrop(coverScene)
+            coverBackdropIsProject = reposeBackdropIsProject(backdrop)
             let livery = liveryProperties()
             let mediaSnapshot = mediaFeed.snapshotJSON()
             for index in coverDisplays.indices {
@@ -3371,6 +3420,8 @@ final class RuntimeController: NSObject, NSApplicationDelegate {
             for (key, value) in sceneThemeProperties(coverScene) { properties[key] = value }
             properties["reposebackdrop"] = ["value": backdrop == nil ? "opaque" : "clear"]
         }
+        // outside the scene guard: `c` retunes chrome without a scene change
+        properties["reposechrome"] = ["value": resolvedChrome()]
         for display in coverDisplays { display.composition.push(properties: properties) }
     }
 

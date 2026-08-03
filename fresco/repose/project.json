@@ -54,6 +54,15 @@
           { "label": "Clear (wallpaper-through)", "value": "clear" }
         ]
       },
+      "reposechrome": {
+        "type": "combo",
+        "text": "Composition chrome",
+        "value": "on",
+        "options": [
+          { "label": "On", "value": "on" },
+          { "label": "Off (scene is the whole cover)", "value": "off" }
+        ]
+      },
       "reposegrade": {
         "type": "combo",
         "text": "Grade vignette",
