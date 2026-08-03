@@ -67,7 +67,8 @@ final class SceneHelperSupervisor {
     // shares the scene's aspect.
     private var visibleScene: NSRect?
     private var lastCursorMoveAt = Date.distantPast
-    private var lastCursorScenePoint: NSPoint?
+    private var cursorMovePending = false
+    private var cursorTimer: Timer?
     private var latestAudioSpectrum: [Double]?
     private var pendingAudioSpectrum: [Double]?
     private var pendingAudioSequence: UInt64 = 0
@@ -288,22 +289,51 @@ final class SceneHelperSupervisor {
 
     func cursorMoved(to location: NSPoint) {
         // A move per event would outrun the helper on a fast drag; the scripts
-        // that read this interpolate anyway.
-        guard Date().timeIntervalSince(lastCursorMoveAt) >= cursorMoveInterval else {
+        // that read this interpolate anyway. A throttled move is deferred and
+        // sent when the interval lapses, not dropped: the last event before
+        // the pointer comes to rest is usually inside the interval, and losing
+        // it leaves the scene's pointer short of where the mouse stopped.
+        let remaining = cursorMoveInterval - Date().timeIntervalSince(lastCursorMoveAt)
+        guard remaining <= 0 else {
+            cursorMovePending = true
+            if cursorTimer == nil {
+                cursorTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) {
+                    [weak self] _ in self?.flushCursorMove()
+                }
+            }
             return
         }
         sendCursor(phase: "move", at: location)
+    }
+
+    // A deferred move reads the pointer at send time rather than replaying the
+    // event that armed it. An event's location is however old the deferral
+    // left it, and a cadence that alternates stale and fresh positions reads
+    // as judder in every scene that derives velocity from what it is sent.
+    private func flushCursorMove() {
+        let flush = cursorMovePending
+        clearPendingCursor()
+        guard flush else { return }
+        sendCursor(phase: "move", at: NSEvent.mouseLocation)
     }
 
     func cursorDown(at location: NSPoint) { sendCursor(phase: "down", at: location) }
 
     func cursorUp(at location: NSPoint) { sendCursor(phase: "up", at: location) }
 
+    // Down and up also pass through here, so a press supersedes any deferred
+    // move; the press location is the fresher of the two.
     private func sendCursor(phase: String, at location: NSPoint) {
+        clearPendingCursor()
         guard acceptsCursor, let point = scenePoint(for: location) else { return }
         lastCursorMoveAt = Date()
-        lastCursorScenePoint = point
         send(type: "cursor-\(phase)", values: ["x": point.x, "y": point.y])
+    }
+
+    private func clearPendingCursor() {
+        cursorTimer?.invalidate()
+        cursorTimer = nil
+        cursorMovePending = false
     }
 
     private func scheduleAudioSpectrum() {
@@ -371,6 +401,7 @@ final class SceneHelperSupervisor {
     private func resetLaunchState() {
         let hadAudioSupport = supportsAudioSpectrum
         suspendAudioTimer()
+        clearPendingCursor()
         let abandoned = pendingMetrics
         pendingMetrics.removeAll()
         abandoned.forEach { $0(nil) }
@@ -649,6 +680,7 @@ final class SceneHelperSupervisor {
         guard process === ended else { return }
         let hadAudioSupport = supportsAudioSpectrum
         suspendAudioTimer()
+        clearPendingCursor()
         audioWriteInFlight = false
         pendingAudioSpectrum = latestAudioSpectrum
         pendingAudioSequence &+= 1

@@ -402,6 +402,37 @@ bool truncateOnce(std::string &source, ShaderSourceCompatibility &result) {
   return false;
 }
 
+// --- one-sided rope trail extrusion ---------------------------------------
+
+// The line as WE ships it, and the same line with the parentheses the
+// geometry-shader path implies. The cursor's trail ribbon is extruded from the
+// particle path by `right`, a vector `cross()` derives from the direction of
+// travel, so the unparenthesised form lays the ribbon wholly on one side of
+// the path and swaps sides whenever the travel reverses. Matched as the exact
+// authored bytes: this is a repair for one known line in one stock asset, not
+// a grammar, and a source without it must come back untouched.
+constexpr std::string_view kOneSidedExtrusion =
+    "position += right * uvs.x * 2.0 - 1.0;";
+constexpr std::string_view kCenteredExtrusion =
+    "position += right * (uvs.x * 2.0 - 1.0);";
+
+bool centerRopeTrailOnce(std::string &source, ShaderSourceCompatibility &result) {
+  const auto code = codeMask(source);
+  std::size_t position = source.find(kOneSidedExtrusion);
+  while (position != std::string::npos && !code[position]) {
+    position = source.find(kOneSidedExtrusion, position + 1);
+  }
+  if (position == std::string::npos) {
+    return false;
+  }
+  result.repairs.push_back({.kind = ShaderSourceRepair::Kind::RopeTrailExtrusion,
+                            .line = lineOf(source, position),
+                            .detail = "rope trail extrusion recentred on the "
+                                      "particle path"});
+  source.replace(position, kOneSidedExtrusion.size(), kCenteredExtrusion);
+  return true;
+}
+
 } // namespace
 
 ShaderSourceCompatibility repairShaderSource(const std::string &source) {
@@ -412,6 +443,11 @@ ShaderSourceCompatibility repairShaderSource(const std::string &source) {
   constexpr int kMaximumTruncations = 64;
   for (int pass = 0; pass < kMaximumTruncations; ++pass) {
     if (!truncateOnce(result.source, result)) {
+      break;
+    }
+  }
+  for (int pass = 0; pass < kMaximumTruncations; ++pass) {
+    if (!centerRopeTrailOnce(result.source, result)) {
       break;
     }
   }

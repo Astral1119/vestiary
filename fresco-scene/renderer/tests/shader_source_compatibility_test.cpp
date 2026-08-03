@@ -172,6 +172,33 @@ int main() {
     unchanged("uniform vec4 a;\nuniform vec2 b;\nvoid main() { b *= 2.0; }\n");
   }
 
+  // --- one-sided rope trail extrusion -------------------------------------
+
+  {
+    // The authored line from genericropeparticle.vert's no-geometry-shader
+    // fallback. The ribbon must extrude to both sides of the particle path,
+    // as the geometry-shader path WE runs does.
+    const auto result = repairShaderSource(
+        "void main() {\n"
+        "\tvec3 position = mix(startPosition, endPosition, uvs.y);\n"
+        "\tvec3 right = mix(trailRightStart, trailRightEnd, uvs.y);\n"
+        "\tposition += right * uvs.x * 2.0 - 1.0;\n"
+        "}\n");
+    assert(countOf(result, ShaderSourceRepair::Kind::RopeTrailExtrusion) == 1);
+    assert(result.source.find("position += right * (uvs.x * 2.0 - 1.0);") !=
+           std::string::npos);
+    assert(result.source.find("right * uvs.x * 2.0 - 1.0") == std::string::npos);
+    assert(result.repairs.front().line == 4);
+  }
+  {
+    // The centred form needs nothing.
+    unchanged("void main() { position += right * (uvs.x * 2.0 - 1.0); }\n");
+  }
+  {
+    // The authored line in a comment is not code.
+    unchanged("// position += right * uvs.x * 2.0 - 1.0;\nvoid main() {}\n");
+  }
+
   // --- both at once -------------------------------------------------------
 
   {
