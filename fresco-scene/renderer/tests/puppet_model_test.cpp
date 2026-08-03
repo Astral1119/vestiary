@@ -173,6 +173,36 @@ int main (int argc, char** argv) {
                 runtime.advance (1.11);
                 require (paused == runtime.positions (1920.0f, 1080.0f),
                     "zero-rate puppet layer advanced");
+
+                // An authored blend slider ranges past the [0,1] the
+                // composition clamps to, so evidence keeps both figures.
+                auto overBlend = layers;
+                overBlend[0].blend = overBlend[1].blend = 3.0;
+                runtime.configureLayers (overBlend);
+                const auto clamped = runtime.layerEvidence ();
+                require (clamped.size () == 2, "puppet layer evidence count mismatch");
+                for (const auto& layer : clamped) {
+                    require (layer.requestedBlend == 3.0,
+                        "puppet layer evidence lost the requested blend");
+                    require (layer.appliedBlend == 1.0,
+                        "puppet layer evidence did not clamp the applied blend");
+                }
+
+                // The stack above carries a replacement layer, so nothing is
+                // promoted; an all-additive stack promotes its first layer.
+                require (!clamped[0].promotedToReplacement
+                        && !clamped[1].promotedToReplacement,
+                    "puppet layer promoted despite an authored replacement");
+                require (clamped[0].replacement && !clamped[1].replacement,
+                    "puppet replacement layer is not the authored one");
+                auto allAdditive = layers;
+                allAdditive[0].additive = allAdditive[1].additive = true;
+                runtime.configureLayers (allAdditive);
+                const auto promoted = runtime.layerEvidence ();
+                require (promoted[0].replacement && promoted[0].promotedToReplacement,
+                    "all-additive puppet stack did not promote its first layer");
+                require (!promoted[1].replacement && !promoted[1].promotedToReplacement,
+                    "all-additive puppet stack promoted more than one layer");
             }
             if (index == 3) {
                 require (model.attachments ()[0].name == "Attachment",
@@ -193,6 +223,23 @@ int main (int argc, char** argv) {
                 require (initial->x != temporal->x || initial->y != temporal->y
                         || initial->z != temporal->z,
                     "Subaru attachment did not follow its animated bone");
+
+                // The transform form carries the same anchor plus the bone's
+                // orientation, which an attached child needs to inherit.
+                const auto frame = runtime.attachmentTransform ("Attachment");
+                require (frame.has_value (), "Subaru attachment transform did not resolve");
+                require (frame->position.x == temporal->x
+                        && frame->position.y == temporal->y
+                        && frame->position.z == temporal->z,
+                    "attachment transform and position disagree");
+                require (std::isfinite (frame->angleZ), "attachment angle is not finite");
+                runtime.advance (0.74);
+                const auto rotated = runtime.attachmentTransform ("Attachment");
+                require (rotated.has_value (), "Subaru attachment transform vanished");
+                require (rotated->angleZ != frame->angleZ,
+                    "attachment angle did not follow its animated bone");
+                require (runtime.attachmentTransform ("no-such-attachment") == std::nullopt,
+                    "unknown attachment resolved");
             }
             if (index == 7) {
                 require (model.animations ().empty (),

@@ -128,9 +128,14 @@ string(REPLACE
 )
 string(REPLACE
     "private:\n    bool loadPuppetMesh"
-    "private:\n    [[nodiscard]] bool isVisibleWithParents () const;\n    bool loadPuppetMesh"
+    "private:\n    [[nodiscard]] bool isVisibleWithParents () const;\n    /** Replaces an attached child's local placement with its parent bone frame. */\n    void applyPuppetAttachment (\n\tResolvedTransform& local, const WallpaperEngine::Data::Model::Object& object\n    ) const;\n    bool loadPuppetMesh"
     puppet_image_header
     "${puppet_image_header}"
+)
+fresco_require_generated_patch(
+    puppet_image_header
+    "applyPuppetAttachment"
+    "puppet attachment frame declaration"
 )
 # Cursor hit-testing needs the box a layer actually draws, which is m_pos: the
 # resolved parent chain, the scale and the alignment are already folded into it.
@@ -297,26 +302,71 @@ set(puppet_resolve_return_after [=[    if (std::getenv ("FRESCO_SCENE_TRACE_IMAG
 	    resolved.origin.y
 	);
     }
-    const std::string attachment = FrescoScene::puppetAttachment (&object);
-    if (!attachment.empty () && object.parent.has_value ()) {
-	const auto* parentObject = this->getScene ().getObject (*object.parent);
-	const auto* parentImage = dynamic_cast<const CImage*> (parentObject);
-	if (parentImage != nullptr && parentImage->m_puppetRuntime != nullptr) {
-	    const auto anchor = parentImage->m_puppetRuntime->attachmentPosition (attachment);
-	    if (anchor.has_value ()) {
-		FrescoScene::recordPuppetAttachmentResolution ();
-		const ResolvedTransform parentTransform = parentImage->resolveTransform (parentImage->getImage ());
-		const glm::vec2 offset = rotateVec2 ({
-		    anchor->x * parentTransform.scale.x,
-		    -anchor->y * parentTransform.scale.y,
-		}, parentTransform.angle);
-		resolved.origin.x += offset.x;
-		resolved.origin.y += offset.y;
-		resolved.origin.z += anchor->z * parentTransform.scale.z;
-	    }
-	}
-    }
     return resolved;
+}
+
+// An attachment is a bone frame sitting between a child and its parent, so the
+// composition is parent * bone * childLocal. Folding it into the child's local
+// transform lets the ordinary parent walk carry it, which is what makes the
+// whole rigged subtree inherit the motion.
+//
+// The bone frame REPLACES the carrier's authored origin rather than adding to
+// it. Adding was measured wrong twice over: it seats the subtree roughly 227
+// units low, and the doubled displacement tears the face mesh. The authored
+// origin is an editor-time placeholder here, and both figures stay in the
+// evidence so the convention can be re-tested on the Windows reference.
+//
+// Puppet space is y-up and scene space is y-down. That is what the anchor's
+// negated y encodes, and it also means a puppet-space rotation maps to the
+// negated angle here: with (x, y) -> (x, -y), rotating by theta lands on
+// rotateVec2 at -theta.
+void CImage::applyPuppetAttachment (
+    ResolvedTransform& local, const Object& object
+) const {
+    const std::string attachment = FrescoScene::puppetAttachment (&object);
+    if (attachment.empty () || !object.parent.has_value ()) {
+	return;
+    }
+    const auto* parentObject = this->getScene ().getObject (*object.parent);
+    const auto* parentImage = dynamic_cast<const CImage*> (parentObject);
+    if (parentImage == nullptr || parentImage->m_puppetRuntime == nullptr) {
+	return;
+    }
+    const auto frame = parentImage->m_puppetRuntime->attachmentTransform (attachment);
+    if (!frame.has_value ()) {
+	return;
+    }
+    FrescoScene::recordPuppetAttachmentResolution ();
+
+    const glm::vec2 anchor { frame->position.x, -frame->position.y };
+    const float boneAngle = -frame->angleZ;
+    const glm::vec3 boneScale { frame->scale.x, frame->scale.y, frame->scale.z };
+    const glm::vec3 authored = local.origin;
+
+    local.origin.x = anchor.x;
+    local.origin.y = anchor.y;
+    local.origin.z = frame->position.z;
+    local.angle += boneAngle;
+    local.scale *= boneScale;
+
+    FrescoScene::recordPuppetAttachmentTransform ({
+	.objectID = object.id,
+	.parentObjectID = *object.parent,
+	.name = attachment,
+	.anchorX = anchor.x,
+	.anchorY = anchor.y,
+	.boneAngle = frame->angleZ,
+	.appliedAngle = boneAngle,
+	.availableAngle = boneAngle,
+	.appliedScaleX = boneScale.x,
+	.appliedScaleY = boneScale.y,
+	.availableScaleX = boneScale.x,
+	.availableScaleY = boneScale.y,
+	.authoredX = authored.x,
+	.authoredY = authored.y,
+	.resolvedX = local.origin.x,
+	.resolvedY = local.origin.y,
+    });
 }
 
 CImage::CImage]=])
@@ -328,8 +378,24 @@ string(REPLACE
 )
 fresco_require_generated_patch(
     puppet_image_source
-    "attachmentPosition (attachment)"
+    "attachmentTransform (attachment)"
     "puppet attachment transform propagation"
+)
+# The fold is where a child's local transform meets its resolved parent, so it
+# is the only place an attachment can enter and still reach the rigged subtree.
+string(REPLACE
+    "	ResolvedTransform local = localTransform (*chain[i]);
+	const glm::vec2 offset"
+    "	ResolvedTransform local = localTransform (*chain[i]);
+	this->applyPuppetAttachment (local, *chain[i]);
+	const glm::vec2 offset"
+    puppet_image_source
+    "${puppet_image_source}"
+)
+fresco_require_generated_patch(
+    puppet_image_source
+    "applyPuppetAttachment (local, *chain[i])"
+    "puppet attachment folded through the parent walk"
 )
 set(procedural_quad_visibility [=[bool CImage::isVisibleWithParents () const {
     return FrescoScene::sceneObjectVisibleWithParents (
@@ -603,6 +669,25 @@ void CImage::updatePuppetPositionBuffer (const glm::vec2& size) {
 	GL_ARRAY_BUFFER, scenePositions.size () * sizeof (float), scenePositions.data (),
 	GL_DYNAMIC_DRAW
     );
+
+    FrescoScene::recordPuppetImageState (
+	this,
+	{
+	    .objectID = this->getImage ().id,
+	    .runtimePresent = true,
+	    .hasPuppetMesh = this->m_hasPuppetMesh,
+	    .activeIsScene = this->m_puppetActivePosition == this->m_puppetScenePosition
+		&& this->m_puppetScenePosition != GL_NONE,
+	    .activeIsLocal = this->m_puppetActivePosition == this->m_puppetSpacePosition
+		&& this->m_puppetSpacePosition != GL_NONE,
+	    .sizeX = size.x,
+	    .sizeY = size.y,
+	    .spanX = spanX,
+	    .spanY = spanY,
+	},
+	positions,
+	scenePositions
+    );
 }
 
 ]=])
@@ -872,6 +957,9 @@ set(puppet_render_update [=[    if (this->m_puppetRuntime != nullptr) {
 	FrescoScene::recordPuppetSecondaryMotionSteps (
 	    secondaryMotion.steps, secondaryMotion.changes
 	);
+	FrescoScene::recordPuppetLayerState (
+	    this->getImage ().id, this->m_puppetRuntime->layerEvidence ()
+	);
 	this->updatePuppetPositionBuffer (this->m_size);
     }
 
@@ -886,6 +974,16 @@ fresco_require_generated_patch(
     puppet_image_source
     "configureLayers (layers)"
     "per-frame puppet animation inputs"
+)
+fresco_require_generated_patch(
+    puppet_image_source
+    "recordPuppetLayerState"
+    "per-layer puppet playback evidence"
+)
+fresco_require_generated_patch(
+    puppet_image_source
+    "recordPuppetImageState"
+    "per-image puppet draw-path evidence"
 )
 set(puppet_final_pass_before [=[    if (!isLastPass || !this->getImage ().visible->value->getBool ()) {
 	return false;

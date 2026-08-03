@@ -1913,6 +1913,38 @@ if(BUILD_TESTING
             ENVIRONMENT
                 "FRESCO_SCENE_AUDIO_DISABLED=1;FRESCO_SCENE_SOUND_EXPERIMENTAL=0"
     )
+    add_test(
+        NAME fresco-scene-renderer-puppet-layer-evidence
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/puppet_layer_evidence_test.py"
+            "$<TARGET_FILE:fresco-scene>"
+            "${FRESCO_SCENE_WORKSHOP_ROOT}"
+            "${FRESCO_SCENE_ASSETS}"
+            "${FRESCO_SCENE_RENDER_BACKEND}"
+    )
+    set_tests_properties(
+        fresco-scene-renderer-puppet-layer-evidence PROPERTIES
+            TIMEOUT 120
+            ENVIRONMENT
+                "FRESCO_SCENE_AUDIO_DISABLED=1;FRESCO_SCENE_SOUND_EXPERIMENTAL=0"
+    )
+    add_test(
+        NAME fresco-scene-renderer-puppet-attachment-orientation
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/puppet_attachment_orientation_test.py"
+            "$<TARGET_FILE:fresco-scene>"
+            "${FRESCO_SCENE_WORKSHOP_ROOT}"
+            "${FRESCO_SCENE_ASSETS}"
+            "${FRESCO_SCENE_RENDER_BACKEND}"
+    )
+    set_tests_properties(
+        fresco-scene-renderer-puppet-attachment-orientation PROPERTIES
+            TIMEOUT 180
+            ENVIRONMENT
+                "FRESCO_SCENE_AUDIO_DISABLED=1;FRESCO_SCENE_SOUND_EXPERIMENTAL=0"
+    )
     add_executable(
         fresco-scene-renderer-puppet-layer-semantics
         tests/puppet_layer_semantics_test.cpp

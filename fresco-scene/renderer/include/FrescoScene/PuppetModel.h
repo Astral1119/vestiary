@@ -156,6 +156,27 @@ public:
         bool additive = false;
     };
 
+    // What the composition in animatedBoneWorld decided about one input layer.
+    // Reported so evidence can name the layer that supplies the base pose
+    // without restating the promotion rule, which would drift.
+    struct LayerResolution {
+        int32_t animationID = 0;
+        bool sampled = false;
+        bool replacement = false;
+        bool promotedToReplacement = false;
+        double requestedBlend = 0.0;
+        double appliedBlend = 0.0;
+        double timeSeconds = 0.0;
+        double framePosition = 0.0;
+        double frameWithinClip = 0.0;
+        int32_t length = 0;
+        float framesPerSecond = 0.0f;
+    };
+
+    [[nodiscard]] std::vector<LayerResolution> resolveLayers (
+        std::span<const AnimationLayer> layers
+    ) const;
+
     [[nodiscard]] std::vector<PuppetVec3> deformLayers (
         std::span<const AnimationLayer> layers,
         std::span<const float> localRotationOffsetsZ = {}
@@ -166,6 +187,21 @@ public:
     ) const;
 
     [[nodiscard]] std::optional<PuppetVec3> attachmentPosition (
+        std::string_view name,
+        std::span<const AnimationLayer> layers,
+        std::span<const float> localRotationOffsetsZ = {}
+    ) const;
+
+    // The full attachment frame, so an attached child can inherit the bone's
+    // orientation and scale rather than its position alone. Angles are in
+    // puppet space, which is y-up; a y-down consumer negates angleZ.
+    struct AttachmentTransform {
+        PuppetVec3 position;
+        float angleZ = 0.0f;
+        PuppetVec3 scale { 1.0f, 1.0f, 1.0f };
+    };
+
+    [[nodiscard]] std::optional<AttachmentTransform> attachmentTransform (
         std::string_view name,
         std::span<const AnimationLayer> layers,
         std::span<const float> localRotationOffsetsZ = {}

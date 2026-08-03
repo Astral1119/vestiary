@@ -558,6 +558,110 @@ NSDictionary* particleRuntimePayload (
     };
 }
 
+NSArray* puppetLayerPayload (
+    const std::vector<FrescoScene::PuppetLayerRecord>& layers
+) {
+    NSMutableArray* result = [NSMutableArray arrayWithCapacity:layers.size ()];
+    for (const auto& layer : layers) {
+        [result addObject:@{
+            @"objectID": @(layer.objectID),
+            @"layerID": @(layer.layerID),
+            @"animationID": @(layer.animationID),
+            @"rate": @(layer.rate),
+            @"requestedBlend": @(layer.requestedBlend),
+            @"appliedBlend": @(layer.appliedBlend),
+            @"framesAdvanced": @(layer.framesAdvanced),
+            @"frameWithinClip": @(layer.frameWithinClip),
+            @"length": @(layer.length),
+            @"framesPerSecond": @(layer.framesPerSecond),
+            @"visible": @(layer.visible),
+            @"additive": @(layer.additive),
+            @"sampled": @(layer.sampled),
+            @"replacement": @(layer.replacement),
+            @"promotedToReplacement": @(layer.promotedToReplacement),
+            @"updates": @(layer.updates),
+        }];
+    }
+    return result;
+}
+
+NSArray* puppetAttachmentPayload (
+    const std::vector<FrescoScene::PuppetAttachmentRecord>& attachments
+) {
+    NSMutableArray* result =
+        [NSMutableArray arrayWithCapacity:attachments.size ()];
+    for (const auto& attachment : attachments) {
+        [result addObject:@{
+            @"objectID": @(attachment.objectID),
+            @"parentObjectID": @(attachment.parentObjectID),
+            @"name": toNSString (attachment.name),
+            @"anchorX": @(attachment.anchorX),
+            @"anchorY": @(attachment.anchorY),
+            @"boneAngle": @(attachment.boneAngle),
+            @"appliedAngle": @(attachment.appliedAngle),
+            @"availableAngle": @(attachment.availableAngle),
+            @"appliedScaleX": @(attachment.appliedScaleX),
+            @"appliedScaleY": @(attachment.appliedScaleY),
+            @"availableScaleX": @(attachment.availableScaleX),
+            @"availableScaleY": @(attachment.availableScaleY),
+            @"authoredX": @(attachment.authoredX),
+            @"authoredY": @(attachment.authoredY),
+            @"resolvedX": @(attachment.resolvedX),
+            @"resolvedY": @(attachment.resolvedY),
+            @"updates": @(attachment.updates),
+        }];
+    }
+    return result;
+}
+
+NSArray* puppetImagePayload (
+    const std::vector<FrescoScene::PuppetImageRecord>& images
+) {
+    NSMutableArray* result = [NSMutableArray arrayWithCapacity:images.size ()];
+    for (const auto& image : images) {
+        [result addObject:@{
+            @"objectID": @(image.objectID),
+            @"runtimePresent": @(image.runtimePresent),
+            @"hasPuppetMesh": @(image.hasPuppetMesh),
+            @"activeIsScene": @(image.activeIsScene),
+            @"activeIsLocal": @(image.activeIsLocal),
+            @"localDeltaMax": @(image.localDeltaMax),
+            @"sceneDeltaMax": @(image.sceneDeltaMax),
+            @"localAmplitude": @(image.localAmplitude),
+            @"sceneAmplitude": @(image.sceneAmplitude),
+            @"sizeX": @(image.sizeX),
+            @"sizeY": @(image.sizeY),
+            @"spanX": @(image.spanX),
+            @"spanY": @(image.spanY),
+            @"vertices": @(image.vertices),
+            @"updates": @(image.updates),
+        }];
+    }
+    return result;
+}
+
+NSDictionary* puppetEvidencePayload (
+    const FrescoScene::PuppetRenderEvidence& evidence
+) {
+    return @{
+        @"loadedMeshes": @(evidence.loadedMeshes),
+        @"loadedVertices": @(evidence.loadedVertices),
+        @"loadedMasks": @(evidence.loadedMasks),
+        @"loadedAttachments": @(evidence.loadedAttachments),
+        @"simulationEnabledBoneCount": @(evidence.simulationEnabledBoneCount),
+        @"activeIKBoneCount": @(evidence.activeIKBoneCount),
+        @"secondaryMotionSteps": @(evidence.secondaryMotionSteps),
+        @"secondaryMotionChanges": @(evidence.secondaryMotionChanges),
+        @"deformationUploads": @(evidence.deformationUploads),
+        @"deformationChanges": @(evidence.deformationChanges),
+        @"maskPasses": @(evidence.maskPasses),
+        @"attachmentResolutions": @(evidence.attachmentResolutions),
+        @"layers": puppetLayerPayload (evidence.layers),
+        @"attachments": puppetAttachmentPayload (evidence.attachments),
+        @"images": puppetImagePayload (evidence.images),
+    };
+}
+
 NSArray* scriptedDynamicFloatPayload (
     const std::vector<FrescoScene::ScriptedDynamicFloatEvidence>& values
 ) {
@@ -2414,24 +2518,9 @@ bool handleMessage (NSDictionary* message) {
             });
             return true;
         }
-        const FrescoScene::PuppetRenderEvidence evidence =
-            activeRenderer->puppetEvidence ();
-        emitEvent (@"puppet-evidence", assignmentID, @{
-            @"loadedMeshes": @(evidence.loadedMeshes),
-            @"loadedVertices": @(evidence.loadedVertices),
-            @"loadedMasks": @(evidence.loadedMasks),
-            @"loadedAttachments": @(evidence.loadedAttachments),
-            @"simulationEnabledBoneCount": @(
-                evidence.simulationEnabledBoneCount
-            ),
-            @"activeIKBoneCount": @(evidence.activeIKBoneCount),
-            @"secondaryMotionSteps": @(evidence.secondaryMotionSteps),
-            @"secondaryMotionChanges": @(evidence.secondaryMotionChanges),
-            @"deformationUploads": @(evidence.deformationUploads),
-            @"deformationChanges": @(evidence.deformationChanges),
-            @"maskPasses": @(evidence.maskPasses),
-            @"attachmentResolutions": @(evidence.attachmentResolutions),
-        });
+        emitEvent (@"puppet-evidence", assignmentID, puppetEvidencePayload (
+            activeRenderer->puppetEvidence ()
+        ));
 #else
         emitEvent (@"warning", assignmentID, @{
             @"code": @"renderer-unavailable",
@@ -3412,6 +3501,9 @@ bool handleMessage (NSDictionary* message) {
                 },
                 @"particleSimulationSteps": @(metrics.particleSimulationSteps),
                 @"particles": particleRuntimePayload (metrics.particles),
+                @"puppet": puppetEvidencePayload (
+                    activeRenderer->puppetEvidence ()
+                ),
                 @"active": @(metrics.active),
                 @"paused": @(metrics.paused),
                 @"muted": @(metrics.muted),

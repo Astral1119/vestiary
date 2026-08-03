@@ -42,6 +42,49 @@ void PuppetRuntimeMesh::configureLayers (std::span<const PuppetLayerInput> layer
     m_layers = std::move (configured);
 }
 
+std::vector<PuppetModel::AnimationLayer> PuppetRuntimeMesh::animationLayers () const {
+    std::vector<PuppetModel::AnimationLayer> layers;
+    layers.reserve (m_layers.size ());
+    for (const LayerCursor& layer : m_layers) {
+        layers.push_back ({
+            .animationID = layer.input.animationID,
+            .timeSeconds = layer.timeSeconds,
+            .blend = layer.input.blend,
+            .visible = layer.input.visible,
+            .additive = layer.input.additive,
+        });
+    }
+    return layers;
+}
+
+std::vector<PuppetLayerEvidence> PuppetRuntimeMesh::layerEvidence () const {
+    const auto resolutions = m_model.resolveLayers (animationLayers ());
+    std::vector<PuppetLayerEvidence> result;
+    result.reserve (m_layers.size ());
+    for (size_t index = 0; index < m_layers.size (); ++index) {
+        const LayerCursor& layer = m_layers[index];
+        const auto& resolution = resolutions[index];
+        result.push_back ({
+            .layerID = layer.input.layerID,
+            .animationID = layer.input.animationID,
+            .rate = layer.input.rate,
+            .requestedBlend = resolution.requestedBlend,
+            .appliedBlend = resolution.appliedBlend,
+            .timeSeconds = layer.timeSeconds,
+            .framesAdvanced = resolution.framePosition,
+            .frameWithinClip = resolution.frameWithinClip,
+            .length = resolution.length,
+            .framesPerSecond = resolution.framesPerSecond,
+            .visible = layer.input.visible,
+            .additive = layer.input.additive,
+            .sampled = resolution.sampled,
+            .replacement = resolution.replacement,
+            .promotedToReplacement = resolution.promotedToReplacement,
+        });
+    }
+    return result;
+}
+
 PuppetSecondaryMotionUpdate PuppetRuntimeMesh::advance (
     double elapsedSeconds, PuppetSecondaryMotionTransform2D parentTransform
 ) {
@@ -61,18 +104,7 @@ PuppetSecondaryMotionUpdate PuppetRuntimeMesh::advance (
             layer.timeSeconds += delta * std::max (0.0, layer.input.rate);
         }
     }
-    std::vector<PuppetModel::AnimationLayer> layers;
-    layers.reserve (m_layers.size ());
-    for (const LayerCursor& layer : m_layers) {
-        layers.push_back ({
-            .animationID = layer.input.animationID,
-            .timeSeconds = layer.timeSeconds,
-            .blend = layer.input.blend,
-            .visible = layer.input.visible,
-            .additive = layer.input.additive,
-        });
-    }
-    m_authoredLocalRotationZ = m_model.localRotationZ (layers);
+    m_authoredLocalRotationZ = m_model.localRotationZ (animationLayers ());
     if (!m_secondaryMotion.supported ()) return {};
     const PuppetSecondaryMotionEvidence before = m_secondaryMotion.evidence ();
     if (!m_secondaryMotion.advance (
@@ -86,17 +118,7 @@ PuppetSecondaryMotionUpdate PuppetRuntimeMesh::advance (
 }
 
 std::vector<float> PuppetRuntimeMesh::positions (float width, float height) const {
-    std::vector<PuppetModel::AnimationLayer> layers;
-    layers.reserve (m_layers.size ());
-    for (const LayerCursor& layer : m_layers) {
-        layers.push_back ({
-            .animationID = layer.input.animationID,
-            .timeSeconds = layer.timeSeconds,
-            .blend = layer.input.blend,
-            .visible = layer.input.visible,
-            .additive = layer.input.additive,
-        });
-    }
+    const auto layers = animationLayers ();
     const std::span<const float> offsets = m_secondaryMotion.supported ()
         ? m_secondaryMotion.rotationOffsetsZ () : std::span<const float> {};
     const auto deformed = m_model.deformLayers (layers, offsets);
@@ -113,20 +135,18 @@ std::vector<float> PuppetRuntimeMesh::positions (float width, float height) cons
 std::optional<PuppetVec3> PuppetRuntimeMesh::attachmentPosition (
     std::string_view name
 ) const {
-    std::vector<PuppetModel::AnimationLayer> layers;
-    layers.reserve (m_layers.size ());
-    for (const LayerCursor& layer : m_layers) {
-        layers.push_back ({
-            .animationID = layer.input.animationID,
-            .timeSeconds = layer.timeSeconds,
-            .blend = layer.input.blend,
-            .visible = layer.input.visible,
-            .additive = layer.input.additive,
-        });
-    }
+    const auto transform = attachmentTransform (name);
+    if (!transform.has_value ()) return std::nullopt;
+    return transform->position;
+}
+
+std::optional<PuppetModel::AttachmentTransform> PuppetRuntimeMesh::attachmentTransform (
+    std::string_view name
+) const {
+    const auto layers = animationLayers ();
     const std::span<const float> offsets = m_secondaryMotion.supported ()
         ? m_secondaryMotion.rotationOffsetsZ () : std::span<const float> {};
-    return m_model.attachmentPosition (name, layers, offsets);
+    return m_model.attachmentTransform (name, layers, offsets);
 }
 
 }

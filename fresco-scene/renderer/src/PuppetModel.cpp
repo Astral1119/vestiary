@@ -948,15 +948,17 @@ std::vector<PuppetMat4> PuppetModel::animatedBoneWorld (
         double amount = 0.0;
         bool replacement = false;
     };
+    const auto resolutions = resolveLayers (layers);
     std::vector<SampledLayer> sampled;
     sampled.reserve (layers.size ());
-    for (const AnimationLayer& layer : layers) {
-        if (!layer.visible || layer.blend <= 0.0) continue;
+    for (size_t index = 0; index < layers.size (); ++index) {
+        if (!resolutions[index].sampled) continue;
+        const AnimationLayer& layer = layers[index];
         const auto animation = std::find_if (m_animations.begin (), m_animations.end (),
             [&layer] (const auto& candidate) { return candidate.id == layer.animationID; });
-        if (animation == m_animations.end ()) continue;
+        if (animation == m_animations.end ()) throw PuppetParseError ("missing puppet animation");
         SampledLayer value { .input = &layer, .animation = &*animation };
-        value.replacement = !layer.additive;
+        value.replacement = resolutions[index].replacement;
         const auto frames = sampleFrames (*animation, layer.timeSeconds, value.amount);
         value.first = frames.first;
         value.second = frames.second;
@@ -965,10 +967,6 @@ std::vector<PuppetMat4> PuppetModel::animatedBoneWorld (
     if (sampled.empty ()) {
         return animatedBoneWorld ({}, localRotationOffsetsZ, localRotationZOutput);
     }
-
-    const bool hasReplacement = std::any_of (sampled.begin (), sampled.end (),
-        [] (const auto& layer) { return layer.replacement; });
-    if (!hasReplacement) sampled.front ().replacement = true;
 
     std::vector<PuppetMat4> animatedWorld (m_bones.size ());
     for (size_t boneIndex = 0; boneIndex < m_bones.size (); ++boneIndex) {
@@ -1054,6 +1052,63 @@ std::vector<PuppetMat4> PuppetModel::animatedBoneWorld (
     return animatedWorld;
 }
 
+std::vector<PuppetModel::LayerResolution> PuppetModel::resolveLayers (
+    std::span<const AnimationLayer> layers
+) const {
+    std::vector<LayerResolution> result;
+    result.reserve (layers.size ());
+    for (const AnimationLayer& layer : layers) {
+        LayerResolution resolution {
+            .animationID = layer.animationID,
+            .requestedBlend = layer.blend,
+            .appliedBlend = std::clamp (layer.blend, 0.0, 1.0),
+            .timeSeconds = layer.timeSeconds,
+        };
+        if (layer.visible && layer.blend > 0.0) {
+            const auto animation = std::find_if (m_animations.begin (), m_animations.end (),
+                [&layer] (const auto& candidate) { return candidate.id == layer.animationID; });
+            if (animation != m_animations.end ()) {
+                resolution.sampled = true;
+                resolution.replacement = !layer.additive;
+                resolution.length = animation->length;
+                resolution.framesPerSecond = animation->framesPerSecond;
+                resolution.framePosition
+                    = std::max (0.0, layer.timeSeconds) * animation->framesPerSecond;
+                // Where the clip is actually being sampled, which is what a
+                // reference session compares against a frame counter.
+                const auto length = static_cast<double> (animation->length);
+                if (length <= 0.0) {
+                    resolution.frameWithinClip = 0.0;
+                } else if (animation->mode == PuppetPlayMode::single) {
+                    resolution.frameWithinClip = std::min (resolution.framePosition, length);
+                } else if (animation->mode == PuppetPlayMode::mirror) {
+                    const double wrapped = std::fmod (resolution.framePosition, length * 2.0);
+                    resolution.frameWithinClip
+                        = wrapped <= length ? wrapped : length * 2.0 - wrapped;
+                } else {
+                    resolution.frameWithinClip = std::fmod (resolution.framePosition, length);
+                }
+            }
+        }
+        result.push_back (resolution);
+    }
+
+    // An all-additive stack has no authored base pose, so the first sampled
+    // layer supplies one. Recorded as a promotion because it moves the rest
+    // pose off the bind pose, which is visible in the render.
+    const bool hasReplacement = std::any_of (result.begin (), result.end (),
+        [] (const auto& layer) { return layer.sampled && layer.replacement; });
+    if (!hasReplacement) {
+        for (LayerResolution& resolution : result) {
+            if (!resolution.sampled) continue;
+            resolution.replacement = true;
+            resolution.promotedToReplacement = true;
+            break;
+        }
+    }
+    return result;
+}
+
 std::vector<PuppetVec3> PuppetModel::deformLayers (
     std::span<const AnimationLayer> layers,
     std::span<const float> localRotationOffsetsZ
@@ -1100,7 +1155,7 @@ std::vector<float> PuppetModel::localRotationZ (
     return result;
 }
 
-std::optional<PuppetVec3> PuppetModel::attachmentPosition (
+std::optional<PuppetModel::AttachmentTransform> PuppetModel::attachmentTransform (
     std::string_view name,
     std::span<const AnimationLayer> layers,
     std::span<const float> localRotationOffsetsZ
@@ -1112,7 +1167,33 @@ std::optional<PuppetVec3> PuppetModel::attachmentPosition (
     const PuppetMat4 world = multiply (
         animatedWorld[attachment->boneIndex], attachment->localTransform
     );
-    return transformPoint (world, {});
+    const auto columnLength = [&world] (size_t column) {
+        const size_t base = column * 4;
+        return std::sqrt (
+            world.values[base] * world.values[base]
+            + world.values[base + 1] * world.values[base + 1]
+            + world.values[base + 2] * world.values[base + 2]
+        );
+    };
+    return AttachmentTransform {
+        .position = transformPoint (world, {}),
+        // atan2 over the first basis column is scale-invariant, so this reads
+        // the same angle the skinning path applies to the bone.
+        .angleZ = std::atan2 (world.values[1], world.values[0]),
+        .scale = {
+            columnLength (0), columnLength (1), columnLength (2),
+        },
+    };
+}
+
+std::optional<PuppetVec3> PuppetModel::attachmentPosition (
+    std::string_view name,
+    std::span<const AnimationLayer> layers,
+    std::span<const float> localRotationOffsetsZ
+) const {
+    const auto transform = attachmentTransform (name, layers, localRotationOffsetsZ);
+    if (!transform.has_value ()) return std::nullopt;
+    return transform->position;
 }
 
 }
