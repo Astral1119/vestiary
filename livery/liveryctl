@@ -2643,6 +2643,24 @@ apply_profile() {
   else
     echo "wallpaper: unchanged"
   fi
+
+  run_post_flip_hook "$profile" "$target"
+}
+
+# Post-flip user hook (SPEC §3.2 step 4): the personal-scripting escape
+# hatch, distinct from adapters. Runs after the flip fully settles; failures
+# warn and never touch the applied profile.
+run_post_flip_hook() {
+  hook_profile=$1
+  hook_target=$2
+  hook="$RUNTIME_ROOT/hooks/post-flip"
+  [ -x "$hook" ] || return 0
+  hook_variant=$(jq -r '.variant // empty' \
+    "$RUNTIME_ROOT/$hook_target/manifest.json" 2>/dev/null) || hook_variant=""
+  if ! LIVERY_PROFILE="$hook_profile" LIVERY_VARIANT="$hook_variant" \
+    "$hook" "$RUNTIME_ROOT/$hook_target"; then
+    echo "post-flip hook failed (hook is warn-only): $hook" >&2
+  fi
 }
 
 rollback_profile() {
