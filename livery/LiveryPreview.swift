@@ -1053,13 +1053,19 @@ private func loadReposeScenes(generateThumbnails: Bool = false) -> [ReposeScene]
     let root = reposeScenesURL()
     let urls = (try? FileManager.default.contentsOfDirectory(
         at: root,
-        includingPropertiesForKeys: [.isDirectoryKey],
+        includingPropertiesForKeys: nil,
         options: [.skipsHiddenFiles]
     )) ?? []
     let videoExtensions = Set(["mp4", "mov", "m4v"])
     for url in urls.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-        let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
-        let supportedDirectory = values?.isDirectory == true
+        // stat the target, not the link: `repose-add` symlinks WE projects
+        // into scenes/, and isDirectoryKey calls a symlink-to-directory a
+        // non-directory — which hid every added wallpaper from this grid
+        // while fresco's own catalog (sceneLibrary) still listed it.
+        var isDirectory: ObjCBool = false
+        let supportedDirectory =
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
             && FileManager.default.fileExists(atPath: url.appendingPathComponent("project.json").path)
         guard supportedDirectory || videoExtensions.contains(url.pathExtension.lowercased()) else {
             continue
@@ -3317,8 +3323,13 @@ private struct LiveryView: View {
                 reposeLibraryBusy = false
                 if let refreshed {
                     reposeScenes = refreshed
-                    reposeStatus = result.output
+                    // repose-add joins the rotation; re-read so the grid
+                    // marks the new scene as included straight away
+                    reposeSelection = loadReposeSelection()
                 }
+                // a failed add used to leave the button silently idle
+                reposeStatus = result.output.split(separator: "\n").last.map(String.init)
+                    ?? (result.status == 0 ? "added to the repose library" : "could not add to repose")
             }
         }
     }

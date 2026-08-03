@@ -14,6 +14,8 @@
   fresco repose-night [on|off]       # StandBy night tint
   fresco repose-pixels [on|off]      # pixelated visualizer treatment
   fresco repose-label [on|off]       # scene-name label (bottom right)
+  fresco repose-chrome [auto|on|off] # composition furniture over the scene
+                                           # (auto: off over a WE project)
   fresco repose-pool <scene-id>...   # ordered scenes cycled by arrow keys
   fresco repose-state                # print the persisted state as JSON
   fresco repose-add <path-or-id>     # add a live source to scenes/
@@ -21,10 +23,10 @@
                                            # wallpaper — only visible locked)
 
 Repose selection lives in one record (~/.config/fresco/
-repose.json: look, scene, scenePool, viz, variant, grade, night, pixels, label); these
-subcommands and the in-cover keys (arrows scene, tab look, b visualizer, x pixels,
-v variant, g/n treatments, l label) are both thin writers over it,
-applied live to an open cover.
+repose.json: look, scene, scenePool, viz, variant, grade, night, pixels, label,
+chrome); these subcommands and the in-cover keys (arrows scene, tab look,
+b visualizer, x pixels, v variant, g/n treatments, l label, c chrome) are both
+thin writers over it, applied live to an open cover.
   fresco start | stop | restart
   fresco mute [on|off] | unmute        # toggle or set global wallpaper audio
   fresco status
@@ -1075,7 +1077,8 @@ def repose_scene_id(scene):
 def load_repose_state():
     state = {"look": "zephyr", "scene": "desktop", "viz": "strings",
              "variant": "quiet",
-             "grade": "on", "night": "off", "pixels": "on", "label": "on"}
+             "grade": "on", "night": "off", "pixels": "on", "label": "on",
+             "chrome": "auto"}
     try:
         with open(REPOSE_STATE) as handle:
             state.update(json.load(handle))
@@ -1223,8 +1226,12 @@ def repose_add(args):
         sys.exit("usage: fresco repose-add <path-or-workshop-id>")
     source = resolve(args[0])
     title = os.path.basename(source.rstrip(os.sep))
+    # The catalog matches loose files by extension, so the link has to keep
+    # the source's — an extensionless video link is invisible to every reader.
+    extension = ""
     if os.path.isfile(source):
-        title = os.path.splitext(title)[0]
+        title, extension = os.path.splitext(title)
+        extension = extension.lower()
     try:
         with open(os.path.join(source, "project.json")) as handle:
             title = json.load(handle).get("title", title)
@@ -1232,16 +1239,35 @@ def repose_add(args):
         pass
     stem = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "scene"
     os.makedirs(SCENES_DIR, exist_ok=True)
-    destination = os.path.join(SCENES_DIR, stem)
+    destination = os.path.join(SCENES_DIR, stem + extension)
     suffix = 2
     while os.path.lexists(destination):
         if os.path.realpath(destination) == os.path.realpath(source):
             print(f"repose library: already added ({destination})")
+            join_repose_rotation(destination)
             return
-        destination = os.path.join(SCENES_DIR, f"{stem}-{suffix}")
+        destination = os.path.join(SCENES_DIR, f"{stem}-{suffix}{extension}")
         suffix += 1
     os.symlink(source, destination, target_is_directory=os.path.isdir(source))
     print(f"repose library: added {destination}")
+    join_repose_rotation(destination)
+
+
+def join_repose_rotation(destination):
+    """Put a freshly added scene in the arrow-key rotation.
+
+    An explicit pool is a filter (reposeRotation drops what it doesn't
+    name), so adding to the directory alone left the scene unreachable
+    from both the cover and the picker.
+    """
+    scene_id = repose_scene_id(destination)
+    state = load_repose_state()
+    if scene_id in state["scenePool"]:
+        return
+    state["scenePool"].append(scene_id)
+    save_repose_state(state)
+    signal_repose("refresh")
+    print(f"repose rotation: {len(state['scenePool'])} scene(s)")
 
 
 def lock_bg(args):
@@ -1433,6 +1459,8 @@ def main():
         repose_axis(args[1:], "pixels", ("on", "off"), command)
     elif command == "repose-label":
         repose_label(args[1:])
+    elif command == "repose-chrome":
+        repose_axis(args[1:], "chrome", ("auto", "on", "off"), command)
     elif command == "repose-pool":
         repose_pool(args[1:])
     elif command == "repose-state":

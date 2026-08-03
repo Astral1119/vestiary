@@ -313,6 +313,12 @@ ordered rotation. Missing `scenePool` means every catalog scene in the legacy
 sorted order. The Livery panel toggles membership and drag order; in-cover
 left/right keys cycle only that list. Exclusion never deletes a scene.
 
+`fresco repose-add <path-or-id>` symlinks a source into the catalog and
+appends it to the rotation. An explicit pool filters the catalog, so a scene
+that only reached the directory stayed unreachable from both pickers. The link
+keeps the source's extension, which is what the catalog matches loose video
+files on.
+
 `repose.json.viz` selects the composition's audio renderer. `strings` keeps
 the frozen 10-band Zephyr geometry; `spectrum` uses 24 frequency groups mirrored
 around the center (bass inward, treble outward). Both share the same rolling

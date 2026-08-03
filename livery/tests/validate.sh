@@ -682,6 +682,29 @@ jq -e '
     and .viz == "spectrum"
 ' "$repose_home/.config/fresco/repose.json" >/dev/null
 
+# `repose-add` links a source into the library and joins the rotation. An
+# explicit pool is a filter, so a scene that skipped it was unreachable from
+# both pickers; a loose video keeps the extension the catalog matches on.
+mkdir -p "$TMP/we-project"
+printf '{"title":"Miku Miku","type":"web","file":"index.html"}\n' \
+  > "$TMP/we-project/project.json"
+: > "$TMP/gamma clip.mp4"
+HOME="$repose_home" "$ROOT/../fresco/fresco" \
+  repose-add "$TMP/we-project" >/dev/null
+HOME="$repose_home" "$ROOT/../fresco/fresco" \
+  repose-add "$TMP/gamma clip.mp4" >/dev/null
+[ -L "$repose_home/.config/fresco/scenes/miku-miku" ]
+[ -L "$repose_home/.config/fresco/scenes/gamma-clip.mp4" ]
+jq -e '
+  .scenePool == ["beta.mp4", "alpha.mp4", "miku-miku", "gamma-clip.mp4"]
+    and .chrome == "auto"
+' "$repose_home/.config/fresco/repose.json" >/dev/null
+# re-adding the same source is a no-op, not a second pool entry
+HOME="$repose_home" "$ROOT/../fresco/fresco" \
+  repose-add "$TMP/we-project" >/dev/null
+jq -e '.scenePool | length == 4' \
+  "$repose_home/.config/fresco/repose.json" >/dev/null
+
 production_hashes > "$TMP/after.sha"
 diff -u "$TMP/before.sha" "$TMP/after.sha"
 
